@@ -819,13 +819,33 @@ class Link:
         threading.Thread(target=self._read_fence_worker, daemon=True).start()
 
     def _read_fence_worker(self):
-        cnt = self._read_param_int("GF_COUNT")
         act = self._read_param_int("GF_ACTION")
+        cnt = None
+        # ask the FMU how many fence points it has (PX4 has no GF_COUNT param;
+        # query the fence via the mission protocol instead)
+        self._resume.clear()
+        if self._reader_paused.wait(timeout=3):
+            try:
+                try:
+                    self.m.port.reset_input_buffer()
+                except Exception:
+                    pass
+                with self.send_lock:
+                    self.m.mav.mission_request_list_send(
+                        1, 1, mavutil.mavlink.MAV_MISSION_TYPE_FENCE)
+                msg = self.m.recv_match(type="MISSION_COUNT",
+                                        blocking=True, timeout=3)
+                if msg and getattr(msg, "mission_type",
+                                   mavutil.mavlink.MAV_MISSION_TYPE_FENCE) \
+                        == mavutil.mavlink.MAV_MISSION_TYPE_FENCE:
+                    cnt = msg.count
+            finally:
+                self._resume.set()
         with self.lock:
             self.s["fence"]["count"] = cnt
             if act is not None:
                 self.s["fence"]["action"] = act
-        self._note(f"[fence] อ่านค่า: GF_COUNT={cnt} จุด · "
+        self._note(f"[fence] อ่านค่า: fence {cnt} จุดบน FMU · "
                    f"action={GF_ACTIONS.get(act, act)}")
 
     # ---- ground auto-disarm timeout (COM_DISARM_PRFLT) -------------------
