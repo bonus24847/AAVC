@@ -9,21 +9,20 @@ Built to run **smoothly headless on the Raspberry Pi CM4** (the Pixhawk companio
 - a **threaded grabber** always holds the freshest frame, so detection never lags
   behind the camera or piles up a buffer (the key to a low-latency feed);
 - **MJPG** transport + a **1-frame** driver buffer + a 30 fps camera cap;
-- a **`--fps` detection cap** (default 20) so CPU stays low and steady.
+- a **`--fps` detection cap** (default 20) so CPU stays low and steady;
+- the USB camera's `/dev/videoN` node is **auto-detected** — it isn't stable across
+  reboots on the Pi, so the scanner finds the live capture node itself.
 
 ## Run
 ```bash
 pip install -r requirements.txt          # or, on the Pi:  sudo apt install python3-opencv
 
-# Pi (camera is usually /dev/video0), headless — prints detections:
-python aruco_scan.py --device /dev/video0
+# Pi, headless — auto-detects the camera node, prints detections:
+python aruco_scan.py
 
-# + a browser view (see the annotated stream + detected IDs from your laptop):
-python aruco_scan.py --device /dev/video0 --web 8090
-#   then open  http://<pi-ip>:8090/
-
-# tune for your CPU budget:
-python aruco_scan.py --device /dev/video0 --fps 15 --width 640 --height 480
+# force a specific camera node, or tune the CPU budget:
+python aruco_scan.py --device /dev/video1
+python aruco_scan.py --fps 15 --width 640 --height 480
 ```
 
 ## Output
@@ -31,9 +30,6 @@ Each change prints, e.g. `[aruco] ID 3 @(childx,y) dx+0.12 dy-0.34`:
 - **`id`** — the marker ID (`1–6` = a real AAVC pad; other IDs are flagged `(not pad)`).
 - **`dx, dy`** — offset from frame centre, normalised to `[-1, 1]` (right / down positive).
   Drive these toward `0` to centre the drone over the pad.
-
-The `--web` view shows the live camera with every detected marker outlined + its ID,
-plus the current detection list and FPS — handy for aiming/checking on a headless Pi.
 
 ## For whoever continues this (mission integration)
 - `Camera` (the threaded grabber) and `detect()` are importable. Call
@@ -46,4 +42,4 @@ plus the current detection list and FPS — handy for aiming/checking on a headl
 
 ## Requirements
 Python 3.8+, OpenCV ≥ 4.7 with `cv2.aruco` (`opencv-contrib-python`, or the distro's
-`python3-opencv`). Tested on OpenCV 4.13.
+`python3-opencv`). Tested on OpenCV 4.10 (Pi CM4 / Debian 13) and 4.13.
