@@ -1,0 +1,32 @@
+# AAVC 2026 competition field (KMITL) — GPS zones + pad defaults for aavc_gcs.py.
+#
+# Self-contained so the console runs standalone (on GitHub); override with
+#   python3 src/aavc_gcs.py --field /path/to/other_field.yaml
+# GPS values copied from touch_and_go_for_race/config.yaml (geofence block).
+
+geofence:
+  # Controlled airspace boundary — [lat, lon]. Leaving it = disqualification.
+  controlled_airspace:
+    - [13.731312, 100.787175]
+    - [13.731359, 100.789916]
+    - [13.729806, 100.787228]
+    - [13.729994, 100.789841]
+  # Search area (pads live here) — [lat, lon]
+  search_area:
+    - [13.731239, 100.787824]
+    - [13.731359, 100.789916]
+    - [13.730723, 100.787840]
+    - [13.730703, 100.789776]
+  # Local NED origin = transit P1 (launch / RTH). local (0,0) = this point, so the
+  # mission's local-frame detected pads convert to lat/lon about here on the map.
+  local_origin: [13.730322, 100.787446]
+
+# Default pads to service (operator overrides live in the GCS UI). AAVC: choose any
+# subset of the 6 ArUco pads (dictionary 4x4, IDs 1-6) — not capped at 4.
+aruco_assignment: [1, 2, 3, 4]
+
+# Mandatory transit route P1->P2->P3 (reference, for a future map overlay).
+transit_waypoints:
+  - {id: 1, lat: 13.730322, lon: 100.787446}   # launch / RTH / hold
+  - {id: 2, lat: 13.730397, lon: 100.788694}   # intermediate
+  - {id: 3, lat: 13.730712, lon: 100.788755}   # search-area ingress/egress

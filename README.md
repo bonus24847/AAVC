@@ -8,7 +8,9 @@ the drone on an OpenStreetMap map, and set geofences.
 Built for the EFT X6100 hexacopter project, but works with any PX4 vehicle.
 
 > This repo also contains **[`aruco/`](aruco/)** — the AAVC touch-and-go **ArUco pad
-> scanner** (DICT_4X4_50, IDs 1–6) for the companion Pi + the WSD-9781-V12 camera.
+> scanner** (DICT_4X4_50, IDs 1–6) for the companion Pi + the WSD-9781-V12 camera — and
+> **[`src/aavc_gcs.py`](src/aavc_gcs.py)**, the **AAVC competition ground station** (this
+> GCS + a pad-picker + scanned pads on the map; see [below](#aavc-competition-gcs--srcaavc_gcspy)).
 
 ## Features
 - **Live telemetry** — flight mode, arming, battery (V + %), GPS (fix / sats /
@@ -46,6 +48,28 @@ the browser:
 ```bash
 bash scripts/gcs_launch.sh
 ```
+
+## AAVC competition GCS — `src/aavc_gcs.py`
+
+A dedicated ground station for the **AAVC 2026** touch-and-go mission, **built on top of
+`gcs_server.py`** — the proven MAVLink link + RC-only safety model are copied *unchanged*
+(the connection/command code is never rewritten). It adds:
+- **Pad-assignment selector** — tick which ArUco pads (IDs 1–6, **any number**) the drone
+  should service → writes `captures/pad_assignment.json`, which the mission reads at startup.
+- **Detected pads on a real OSM map** — as the mission localizes each pad it publishes
+  `captures/mission_status.json` (`pads_mapped: {id:[e,n]}`); the GCS converts those to
+  lat/lon (via the EKF/GPS origin) and plots them colour-coded (assigned / mapped / delivered),
+  alongside the rulebook zones (controlled airspace + search area) and the live drone.
+- **Mission panel + 20:00 budget clock**.
+- **Leaflet bundled locally** (`src/vendor/`) so the map widget loads with **no internet** at
+  the field (only the OSM tile imagery still needs a connection; overlays render regardless).
+
+```bash
+python src/aavc_gcs.py --demo                     # preview: fake telemetry + demo pads
+python src/aavc_gcs.py --url /dev/ttyACM0 --baud 115200 \
+    --captures ../touch_and_go_for_race/captures  # live, sharing files with the mission
+```
+Field zones + default pads come from **`aavc_field.yaml`** (`--field` to point elsewhere).
 
 ## Notes for whoever continues this
 - It's basically **one file: `src/gcs_server.py`** — a backend `Link` class

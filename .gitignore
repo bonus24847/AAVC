@@ -9,6 +9,7 @@ venv-pi/
 # runtime output (never commit logs / flight data)
 logs/
 results/
+captures/
 *.ulg
 *.csv
 *.log
