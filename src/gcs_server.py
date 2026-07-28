@@ -95,9 +95,6 @@ CM4_FIXED = os.environ.get("CM4_HOST")          # optional: skip discovery
 
 # where pulled .ulg logs are saved on the CM4 (browser downloads them from here)
 LOG_DIR = os.path.expanduser(os.environ.get("GCS_LOG_DIR", "~/logs"))
-# GCS-side telemetry CSV logs (one file per server run) -> repo/results
-REC_DIR = os.environ.get("GCS_REC_DIR") or os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results")
 
 
 def f2i(f):
@@ -150,8 +147,6 @@ class Link:
                     "sides": {}, "done": False, "failed": False},
             "cm4": {"online": False, "ip": None, "flying": False},
             "logpull": {"busy": False, "msg": ""},
-            # GCS-side telemetry recorder status (CSV on the laptop)
-            "reclog": {"on": False, "file": None, "rows": 0},
             "messages": [],
         }
         self._stop = False
@@ -206,73 +201,6 @@ class Link:
         threading.Thread(target=self._reader, daemon=True).start()
         threading.Thread(target=self._heartbeat, daemon=True).start()
         threading.Thread(target=self._poll_calparams, daemon=True).start()
-        threading.Thread(target=self._recorder, daemon=True).start()
-
-    def _recorder(self):
-        """Append a telemetry row ~4x/s to a CSV on the laptop while the link is
-        up — a GCS-side flight log (backup + quick plotting) alongside the FMU's
-        own .ulg on the SD card. One file per server run, created lazily on the
-        first live sample so an offline session leaves no empty file."""
-        import csv
-        cols = (["iso", "t", "link", "armed", "mode", "in_air",
-                 "lat", "lon", "alt_amsl", "rel_alt", "sats", "fix", "hdop",
-                 "vx", "vy", "vz", "roll", "pitch", "yaw", "heading",
-                 "batt_v", "batt_pct", "rssi"] + [f"m{i}" for i in range(8)])
-        f = w = None
-        alt_home = None            # AMSL captured at arm -> height above takeoff
-        try:
-            while not self._stop:
-                time.sleep(0.25)
-                with self.lock:
-                    if not self.s["link"]:
-                        continue
-                    a, g = self.s["att"], self.s["gps"]
-                    b, rc = self.s["batt"], self.s["rc"]
-                    v = self.s["vel"]; mot = list(self.s["motors"])
-                    armed = self.s["armed"]
-                    alt, nrel = g.get("alt"), g.get("rel_alt")
-                    row = [time.strftime("%Y-%m-%dT%H:%M:%S"),
-                           round(time.time(), 2),
-                           1 if self.s["link"] else 0, 1 if armed else 0,
-                           self.s["mode"], 1 if self.s["in_air"] else 0,
-                           g.get("lat"), g.get("lon"), alt, None,
-                           g.get("sats"), g.get("fix"), g.get("hdop"),
-                           v.get("vx"), v.get("vy"), v.get("vz"),
-                           a.get("roll"), a.get("pitch"), a.get("yaw"),
-                           a.get("heading"), b.get("volt"), b.get("pct"),
-                           rc.get("rssi")]
-                    row += (mot + [None] * 8)[:8]
-                # rel-altitude: native (GLOBAL_POSITION_INT) if streamed, else
-                # height above the AMSL captured at this flight's arm (reset on disarm)
-                if not armed:
-                    alt_home = None
-                elif alt is not None and alt_home is None:
-                    alt_home = alt
-                row[9] = nrel if nrel is not None else (
-                    round(alt - alt_home, 2)
-                    if (alt is not None and alt_home is not None) else None)
-                if f is None:
-                    os.makedirs(REC_DIR, exist_ok=True)
-                    path = os.path.join(
-                        REC_DIR, "gcs_flight_"
-                        + time.strftime("%Y%m%d_%H%M%S") + ".csv")
-                    f = open(path, "w", newline="")
-                    w = csv.writer(f)
-                    w.writerow(cols)
-                    with self.lock:
-                        self.s["reclog"] = {"on": True,
-                                            "file": os.path.basename(path),
-                                            "rows": 0}
-                    self._note("[log] 🔴 เริ่มบันทึก GCS log → "
-                               + os.path.basename(path))
-                w.writerow(row)
-                f.flush()
-                with self.lock:
-                    self.s["reclog"]["rows"] = \
-                        self.s["reclog"].get("rows", 0) + 1
-        finally:
-            if f:
-                f.close()
 
     def _heartbeat(self):
         # A GCS heartbeat is required for the FMU to allow arming.
@@ -1459,10 +1387,9 @@ header{padding:10px 16px;background:#161b22;font-weight:600;font-size:23px;
 .gfsectitle{font-size:16px;color:#c9d1d9;font-weight:600;margin-bottom:8px}
 .gfinline{flex-direction:row!important;align-items:center;gap:6px;min-width:auto!important;flex:none!important}
 .fcorner{background:#3fb950;border:2px solid #fff;border-radius:3px;box-shadow:0 0 3px #000;cursor:move}
-.rec{font-size:16px;color:#f85149;font-family:ui-monospace,monospace;font-weight:400;margin-left:6px}
 </style></head><body>
 <header>
- <span>🛸 Sys_ID Ground Station <span id=rec class=rec></span></span>
+ <span>🛸 Sys_ID Ground Station</span>
  <span id=link><span class=dot style=background:#6e7681></span>connecting…</span>
 </header>
 <div class=status>
@@ -1648,7 +1575,6 @@ async function tick(){
   document.getElementById('link').innerHTML='<span class=dot style=background:#f85149></span>server หลุด';return}
  var L=document.getElementById('link');
  L.innerHTML='<span class=dot style=background:'+(s.link?'#3fb950':'#f85149')+'></span>'+(s.link?'online':'no signal');
- var rl=s.reclog||{},rE=document.getElementById('rec');if(rE)rE.textContent=rl.on?('🔴 REC '+(rl.rows||0)):'';
  document.getElementById('mode').textContent=s.mode||'–';
  document.getElementById('armstate').innerHTML=s.armed?'<span class=bad>ARMED</span>':'<span class=ok>DISARM</span>';
  var b=s.batt||{};

@@ -20,9 +20,8 @@ Built for the EFT X6100 hexacopter project, but works with any PX4 vehicle.
   - *Rectangle / polygon* — uploaded via the MISSION protocol
     (`MAV_MISSION_TYPE_FENCE`). **Locked to a wired link (FMU USB / CM4)** because
     the handshake is flaky over the narrow ELRS radio.
-- **Flight recorder** — appends telemetry to `results/gcs_flight_<ts>.csv` (~4 Hz)
-  while linked; a GCS-side backup to the FMU's own high-rate `.ulg`.
-- **Log pull** — download the newest `.ulg` off the FMU SD card over MAVFTP.
+- **Log pull** — download the newest `.ulg` off the FMU SD card over MAVFTP
+  (the FMU's own `.ulg` is the log of record — the GCS does not record telemetry).
 
 ## Run
 ```bash
