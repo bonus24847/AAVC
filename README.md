@@ -3,9 +3,12 @@
 A lightweight, self-contained **web Ground Control Station** for a PX4 drone —
 pure Python (`http.server` + `pymavlink`), no Qt / no QGroundControl. Open it in
 any browser (laptop or a phone on the same network) to watch live telemetry, see
-the drone on an OpenStreetMap map, set geofences, and record a flight log.
+the drone on an OpenStreetMap map, and set geofences.
 
 Built for the EFT X6100 hexacopter project, but works with any PX4 vehicle.
+
+> This repo also contains **[`aruco/`](aruco/)** — the AAVC touch-and-go **ArUco pad
+> scanner** (DICT_4X4_50, IDs 1–6) for the companion Pi + the WSD-9781-V12 camera.
 
 ## Features
 - **Live telemetry** — flight mode, arming, battery (V + %), GPS (fix / sats /
