@@ -111,7 +111,17 @@ def f2i(f):
 # command code below is left untouched (memory: build from Sys_ID, don't rewrite it).
 PAD_IDS = [1, 2, 3, 4, 5, 6]                       # ArUco pad IDs (rules: dict 4x4, IDs 1-6)
 _HERE = os.path.dirname(os.path.abspath(__file__))
-AAVC_CAPTURES = os.path.join(_HERE, "..", "captures")      # overridden by --captures
+def _default_captures():
+    """Auto-share files with the touch-and-go mission if it's a sibling repo, else a local
+    captures/ — so live use needs no --captures (the mission's captures is found for you)."""
+    for c in (os.path.join(_HERE, "..", "..", "touch_and_go_for_race", "captures"),
+              os.path.join(_HERE, "..", "captures")):
+        if os.path.isdir(c):
+            return os.path.abspath(c)
+    return os.path.abspath(os.path.join(_HERE, "..", "captures"))
+
+
+AAVC_CAPTURES = _default_captures()                        # overridden by --captures
 AAVC_FIELD = os.path.join(_HERE, "..", "aavc_field.yaml")  # overridden by --field
 
 
