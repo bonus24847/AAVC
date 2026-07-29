@@ -1571,6 +1571,7 @@ header{padding:10px 16px;background:#161b22;font-weight:600;font-size:23px;
  <span id=mclock class=mclock title="mission time / 20:00 budget">--:--<span style="font-size:14px;color:#8b98a5"> / 20:00</span></span>
  <span id=link><span class=dot style=background:#6e7681></span>connecting…</span>
 </header>
+<div id=demobar style="display:none;background:#2a2140;color:#d0bcff;padding:8px 16px;text-align:center;font-size:16px;font-weight:700;border-bottom:1px solid #4a3a6a">🧪 DEMO — ข้อมูลตัวอย่าง ไม่ได้ต่อโดรนจริง · (เสียบ FMU/วิทยุ หรือรัน SITL เพื่อดูข้อมูลจริง)</div>
 <div class=status>
  <div class=pill><b id=mode>–</b><span>Flight Mode</span></div>
  <div class=pill><b id=armstate>–</b><span>Arming</span></div>
@@ -1837,7 +1838,9 @@ async function tick(){
   document.getElementById('link').innerHTML='<span class=dot style=background:#f85149></span>server หลุด';return}
  window.LAST=s;
  var L=document.getElementById('link');
- L.innerHTML='<span class=dot style=background:'+(s.link?'#3fb950':'#f85149')+'></span>'+(s.link?'online':'no signal');
+ var _lt=s.demo?'DEMO — ข้อมูลตัวอย่าง':(s.link?'online':'no signal'),_lc=s.demo?'#a371f7':(s.link?'#3fb950':'#f85149');
+ L.innerHTML='<span class=dot style=background:'+_lc+'></span>'+_lt;
+ var _db=document.getElementById('demobar');if(_db)_db.style.display=s.demo?'block':'none';
  document.getElementById('mode').textContent=s.mode||'–';
  document.getElementById('armstate').innerHTML=s.armed?'<span class=bad>ARMED</span>':'<span class=ok>DISARM</span>';
  var b=s.batt||{};
