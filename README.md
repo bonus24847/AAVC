@@ -1,92 +1,61 @@
-# Sys_ID Web GCS
+# AAVC 2026 competition GCS
 
-A lightweight, self-contained **web Ground Control Station** for a PX4 drone —
-pure Python (`http.server` + `pymavlink`), no Qt / no QGroundControl. Open it in
-any browser (laptop or a phone on the same network) to watch live telemetry, see
-the drone on an OpenStreetMap map, and set geofences.
+The ground station for the **AAVC 2026** touch-and-go mission — a self-contained
+Python web GCS (`http.server` + `pymavlink`, no Qt / QGroundControl). Watch live
+telemetry, see the drone **and the scanned ArUco pads** on an OpenStreetMap map, and
+pick which pads the drone should service.
 
-Built for the EFT X6100 hexacopter project, but works with any PX4 vehicle.
+> **Built on the proven [Sys_ID Web GCS](https://github.com/bonus24847/sysid-web-gcs)** —
+> the MAVLink link + RC-only safety model are copied **unchanged** (the
+> connection/command code is never rewritten). `src/aavc_gcs.py` is a standalone fork
+> of that base with the AAVC features added on top.
 
-> This repo also contains **[`aruco/`](aruco/)** — the AAVC touch-and-go **ArUco pad
-> scanner** (DICT_4X4_50, IDs 1–6) for the companion Pi + the WSD-9781-V12 camera — and
-> **[`src/aavc_gcs.py`](src/aavc_gcs.py)**, the **AAVC competition ground station** (this
-> GCS + a pad-picker + scanned pads on the map; see [below](#aavc-competition-gcs--srcaavc_gcspy)).
->
-> Aircraft bring-up history (FMU calibration / params / CM4 setup that made it fly, plus
-> the operating gotchas) is in **[`docs/FLIGHT_READINESS.md`](docs/FLIGHT_READINESS.md)** —
-> first clean autonomous OFFBOARD hover flew **2026-08-03**.
+It adds, over the base GCS:
+- **Pad-assignment selector** — tick which ArUco pads (IDs 1–6, **any number**) the
+  drone should service → writes `captures/pad_assignment.json`, which the mission reads
+  at startup.
+- **Detected pads on a real OSM map** — as the mission localizes each pad it publishes
+  `captures/mission_status.json` (`pads_mapped: {id:[e,n]}`); the GCS converts those to
+  lat/lon (via the EKF/GPS origin) and plots them colour-coded (assigned / mapped /
+  delivered), alongside the rulebook zones (controlled airspace + search area) and the
+  live drone.
+- **Mission panel + 20:00 budget clock**.
 
-## Features
-- **Live telemetry** — flight mode, arming, battery (V + %), GPS (fix / sats /
-  HDOP / position), RC, and colour-coded **sensor-health chips**
-  (gyro / accel / mag / baro / gps / rc / ahrs / battery).
-- **Instruments** — artificial-horizon disc, heading, per-motor output bars.
-- **Map** — Leaflet + OSM tiles, live drone marker + track, geofence overlay
-  (falls back to a canvas grid plot if there is no internet for tiles).
-- **Geofence tools**
-  - *Circle* — radius + ceiling + breach action via the `GF_MAX_*` params
-    (reliable over any link, including the radio).
-  - *Rectangle / polygon* — uploaded via the MISSION protocol
-    (`MAV_MISSION_TYPE_FENCE`). **Locked to a wired link (FMU USB / CM4)** because
-    the handshake is flaky over the narrow ELRS radio.
-- **Log pull** — download the newest `.ulg` off the FMU SD card over MAVFTP
-  (the FMU's own `.ulg` is the log of record — the GCS does not record telemetry).
+The companion **ArUco pad scanner** (camera → marker IDs, served to the CM4) lives in
+its own repo: **[`aavc-aruco`](https://github.com/bonus24847/aavc-aruco)**.
 
 ## Run
 ```bash
 pip install -r requirements.txt
 
-# preview with fake data (no FMU needed):
-python src/gcs_server.py --demo
-
-# NOMAD / ELRS radio (Silicon Labs CP2102 USB):
-python src/gcs_server.py --url /dev/ttyUSB0 --baud 460800
-
-# FMU directly over USB:
-python src/gcs_server.py --url /dev/ttyACM0 --baud 115200
-```
-Then open **http://localhost:8000**.
-
-Or use the launcher, which auto-picks the link (radio → FMU-USB → demo) and opens
-the browser:
-```bash
-bash scripts/gcs_launch.sh
-```
-
-## AAVC competition GCS — `src/aavc_gcs.py`
-
-A dedicated ground station for the **AAVC 2026** touch-and-go mission, **built on top of
-`gcs_server.py`** — the proven MAVLink link + RC-only safety model are copied *unchanged*
-(the connection/command code is never rewritten). It adds:
-- **Pad-assignment selector** — tick which ArUco pads (IDs 1–6, **any number**) the drone
-  should service → writes `captures/pad_assignment.json`, which the mission reads at startup.
-- **Detected pads on a real OSM map** — as the mission localizes each pad it publishes
-  `captures/mission_status.json` (`pads_mapped: {id:[e,n]}`); the GCS converts those to
-  lat/lon (via the EKF/GPS origin) and plots them colour-coded (assigned / mapped / delivered),
-  alongside the rulebook zones (controlled airspace + search area) and the live drone.
-- **Mission panel + 20:00 budget clock**.
-- **Leaflet bundled locally** (`src/vendor/`) so the map widget loads with **no internet** at
-  the field (only the OSM tile imagery still needs a connection; overlays render regardless).
-
-```bash
 python src/aavc_gcs.py --demo                     # preview: fake telemetry + demo pads
 python src/aavc_gcs.py --url /dev/ttyACM0 --baud 115200 \
     --captures ../touch_and_go_for_race/captures  # live, sharing files with the mission
 ```
-Field zones + default pads come from **`aavc_field.yaml`** (`--field` to point elsewhere).
+Then open **http://localhost:8010**. Field zones + default pads come from
+**`aavc_field.yaml`** (`--field` to point elsewhere).
+
+Or use the launcher (auto-picks SITL → radio → FMU-USB → demo, opens the browser):
+```bash
+bash scripts/aavc_launch.sh          # AAVC_SITL=1 to attach to SITL udp:14550
+```
+
+## Aircraft bring-up
+The commissioning history of the EFT X6100 hexacopter — the FMU calibration / params /
+CM4 setup that made it fly, plus the operating gotchas — is in
+**[`docs/FLIGHT_READINESS.md`](docs/FLIGHT_READINESS.md)**. First clean autonomous
+OFFBOARD hover flew **2026-08-03**.
 
 ## Notes for whoever continues this
-- It's basically **one file: `src/gcs_server.py`** — a backend `Link` class
-  (MAVLink parsing in `_handle`, param + geofence/fence workers) plus the entire
-  web page held in a `PAGE = """..."""` string (inline HTML / CSS / JS, no build
-  step). `pull_log.py` is only used by the log-pull button.
-- It speaks **MAVLink 2 + the `common` dialect** (set at import) so it can tag a
-  fence upload with `mission_type = FENCE`.
-- After editing the inline `<script>`, always `node --check` the **served** page
-  (`curl localhost:8000/`), not the source: a `\n` written inside a JS string
-  literal in the Python triple-quoted string becomes a *real* newline in the
-  served JS and breaks the whole script.
-- Map tiles need internet; everything else works offline.
+- One file: **`src/aavc_gcs.py`** (a fork of the base `gcs_server.py`) — a backend
+  `Link` class (MAVLink parsing + param / geofence workers) plus the whole web page in
+  an inline `PAGE = """..."""` string (no build step). `pull_log.py` (the MAVFTP
+  log-pull helper) is bundled alongside it and imported at runtime.
+- Speaks **MAVLink 2 + the `common` dialect**. After editing the inline `<script>`,
+  always `node --check` the **served** page (`curl localhost:8010/`), not the source —
+  a `\n` inside a JS string literal in the Python triple-quoted string becomes a real
+  newline in the served JS and breaks the script.
+- Map tiles need internet; the overlays (pads, zones, drone) render regardless.
 
 ## Requirements
 Python 3.8+, `pymavlink`, `pyyaml`, and a modern browser (Chromium recommended).
