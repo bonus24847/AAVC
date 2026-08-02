@@ -11,6 +11,10 @@ Built for the EFT X6100 hexacopter project, but works with any PX4 vehicle.
 > scanner** (DICT_4X4_50, IDs 1–6) for the companion Pi + the WSD-9781-V12 camera — and
 > **[`src/aavc_gcs.py`](src/aavc_gcs.py)**, the **AAVC competition ground station** (this
 > GCS + a pad-picker + scanned pads on the map; see [below](#aavc-competition-gcs--srcaavc_gcspy)).
+>
+> Aircraft bring-up history (FMU calibration / params / CM4 setup that made it fly, plus
+> the operating gotchas) is in **[`docs/FLIGHT_READINESS.md`](docs/FLIGHT_READINESS.md)** —
+> first clean autonomous OFFBOARD hover flew **2026-08-03**.
 
 ## Features
 - **Live telemetry** — flight mode, arming, battery (V + %), GPS (fix / sats /
