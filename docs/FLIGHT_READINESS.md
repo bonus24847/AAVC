@@ -8,7 +8,7 @@ they are recorded here on purpose.
 
 ---
 
-## ✅ Milestone — first clean autonomous OFFBOARD hover (2026-08-03)
+## ✅ Milestone — first clean autonomous OFFBOARD hover (2026-07-30)
 
 **Props ON, real flight, passed cleanly.** RC-triggered autonomous hover mission:
 pilot arms on the ground → flips the RC mode switch to OFFBOARD → the CM4
@@ -100,7 +100,7 @@ hands control straight back.
 
 ## Status & next
 
-- **Flight-ready** for the autonomous hover mission — proven end-to-end 2026-08-03.
+- **Flight-ready** for the autonomous hover mission — proven end-to-end 2026-07-30.
 - **Real rate-loop SysID chirp** is still pending a safe field (~10–15 m radius,
   one axis, tiny amplitude, pilot on the RC). `hover_thrust` is already 0.50; the
   chirp uses attitude setpoints. **Never** carry SITL gains to the real drone —
