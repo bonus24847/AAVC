@@ -244,7 +244,14 @@ async def run_delivery_mission(
     # overshoots ~+1.8 m even at MPC_Z_VEL_MAX_UP=2 (measured in SITL) — through
     # the rules ceiling. Take off / climb out to transit_alt - this margin, then
     # let the first transit goto close the last metres gently en-route.
-    climb_alt = max(transit_alt - 2.0, 2.0)
+    # KMUTNB (2026-08-12): floor-clamped. At the 5 m profile transit_alt-2 =
+    # 2.0 m sits UNDER the 2.5 m search floor, so the phase flips to
+    # transit_ingress while still below the floor and verify_flight flags 9
+    # below-floor samples on a rules-clean flight (measured, run A). Stage no
+    # lower than floor + the same bias margin the decode hover uses; at the
+    # KMITL 20 m profile this clamp is inert (18.0 ≫ 10.5).
+    climb_alt = max(transit_alt - 2.0, 2.0,
+                    prof.search_floor_m + _ALT_BIAS_MARGIN_M)
     # Revisit-decode hovers ABOVE the search floor by the same frame-bias margin
     # the transit uses under the ceiling — commanding exactly at the floor let
     # the ±0.7 m EKF/home drift dip the reading below 10 m and trip the floor
