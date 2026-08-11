@@ -277,11 +277,14 @@ connection:
   # set 1..4 -> PX4 output function "Peripheral via Actuator Set 1..4"
   # (301..304). SITL: airframe 22000 maps those onto SIM_GZ_SV_FUNC1..4, so
   # each release shows on gz topic /model/eft_x6100/servo_<n-1> and
-  # payload_detach_bridge --servo sheds the matching cargo box. REAL AIRCRAFT:
-  # assign the same four functions to the AUX outputs wired to the 4 latch
-  # servos (QGC Actuators, props off) — rack geometry (±0.10, ±0.035) m about
-  # the CG, user spec 2026-08-11. aavc-gcs sends the identical command (its
-  # kmutnb_field.yaml outputs [1,2,3,4] / 1900 / 1100).
+  # payload_detach_bridge --servo sheds the matching cargo box. REAL AIRCRAFT
+  # (mapping LOCKED 2026-08-12, user decision — servos not yet fitted, wire
+  # them to match): AUX pin number == actuator set index == outputs[] in
+  # gcs/kmutnb_field.yaml. PWM_AUX_FUNC1..4 = 301..304, DIS/FAIL = 1100
+  # (hold — a failsafe must never drop cargo). Full table + QGC bench
+  # checklist: docs/SERVO_AUX_MAPPING.md. Rack geometry (±0.10, ±0.035) m
+  # about the CG, user spec 2026-08-11. aavc-gcs sends the identical command
+  # (its kmutnb_field.yaml outputs [1,2,3,4] / 1900 / 1100).
   drop_servo_channel: 1          # base index: payload_id 0..3 -> actuator 1..4
   drop_servo_pwm_release: 1900   # us -> +0.8 normalized, egg-release position
   drop_servo_pwm_hold: 1100      # us -> -0.8 normalized, closed/hold position

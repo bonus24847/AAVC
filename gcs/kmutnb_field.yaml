@@ -52,6 +52,9 @@ transit_waypoints:
 # sitl/payload_detach_bridge.py --servo turns each release into the visible
 # cargo drop.
 payload_servos:
-  outputs: [1, 2, 3, 4]   # actuator-set index per payload (payload_id 0..3)
+  # LOCKED 2026-08-12: actuator-set index == the REAL AUX pin the servo plugs
+  # into (AUX1..4 -> Set 1..4 -> payload_id 0..3; PWM_AUX_FUNCn = 300+n).
+  # Servos not fitted yet — wire them to match. See docs/SERVO_AUX_MAPPING.md.
+  outputs: [1, 2, 3, 4]   # actuator-set index = AUX pin (payload_id 0..3)
   released_us: 1900       # -> +0.8: opens the latch (drops the payload)
   held_us: 1100           # -> -0.8: holds it shut (reset, ready to reload)
