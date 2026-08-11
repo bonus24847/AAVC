@@ -23,7 +23,10 @@
       "Read(//home/pakin-champasak/Desktop/PCB_AERO/**)",
       "Bash(git config *)",
       "Bash(git -C /home/pakin-champasak/Desktop/AAVC config user.name)",
-      "Bash(git -C /home/pakin-champasak/Desktop/AAVC config user.email)"
+      "Bash(git -C /home/pakin-champasak/Desktop/AAVC config user.email)",
+      "Bash(chmod +x sitl/launch_stack.sh)",
+      "Bash(bash -n sitl/launch_stack.sh)",
+      "Bash(curl -s http://127.0.0.1:8020/)"
     ]
   }
 }

@@ -126,7 +126,7 @@ def _iter_new_releases(
     failure mode structurally impossible, in production as well as tests.
     """
     idle = 0
-    print(f"[detach] waiting for {audit} to appear …")
+    print(f"[detach] waiting for {audit} to appear …", flush=True)
     while not audit.exists():
         time.sleep(poll_s)
         idle += 1
@@ -137,7 +137,7 @@ def _iter_new_releases(
         # Seek to EOF *before* reading a single line — see the EOF-seek
         # guarantee above.
         fh.seek(0, 2)
-        print(f"[detach] tailing {audit} from EOF")
+        print(f"[detach] tailing {audit} from EOF", flush=True)
         idle = 0
         while True:
             line = fh.readline()
@@ -172,7 +172,7 @@ def _dedupe(
             continue
         if payload not in known_payloads:
             print(f"[detach] DELIVERY {delivery_k} RELEASE payload={payload} "
-                  "has no matching cargo_payload model — ignoring")
+                  "has no matching cargo_payload model — ignoring", flush=True)
             continue
         fired.add(payload)
         yield delivery_k, payload
@@ -185,7 +185,7 @@ def _run(audit: Path | None, model: str, poll_s: float, *,
         from gz.transport13 import Node
     except Exception as e:  # gz-transport not installed/importable here
         print(f"[detach] gz-transport unavailable ({e}) — bridge disabled; "
-              "Tier-1 belly mass is unaffected, only the visible drop is skipped")
+              "Tier-1 belly mass is unaffected, only the visible drop is skipped", flush=True)
         return 0
 
     node = Node()
@@ -204,7 +204,7 @@ def _run(audit: Path | None, model: str, poll_s: float, *,
             n_shed = len(fired)
         pubs[payload].publish(Empty())
         print(f"[detach] {why}: shed payload {payload} "
-              f"(detach_payload_{payload}, {n_shed}/{_N_PAYLOADS} shed)")
+              f"(detach_payload_{payload}, {n_shed}/{_N_PAYLOADS} shed)", flush=True)
 
     if servo:
         from gz.msgs10.double_pb2 import Double
@@ -225,14 +225,14 @@ def _run(audit: Path | None, model: str, poll_s: float, *,
             for i in range(_N_PAYLOADS):
                 topic = f"/model/{name}/servo_{i}"
                 if not node.subscribe(Double, topic, _make_servo_cb(i)):
-                    print(f"[detach] WARNING: subscribe failed for {topic}")
+                    print(f"[detach] WARNING: subscribe failed for {topic}", flush=True)
                 else:
                     print(f"[detach] watching {topic} "
-                          f"(release at >= {_RELEASE_ANGLE_RAD} rad)")
+                          f"(release at >= {_RELEASE_ANGLE_RAD} rad)", flush=True)
 
     if audit is not None:
         print(f"[detach] bridging {audit} → model={model} "
-              f"(payloads 0..{_N_PAYLOADS - 1})")
+              f"(payloads 0..{_N_PAYLOADS - 1})", flush=True)
         # _dedupe gets its own bookkeeping set: the CROSS-SOURCE guard (audit
         # + servo racing on the same release event) is _shed's lock-guarded
         # `fired`, the single publish authority for both trigger paths.
@@ -267,7 +267,7 @@ def main() -> int:
     try:
         return _run(args.audit, args.model, args.poll_s, servo=args.servo)
     except KeyboardInterrupt:
-        print("[detach] stopped")
+        print("[detach] stopped", flush=True)
         return 0
 
 

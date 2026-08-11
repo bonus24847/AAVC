@@ -14,6 +14,8 @@ help:
 	@echo ""
 	@echo "  make install        Create .venv + install -e .[dev]"
 	@echo "  make sitl           Launch PX4 SITL + Gazebo with the KMUTNB sky-field"
+	@echo "  make stack          DEBUG harness: SITL + bridges + GCS console + pads (GUI=1, SEED=n)"
+	@echo "  make stack-stop     Tear the whole stack down (self-match-safe pkills)"
 	@echo "  make spawn-targets  Spawn the 6 ArUco landing pads (SEED=n re-rolls ids+positions)"
 	@echo "  make camera-bridge  gz camera -> /tmp/aavc_nadir.png (+ frame mirror)"
 	@echo "  make payload-bridge SITL: shed cargo boxes on release, optional (RUN=runs/<id>/audit.jsonl)"
@@ -48,6 +50,15 @@ lock:
 # SKIP_GPU_CHECK=1 bypasses the dGPU-health preflight (non-NVIDIA / other render path).
 sitl:
 	bash sitl/launch_sitl.sh
+
+# One-command debug bring-up (everything except the mission): SITL (+GUI=1
+# viewer), camera + payload bridges (live logs), AAVC GCS console on this
+# repo's field/captures, seeded pads. Then `make run TRUTH=…` flies on top.
+stack:
+	bash sitl/launch_stack.sh
+
+stack-stop:
+	bash sitl/launch_stack.sh stop
 
 # SEED=<n> re-jitters the target layout so blind-search runs can't memorise it,
 # e.g. `make spawn-targets SEED=123`.

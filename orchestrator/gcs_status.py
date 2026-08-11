@@ -47,15 +47,16 @@ _R_EARTH_M = 6_378_137.0
 # fails the \d+ and is not shown as a delivered pad.
 _RELEASE = re.compile(r"DELIVERY \d+ RELEASE pad=(?P<pad>\d+)")
 
-# MissionPhase.value -> the console's 4-step mission bar (its phaseIdx() does
-# SUBSTRING matching on [recon, load, deliver, done], so the label carries the
-# raw phase in parentheses for operator detail without breaking the stepper).
-# "load" = eggs aboard / operator GO; the recon steps are the blind sweep; the
-# whole serve-egress-land tail lives under "deliver" (4 steps is the console's
-# vocabulary, not ours). Terminal must be EXACTLY "done" — the console stops
-# its mission clock only on that exact string (MCLOCK.done check).
+# MissionPhase.value -> the console's mission bar (its phaseIdx() does
+# SUBSTRING matching on [recon, deliver, done], so the label carries the raw
+# phase in parentheses for operator detail without breaking the stepper).
+# The "load" step was removed from the console 2026-08-12 (operator request —
+# all four eggs ride one flight, so it never lit up): preflight now maps onto
+# recon. The whole serve-egress-land tail lives under "deliver" (3 steps is
+# the console's vocabulary, not ours). Terminal must be EXACTLY "done" — the
+# console stops its mission clock only on that exact string (MCLOCK.done).
 _STEP_OF = {
-    "preflight": "load",
+    "preflight": "recon",
     "takeoff": "recon",
     "transit_ingress": "recon",
     "search": "recon",
@@ -80,7 +81,7 @@ class GcsMissionStatus:
         self._pads: dict[str, list[float]] = {}
         self._delivered: list[int] = []
         self._assigned = [int(i) for i in assigned]
-        self._phase = "load (preflight)"
+        self._phase = "recon (preflight)"
         self._mission_time: float | None = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)

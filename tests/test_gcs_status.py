@@ -33,7 +33,7 @@ def test_startup_clobbers_a_stale_status_file(tmp_path: Path) -> None:
     GcsMissionStatus(p, _LAT0, _LON0, assigned=[3, 1])
     doc = _read(p)
     assert doc["pads_mapped"] == {}          # stale pads GONE before first poll
-    assert doc["phase"] == "load (preflight)"  # console stepper: eggs loading
+    assert doc["phase"] == "recon (preflight)"  # stepper starts on recon
     assert doc["assigned"] == [3, 1]
 
 
@@ -82,7 +82,7 @@ def test_progress_maps_real_phases_onto_the_console_stepper(tmp_path: Path) -> N
     and stops its mission clock ONLY on the exact string 'done'."""
     p = tmp_path / "s.json"
     feed = GcsMissionStatus(p, _LAT0, _LON0, assigned=[])
-    for raw, step in (("preflight", "load"), ("takeoff", "recon"),
+    for raw, step in (("preflight", "recon"), ("takeoff", "recon"),
                       ("search", "recon"), ("localize", "deliver"),
                       ("drop", "deliver"), ("transit_egress", "deliver"),
                       ("rth", "deliver")):
