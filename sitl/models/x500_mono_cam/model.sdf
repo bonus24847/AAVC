@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AAVC-local override of PX4's x500_mono_cam — SINGLE-camera quad for the
+  ArUco landing-pad delivery mission.
+  Shadows ${PX4_DIR}/Tools/simulation/gz/models/x500_mono_cam (our sitl/models
+  is first in GZ_SIM_RESOURCE_PATH per sitl/launch_sitl.sh).
+
+  One camera:
+    - NADIR (camera_link, pitch +pi/2 = 1.5708): looks straight DOWN. Topic
+      `camera`. The SOLE control-authority sensor — pad decode, landing
+      alignment, and discovery all run on it. On the real bird this camera is
+      an OV9281 mono global-shutter module on a gimbal-stabilized pitch servo;
+      in SITL the mount is a rigid nadir joint (stabilization is a real-bird
+      concern — the sim camera is already perfectly nadir).
+
+  Difference vs upstream: upstream mono_cam looks forward at the horizon.
+  Empirically verified 2026-05-26: a forward-facing camera returned 0 ground-
+  target detections at AAVC altitudes; nadir is required.
+
+  Mount position: the camera sits z=-0.02 (2 cm below base_link). Raised from
+  the original -0.10: when LANDED the base_link rests ~0.087 m above ground, so a
+  -0.10 mount put the camera at world z ~= -0.013 m — UNDER the ground plane,
+  looking up at the skybox through its back face (the operator saw "sky" instead
+  of the target at touchdown). At -0.02 the camera stays ~0.067 m above ground
+  when landed. A nadir camera looks straight down, so the body/arms (above it)
+  never occlude the view; the 0.1 m near-clip hides anything embedded. Pose pitch
+  about Y aims the camera's default +X optical axis below the horizon (pi/2 =
+  straight down).
+-->
+<sdf version='1.9'>
+  <model name='x500_mono_cam'>
+    <include merge='true'>
+      <uri>x500</uri>
+    </include>
+    <link name="camera_link">
+      <pose>0 0 -0.02 0 1.5708 0</pose>
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.050</mass>
+        <inertia>
+          <ixx>0.00004</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.00004</iyy>
+          <iyz>0</iyz>
+          <izz>0.00004</izz>
+        </inertia>
+      </inertial>
+      <sensor name="imager" type="camera">
+        <pose>0 0 0 0 0 0</pose>
+        <camera>
+          <horizontal_fov>1.74</horizontal_fov>
+          <image>
+            <!-- V1.3 decode camera, matching the real Meige OV9281 profile:
+                 1280x720. The 400 mm ArUco marker is ~18 px at the 12 m sweep
+                 in a 1280 px frame (undecodable at 640). Rate 15 (was 30)
+                 offsets the GPU cost; the bridge throttles to 10 Hz. -->
+            <width>1280</width>
+            <height>720</height>
+          </image>
+          <clip>
+            <near>0.02</near>
+            <far>3000</far>
+          </clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>15</update_rate>
+        <visualize>true</visualize>
+        <topic>camera</topic>
+      </sensor>
+      <gravity>true</gravity>
+      <velocity_decay/>
+    </link>
+    <joint name="CameraJoint" type="fixed">
+      <parent>base_link</parent>
+      <child>camera_link</child>
+    </joint>
+  </model>
+</sdf>

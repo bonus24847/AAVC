@@ -1,0 +1,82 @@
+[project]
+name = "aavc-2026"
+version = "0.1.0"
+description = "KMUTNB AAVC 2026 — lightweight autonomous land-and-drop competition build"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Pakin Champasak", email = "pakin.c@eng.kmutnb.ac.th" },
+]
+
+# Lean runtime stack. Classical CV only — NO torch / ultralytics / llama-cpp /
+# moondream / open3d / SLAM / mapping / planning. The whole flight core runs on
+# a Raspberry Pi CM4 CPU.
+dependencies = [
+    # MAVLink command + telemetry. Pinned to mavsdk 3.x — commands.py's connect()
+    # + drop paths are written against the 3.x mavsdk-server behaviour (the lock
+    # ships 3.15.x); the 2.x battery 0..100 contract is unchanged in 3.x.
+    "mavsdk>=3,<4",
+    "pymavlink>=2.4.41",
+
+    # Vision (deterministic OpenCV — ArUco landing-pad decode + projection)
+    "opencv-python-headless",
+    "numpy",
+
+    # Validation + config
+    "pydantic>=2",
+    "pyyaml",
+
+    # Logging
+    "loguru",
+
+    # Live web dashboard (FastAPI + uvicorn)
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+]
+# Pre-flight System-ID + Autotune module (SITL/bench tuning aid, NOT the scored
+# sortie). pyulog reads the PX4 ULog — the open-loop torque→rate plant the FRF
+# identifies is not exposed over MAVSDK telemetry, only in the log. The FRF math
+# itself is numpy-only; this is just the log reader.
+tuning = [
+    "pyulog",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mission_brain*", "orchestrator*", "mavlink_adapter*", "vision*", "dashboard*", "tuning*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Minimal: pycodestyle errors/warnings, pyflakes, import sort.
+select = ["E", "F", "I", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# Verbatim ports of the model-based design from ../aavc-2026 — the long lines are
+# mathematical derivation strings + pydantic Field descriptions; kept as-is so
+# the modules re-sync cleanly against the reference. (The numpy-only tuning.sysid
+# and our own routers/tests still hold the 100-col line limit.)
+"tuning/schemas.py" = ["E501"]
+"tuning/synthesis.py" = ["E501"]
+"tuning/engine.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+exclude = ["^sitl/", "^\\.venv/", "^tests/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

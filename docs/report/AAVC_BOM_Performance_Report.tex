@@ -1,0 +1,422 @@
+% AAVC 2026 — BOM, Performance & Flight Path Report
+% Build: pdflatex (2 passes). Data: docs/report/data/*.csv extracted from the
+% 2026-07-08 SEED-5 validation flight audit (runs/aavc_delivery_mission).
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage[colorlinks=true, linkcolor=blue!50!black, urlcolor=blue!50!black]{hyperref}
+
+\definecolor{navy}{RGB}{22,60,110}
+\definecolor{teal}{RGB}{0,128,128}
+\definecolor{fieldgreen}{RGB}{224,238,224}
+\definecolor{searchblue}{RGB}{210,228,245}
+\definecolor{nfzred}{RGB}{250,215,215}
+\definecolor{trackorange}{RGB}{220,90,20}
+
+\captionsetup{font=small, labelfont=bf}
+\setlist{nosep}
+
+\newcommand{\statusok}[1]{\textcolor{teal}{\textbf{#1}}}
+\newcommand{\warn}[1]{\textcolor{red!70!black}{\textbf{#1}}}
+
+\title{\vspace{-1.2em}\textbf{AAVC 2026 Competition System}\\
+\Large Bill of Materials, Performance \& Flight Path Report\\
+\normalsize Autonomous PX4 Quadcopter Egg-Delivery System --- Rules \& Regulations V1.3}
+\author{AAVC Team --- KMUTNB\\
+\small Compiled from \texttt{docs/BOM\_REPORT.md}, \texttt{docs/ECALC\_PASS.md},
+\texttt{docs/AIRFRAME\_SIZING.md}\\
+\small and the 2026-07-08 SITL validation flight logs (real telemetry).}
+\date{8 July 2026}
+
+\begin{document}
+\maketitle
+\vspace{-1.5em}
+
+\begin{center}
+\fbox{\parbox{0.93\textwidth}{\small
+\textbf{Status.} Mission software is competition-ready on \texttt{main}:
+\statusok{4/4 eggs delivered} to the correct assigned pads across five
+independent pad layouts, all transit points scored (24/24), inside the 20-min
+window with $\ge$3\,min spare, zero safety violations, post-flight verifier
+\statusok{PASS} with 0 warnings. The remaining critical path is
+\textbf{hardware procurement and G5--G8 flight testing} ($\approx$7 weeks to the
+late-August event). This report freezes the BOM, the propulsion numbers, and
+the flight-path design for that build.}}
+\end{center}
+
+\section{Mission overview (Rules V1.3)}
+One fragile egg per sortie is delivered to the landing pad whose ArUco marker
+(\texttt{DICT\_4X4\_50}, ids 1--6, 400\,mm on a $1{\times}1$\,m white pad)
+matches the committee-assigned id, at the IAAI KMITL field. Each sortie:
+take-off at the Launch \& Recovery (L\&R) site $\rightarrow$ mandatory transit
+$P_1{\to}P_2{\to}P_3$ at 20\,m AGL (scored per point, both directions)
+$\rightarrow$ visual search of the search area (10--20\,m band)
+$\rightarrow$ \textbf{land ON the assigned pad} $\rightarrow$ release the egg
+\textbf{after touchdown} $\rightarrow$ egress transit $\rightarrow$ land at
+L\&R and disarm for resupply. Up to \textbf{4 sorties inside a 20-minute
+window}; pad positions are unknown at take-off (blind visual search).
+
+\section{System summary}
+\begin{table}[H]\centering\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+Airframe & Quad-X, 500\,mm wheelbase (Holybro X500\,V2 frame), 10$''$ props, 6S \\
+AUW (honest rollup) & $\approx$2.6\,kg (design ceiling 2.65\,kg) \\
+Thrust-to-weight & $\approx$3:1 (SunnySky V2814 KV700 $\times$4) \\
+Flight controller & Pixhawk 6X, PX4 v1.17 (owned, calibrated) \\
+Companion computer & Raspberry Pi CM4 (owned) --- deterministic classical-CV stack, no network \\
+Mission sensors & Meige OV9281 nadir camera (mono GS 1280$\times$720, gimbal-stabilized, owned), \\
+ & ARK Flow (CAN) + TF-Luna (no-RTK final-metre position lock) \\
+RC / safety pilot & ELRS: TX16S + Nomad TX + DBR4 RX (owned, link verified) \\
+Payload & 1 egg + cradle (80--120\,g), servo-released after touchdown (AUX\,9) \\
+\bottomrule
+\end{tabular}
+\caption{System at a glance. ``Owned'' items verified in the project logs.}
+\end{table}
+
+\section{Bill of Materials}
+\subsection{Owned --- do not re-buy (verify at G5 bench)}
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Item} & \textbf{G5 verification} \\
+\midrule
+Pixhawk 6X (PX4 1.17, cal.\ done) & which GPS/compass + power module shipped in the kit \\
+RPi CM4 + baseboard & free USB port for the OV9281 (UVC; single camera 2026-07-15) \\
+ELRS chain (TX16S / Nomad / DBR4) & CRSF wiring to the 6X; fail-safe + kill-switch mapping \\
+\textbf{DXF 6S 7500\,mAh 120C LiPo} & \warn{health gate before it earns the mission} (\S\ref{sec:battery}): 22.2\,V variant, connector $\to$ XT90, measured capacity $\ge$6{,}300\,mAh, cell-IR balance \\
+GCS laptop & local-only network to the CM4 (internet in flight = disqualification) \\
+6S charger (implied by the DXF) & 6S balance + storage mode, $\ge$10\,A --- else buy (A6) \\
+\bottomrule
+\end{tabularx}
+\caption{Owned equipment.}
+\end{table}
+
+\subsection{Procurement --- selected part numbers}
+Priorities: \textbf{P0} = order this week (blocks G5/G6 or long lead time);
+P1 = order with the frame build; P2 = spares. Prices are estimate bands
+(THB, July 2026) to confirm at order.
+
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{@{}clXrr@{}}
+\toprule
+\# & Prio & \textbf{Part (selected)} & \textbf{Qty} & \textbf{$\approx$THB} \\
+\midrule
+A1 & P0 & Holybro X500\,V2 frame kit (610\,g, tall gear, RPi platform) & 1 & 4{,}400--4{,}900 \\
+A2 & P0 & SunnySky \textbf{V2814 KV700} motor (120\,g; $\sim$1.85--2.0\,kg max) & 4+1 & 4{,}500--6{,}500 \\
+A3 & P0 & APC 10$\times$4.5MR propellers (sets incl.\ spares) & 4 sets & 600--1{,}200 \\
+A4 & P0 & Holybro Tekko32 F4 Metal 65\,A 4-in-1 ESC (BLHeli\_32) & 1 & 3{,}200--4{,}000 \\
+A5 & P0 & Backup pack: 6S 6000--6500\,mAh, $\le$950\,g, real $\ge$25C (Tattu 35C class) & 1 & 3{,}500--6{,}500 \\
+A6 & P0 & Charger set \emph{only if} the owned one fails \S3.1 (dual 6S $\ge$10\,A + bags + checker) & 0--1 & 0--4{,}000 \\
+B1 & P0 & \warn{ARK Flow (CAN)} --- longest lead time in the BOM, order first & 1 & 4{,}500--6{,}500 \\
+C1 & P0 & Nadir camera: \textbf{Meige OV9281} USB UVC mono GS 1280$\times$720 (owned 2026-07-15) & 1 & owned \\
+C2 & P0 & Gimbal pitch servo + vib.-isolated camera cage (stabilized nadir, VERIFY-AT-G5) & 1 & 300--900 \\
+B3 & P0 & Egg-release servo (metal gear, MG90S/ES08MA-II class) + linkage & 1+1 & 300--800 \\
+\midrule
+B2 & P1 & TF-Luna rangefinder (down) & 1 & 900--1{,}500 \\
+C3 & --- & \emph{Oblique cue camera — retired 2026-07-15 (single-camera doctrine)} & --- & --- \\
+A7 & P1 & XT90 $\times$3 pairs (1 anti-spark), 10\,AWG + 16\,AWG wire, heatshrink & set & 500--900 \\
+A8 & P1 & Hall-effect power module $\ge$120\,A class (verify 6X kit first) & 1 & 1{,}500--3{,}000 \\
+A9 & P1 & UBEC 5\,V / 6--10\,A (CM4 + camera rail) & 1 & 300--600 \\
+C4 & --- & \emph{Dual camera mounts — merged into C2 (gimbal mount)} & --- & --- \\
+D1 & P1 & Field network (CM4 AP or travel router; \emph{local only}) & 1 & 0--1{,}200 \\
+D2--D3 & P1/P2 & Mounting misc, straps, vib.\ pads; spares kit; practice eggs & --- & 1{,}000--2{,}100 \\
+\midrule
+ & & \textbf{Total (mission pack + camera owned)} & & \textbf{$\approx$23{,}000--40{,}000} \\
+\bottomrule
+\end{tabularx}
+\caption{Procurement BOM. Motor-class note: the 2026-07-07 concept's
+``880--960\,Kv'' row was the 7--8$''$-prop class; at 6S on 10$''$ props the
+correct class is $\sim$700\,Kv (\texttt{ECALC\_PASS.md} \S1).}
+\end{table}
+
+\clearpage
+\section{Performance analysis}
+\subsection{Mass budget (real part weights)}
+\begin{table}[H]\centering\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+Group & Mass [g] \\
+\midrule
+Frame X500\,V2 (incl.\ tall gear, rails, straps) & 610 \\
+Motors 4$\times$V2814 & 480 \\
+Props 4$\times$10$\times$4.5MR & 55 \\
+ESC 4-in-1 + PDB wiring + XT90 + 10\,AWG & 120 \\
+Power module + UBEC & 60 \\
+Pixhawk 6X + GPS mast + cabling & 110 \\
+CM4 + carrier + cameras + flow + rangefinder + ELRS RX + servo & 180 \\
+Egg + cradle (budget) & 100 \\
+Battery: DXF 6S 7500 (822--890\,g class) & 850 \\
+\midrule
+\textbf{All-up weight} & \textbf{$\approx$2{,}565} \\
+\bottomrule
+\end{tabular}
+\caption{Honest AUW $\approx$2.6\,kg (design ceiling 2.65\,kg). The 2026-07-07
+concept's 2.15\,kg assumed lighter motors/pack; the design still closes at the
+real weight.}
+\end{table}
+
+\subsection{Propulsion (momentum theory, $\mathrm{FoM}=0.65$, $\eta_{drv}=0.85$, 4$\times$10$''$ disks)}
+\begin{table}[H]\centering\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Operating point & Thrust & $P_{ideal}$ & $P_{electrical}$ & I @ 22.2\,V \\
+\midrule
+Hover (2.6\,kg) & 25.5\,N & 185\,W & $\approx$335\,W ($+15$\,W avionics) & $\approx$16\,A \\
+3:1 manoeuvre burst & 76.5\,N & 962\,W & $\approx$1{,}740\,W & $\approx$78\,A \\
+Full stick (V2814$\times$4) & $\approx$78\,N$^{+}$ & --- & $\approx$2.0--2.4\,kW & \textbf{90--110\,A} \\
+\bottomrule
+\end{tabular}
+\caption{Peak-current correction: the concept's 150--160\,A was conservative;
+the electrical design point is $\approx$110\,A full-stick. XT90 + 10\,AWG retain
+comfortable margin; required battery C-rate is only $110/7.5\approx15$C real.}
+\end{table}
+
+\subsection{Energy \& endurance --- the owned DXF pack}\label{sec:battery}
+\begin{table}[H]\centering\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+ & Nominal & Health-derated ($\times$0.85) \\
+\midrule
+Pack energy (6S, 7.5\,Ah) & 166.5\,Wh & $\approx$142\,Wh \\
+Usable ($\times$0.8 depth of discharge) & 133\,Wh & $\approx$113\,Wh \\
+Endurance @ 360--380\,W mission average & $\approx$21.5\,min & $\approx$\textbf{18.3\,min} \\
+Motors-on flight time (validated 4-sortie mission) & \multicolumn{2}{c}{$\approx$14.6\,min (window 17.1\,min $-$ 3 disarmed resupply holds)} \\
+\textbf{Reserve} & $\approx$32\% & $\approx$\textbf{20\%} \checkmark \\
+\bottomrule
+\end{tabular}
+\caption{The DXF 6S 7500 flies the mission \emph{if} it passes the G5 health
+gate (measured capacity $\ge$6{,}300\,mAh, balanced cell IR, sag under a 110\,A
+burst above the PX4 low-battery fail-safe). Fallback: the new A5 backup pack
+takes the mission; the DXF becomes the practice pack. Contingency: packs can
+also be swapped at the second resupply --- the vehicle already disarms at L\&R,
+zero software change.}
+\end{table}
+
+\subsection{Validated mission performance (SITL, PX4 + Gazebo, KMITL field model)}
+\begin{table}[H]\centering\small
+\begin{tabular}{@{}llllll@{}}
+\toprule
+Run & Layout (ids) & \texttt{confirm\_votes} & Delivered & Window & Verifier \\
+\midrule
+I1b & SEED 7 (3,2,4,6) & 2 & 4/4 & 16.7\,min & PASS \\
+I2a & SEED 42 (6,1,5,3) & 2 & 4/4 & 16.9\,min & PASS$^{a}$ \\
+I2b & SEED 99 (4,6,2,3) & 2 & 4/4 & 16.4\,min & PASS \\
+I3  & SEED 7, hedge test & 1 & 4/4 & 16.6\,min & PASS \\
+I4a & SEED 1 (2,5,1,6) & 2 & 4/4 & 16.6\,min & PASS \\
+I5a & SEED 7 (3,2,4,6) & 3 & 4/4 & 16.4\,min & PASS (19 ok, 0 warn) \\
+I5b & SEED 7, top-up forcing & 8 & 3/3 flown$^{b}$ & --- & PASS (16 ok, 0 warn) \\
+\textbf{I5c} & \textbf{SEED 5 (5,3,6,4), shipped config} & \textbf{2} & \textbf{4/4} & \textbf{17.1\,min} & \textbf{PASS (19 ok, 0 warn)} \\
+\bottomrule
+\end{tabular}
+\caption{Every flown sortie delivered on every layout. Release accuracy vs
+ground truth: 0.05--0.31\,m (pad radius 0.5\,m); transit 24/24 points; zero
+ceiling/geofence/no-fly violations. $^{a}$initial transit-altitude flag traced
+to a verifier artefact, fixed and pinned by tests on 2026-07-08.
+$^{b}$deliberately pathological threshold to force-exercise the registry
+vote top-up path; the 4th sortie was correctly time-gated.}
+\end{table}
+
+\textbf{Robustness for the real field.} The registry confirms a pad after 2
+decoded sightings; the terminal land gate independently re-verifies the
+assigned id \emph{at the pad} before committing the landing, so a
+mis-registration defers (climbs, returns with the egg) --- it can never
+mis-land. A pad decoded only once is topped up by a short $\sim$30--60\,s
+decode visit instead of a $\sim$90--116\,s re-sweep (structural fix, validated
+in I5b). Release is touchdown-gated: the egg is never dropped airborne.
+
+\clearpage
+\section{Flight path}
+\subsection{Field geometry and the flown route}
+Figure~\ref{fig:map} shows the official field geometry with the \emph{real}
+ground track of the full 4-sortie validation flight (I5c). Sortie 1 flies the
+mandatory corridor, sweeps the search area (4 boustrophedon legs, 12\,m AGL,
+28.4\,m swath, overlap 0.4, 10\,m/s), registers every pad it decodes, then
+serves its assigned pad; sorties 2--4 fly \emph{direct} to registered pads ---
+visible as the straight spokes.
+
+\begin{figure}[h]\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.98\textwidth, height=0.56\textwidth,
+  axis equal image,
+  xlabel={East [m] (ENU, origin = L\&R)}, ylabel={North [m]},
+  xmin=-25, xmax=300, ymin=-60, ymax=135,
+  legend style={font=\scriptsize, at={(0.99,0.02)}, anchor=south east, fill=white, fill opacity=0.85, draw opacity=1, text opacity=1},
+  tick label style={font=\scriptsize}, label style={font=\small},
+]
+% Controlled airspace (geofence)
+\addplot[fill=fieldgreen, draw=black!60!green, thick, fill opacity=0.5]
+  coordinates {(-7.8,-49.1) (274.8,-28.3) (282.9,122.6) (-13.5,117.4)} -- cycle;
+\addlegendentry{controlled airspace (geofence)}
+% Search area
+\addplot[fill=searchblue, draw=blue!50!black, thick, fill opacity=0.6]
+  coordinates {(58.4,52.3) (267.8,50.1) (282.9,122.6) (56.7,109.4)} -- cycle;
+\addlegendentry{search area (pads inside)}
+% No-fly zone
+\addplot[fill=nfzred, draw=red!70!black, thick, fill opacity=0.7]
+  coordinates {(195.7,-5.5) (260.6,-5.5) (260.6,49.8) (195.7,49.8)} -- cycle;
+\addlegendentry{no-fly zone (RTH on entry)}
+% Real ground track
+\addplot[trackorange, line width=0.5pt, opacity=0.85]
+  table [col sep=comma, x=x, y=y] {data/mission_track.csv};
+\addlegendentry{real track, 4 sorties (I5c)}
+% Transit route
+\addplot[navy, very thick, mark=square*, mark size=2.2pt]
+  coordinates {(15.8,8.0) (150.7,16.3) (157.3,51.1)};
+\addlegendentry{transit route P1--P2--P3 (20 m)}
+% Pads (SEED 5 truth)
+\addplot[only marks, mark=*, mark size=2.6pt, color=black,
+  mark options={fill=yellow!80!orange}]
+  coordinates {(82.29,84.16) (112.47,89.58) (264.02,105.69) (253.85,65.32)};
+\addlegendentry{landing pads (ids 5,3,6,4)}
+% L&R
+\addplot[only marks, mark=triangle*, mark size=3.4pt, color=black,
+  mark options={fill=green!60!black}] coordinates {(0,0)};
+\addlegendentry{Launch \& Recovery}
+% Labels
+\node[font=\scriptsize, navy]              at (axis cs:15.8,-1)   {$P_1$};
+\node[font=\scriptsize, navy]              at (axis cs:150.7,7)   {$P_2$};
+\node[font=\scriptsize, navy]              at (axis cs:147,55)    {$P_3$};
+\node[font=\scriptsize]                    at (axis cs:82.3,95)   {id 5};
+\node[font=\scriptsize]                    at (axis cs:112.5,100) {id 3};
+\node[font=\scriptsize]                    at (axis cs:264,116)   {id 6};
+\node[font=\scriptsize]                    at (axis cs:253.9,55)  {id 4};
+\node[font=\scriptsize, red!70!black]      at (axis cs:228,22)    {NFZ};
+\end{axis}
+\end{tikzpicture}
+\caption{IAAI KMITL field (official V1.3 geometry, unchanged from V1.1; no-fly zone and L\&R are
+approximate pending the event briefing) with the real flown ground track of
+validation run I5c (SEED 5). The boustrophedon sweep is visible in the search
+area on sortie 1; sorties 2--4 fly direct to their registered pads.}
+\label{fig:map}
+\end{figure}
+
+\subsection{Per-sortie sequence and altitude discipline}
+\begin{enumerate}[label=\arabic*., leftmargin=1.6em]
+\item \textbf{GO gate} (operator enters the committee-assigned id; window clock
+      starts at the first GO) $\rightarrow$ arm, take-off to 17.5\,m.
+\item \textbf{Ingress transit} $P_1{\to}P_2{\to}P_3$ commanded at 19.5\,m
+      (0.5\,m bias headroom under the strict 20\,m; two-stage climb closes the
+      last 2\,m en route at 1\,m/s --- prevents ceiling overshoot).
+\item \textbf{Search} (only if the assigned pad is not yet registered): full
+      boustrophedon sweep at 12\,m; every decoded pad enters the cross-sortie
+      registry; a pad decoded once gets a top-up decode visit at 10.5\,m.
+\item \textbf{Serve}: direct goto at 12\,m $\rightarrow$ vision-locked descent
+      rungs $12\to8\to5\to3\to2\to1.5$\,m with tightening tolerances
+      (1.5$\to$0.2\,m) and descent caps ($3\to0.4$\,m/s) --- descent below the
+      10\,m floor happens only here, over the pad (rules carve-out).
+\item \textbf{Id-verified LAND gate}: the assigned marker must have been decoded
+      during this approach, else climb and defer (never land unverified)
+      $\rightarrow$ PX4 LAND at 0.3\,m/s, stay armed.
+\item \textbf{Release after touchdown} (2\,s settle; airborne release is
+      refused) $\rightarrow$ climb out.
+\item \textbf{Egress transit} $P_3{\to}P_2{\to}P_1$ $\rightarrow$ explicit goto
+      L\&R $\rightarrow$ land, \textbf{disarm} for resupply.
+\end{enumerate}
+
+\begin{figure}[h]\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.98\textwidth, height=0.42\textwidth,
+  xlabel={mission time [s]}, ylabel={altitude AGL [m]},
+  xmin=0, xmax=1040, ymin=-0.5, ymax=23,
+  legend style={font=\scriptsize, at={(0.5,-0.24)}, anchor=north, legend columns=4},
+  tick label style={font=\scriptsize}, label style={font=\small},
+  grid=major, grid style={black!12},
+]
+% ceiling / floor bands
+\addplot[red!70!black, thick, dashed] coordinates {(0,20) (1040,20)};
+\addlegendentry{20 m ceiling}
+\addplot[blue!50!black, thick, dotted] coordinates {(0,10) (1040,10)};
+\addlegendentry{10 m search floor}
+% real altitude
+\addplot[navy, line width=0.55pt] table [col sep=comma, x=t, y=alt] {data/mission_alt.csv};
+\addlegendentry{real altitude (I5c)}
+% releases
+\addplot[only marks, mark=o, mark size=2.6pt, trackorange, very thick]
+  coordinates {(218.1,0.4) (444.8,0.4) (669.9,0.4) (906.4,0.4)};
+\addlegendentry{egg release (after touchdown)}
+% sortie boundaries
+\draw[black!35, dashed] (axis cs:338.3,-0.5) -- (axis cs:338.3,23);
+\draw[black!35, dashed] (axis cs:561.6,-0.5) -- (axis cs:561.6,23);
+\draw[black!35, dashed] (axis cs:798.0,-0.5) -- (axis cs:798.0,23);
+\node[font=\scriptsize] at (axis cs:169,22.1) {sortie 1 (sweep + serve)};
+\node[font=\scriptsize] at (axis cs:450,22.1) {sortie 2 (direct)};
+\node[font=\scriptsize] at (axis cs:680,22.1) {sortie 3 (direct)};
+\node[font=\scriptsize] at (axis cs:915,22.1) {sortie 4 (direct)};
+\end{axis}
+\end{tikzpicture}
+\caption{Real altitude profile of the full 4-sortie validation flight (I5c,
+1\,Hz audit telemetry). Visible per sortie: climb to the 19.5\,m transit,
+the 12\,m sweep (sortie 1 only), the stepped precision descent onto the pad,
+the on-pad touchdown + release, egress at transit altitude, and the L\&R
+landing (altitude 0, disarmed) between sorties. Max altitude over the whole
+mission: 20.35\,m --- inside the 20.5\,m watchdog warn line.}
+\label{fig:alt}
+\end{figure}
+
+\subsection{Timing budget (measured, I5c)}
+\begin{table}[H]\centering\small
+\begin{tabular}{@{}lrl@{}}
+\toprule
+Phase & Measured & Note \\
+\midrule
+Take-off + ingress transit ($P_1..P_3$) & $\approx$53\,s & per sortie \\
+Sweep + registry confirmation (sortie 1 only) & $\approx$104\,s & all 4 pads confirmed \\
+Serve: goto + locked descent + land + release & $\approx$63\,s & release at $t{=}218$\,s \\
+Climb-out + egress + L\&R landing & $\approx$118\,s & disarm at L\&R \\
+\midrule
+Sortie 1 total (with sweep) & 338\,s & \\
+Sorties 2--4 (registry known, direct) & 223--236\,s & each \\
+\textbf{Full mission window} & \textbf{1{,}027\,s = 17.1\,min} & 173\,s spare \\
+\bottomrule
+\end{tabular}
+\caption{The time-policy layer additionally refuses a sortie the window cannot
+cover (reserve gates), so the 20-minute limit cannot be breached by dispatch.}
+\end{table}
+
+\section{Verification gates before flight (do not skip)}
+\begin{enumerate}[label=G\arabic*., leftmargin=2em]
+\setcounter{enumi}{4}
+\item \textbf{Bench (props off):} motor map; egg-servo release/hold on AUX\,9;
+      V2814 in-box thrust table check (6S+1045 $\ge$1.8\,kg, $\le$25\,A);
+      thrust-stand hover point ($\approx$650\,g/motor) current + temperature;
+      \textbf{DXF pack health gate} (\S\ref{sec:battery}); ARK Flow CAN
+      enumeration + \texttt{SENS\_FLOW\_ROT}; printed-pad decode; endurance
+      bench $\ge$18\,min at 360--380\,W with 20\% remaining; System-ID re-tune
+      at the real 2.6\,kg (SITL gains do not transfer; re-measure the climb
+      overshoot against the 20\,m ceiling).
+\item \textbf{Tethered:} stable hover, flow-lock A/B at 2\,m, camera
+      calibration over a printed pad at known AGL, bench release.
+\item \textbf{Free flight:} full multi-sortie mission at the practice field;
+      collect real decode statistics (the registry threshold and top-up hedge
+      are already sized for marginal decode).
+\item \textbf{Dress rehearsal:} live eggs, full 20-min window, resupply drill.
+\end{enumerate}
+
+\vspace{0.6em}
+\noindent\textbf{Source documents} (repository \texttt{main}, 2026-07-08):
+\texttt{docs/BOM\_REPORT.md} (procurement detail),
+\texttt{docs/ECALC\_PASS.md} (propulsion verification + part selection),
+\texttt{docs/AIRFRAME\_SIZING.md} (concept sizing),
+\texttt{docs/RULES\_AAVC2026.md} (rules digest),
+\texttt{docs/superpowers/OVERNIGHT\_REPORT.md} (evidence); flight data:
+\texttt{runs/aavc\_delivery\_mission/audit.jsonl}.
+
+\end{document}

@@ -1,0 +1,272 @@
+"""Land-ON-pad terminal controller (orchestrator.tactical_align) — V1.3.
+
+The egg is committed the moment the vehicle lands, so these lock the guards
+around that commitment: the per-frame detector filter (assigned id wins,
+wrong id NEVER steers, cue blobs only as positional fallback), the id-verified
+LAND gate (no decode → no landing → defer), and the touchdown-gated release
+(payload_id always 0; keep the egg when telemetry reads airborne).
+
+The full descend-gate behaviour needs camera frames + a flying vehicle — SITL
+(G4) validates that end-to-end; here a fake commander + patched detector lock
+the decision logic.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import math
+
+import cv2
+import numpy as np
+
+from mavlink_adapter.telemetry import CurrentTelemetry
+from mission_brain.live_plan import render_live_plan
+from mission_brain.profile import COMPETITION
+from mission_brain.schemas import Coordinate
+from mission_brain.search_pattern import build_search_pattern
+from orchestrator import tactical_align as ta
+from orchestrator.state import OrchestratorMode, OrchestratorState
+from orchestrator.tactical_align import AlignParams, _drop_once, acquire_and_land_drop
+from vision.detectors.aruco import PadHit, render_pad_bgr
+
+_LAT, _LON = 13.7308, 100.7886
+_AREA = [[_LAT - 3e-4, _LON - 3e-4], [_LAT - 3e-4, _LON + 3e-4],
+         [_LAT + 3e-4, _LON + 3e-4], [_LAT + 3e-4, _LON - 3e-4]]
+
+
+# ── _detect_nadir: the per-frame acceptance filter ──
+
+def _frame_with_pads(tmp_path, *pads):
+    """Write a nadir frame containing the given (marker_id, cx, cy, pad_px)."""
+    img = np.full((960, 1280, 3), (60, 120, 70), np.uint8)
+    for mid, cx, cy, px in pads:
+        pad = cv2.resize(render_pad_bgr(mid, 512), (px, px),
+                         interpolation=cv2.INTER_AREA)
+        img[cy - px // 2:cy - px // 2 + px, cx - px // 2:cx - px // 2 + px] = pad
+    p = tmp_path / "nadir.png"
+    cv2.imwrite(str(p), img)
+    return p
+
+
+def test_detect_nadir_prefers_assigned_id(tmp_path) -> None:
+    # Assigned pad 3 + neighbour pad 5, both decodable.
+    f = _frame_with_pads(tmp_path, (5, 300, 300, 90), (3, 800, 600, 90))
+    hit = ta._detect_nadir(f, 0.45, assigned_id=3)
+    assert hit is not None and hit.marker_id == 3
+    assert abs(hit.cx - 800) <= 3 and abs(hit.cy - 600) <= 3
+
+
+def test_detect_nadir_never_steers_by_wrong_id(tmp_path) -> None:
+    # ONLY the wrong pad is visible — must return nothing, not "close enough".
+    f = _frame_with_pads(tmp_path, (5, 640, 480, 90))
+    assert ta._detect_nadir(f, 0.45, assigned_id=3) is None
+
+
+def test_detect_nadir_accepts_cue_blob_as_positional_fallback(tmp_path) -> None:
+    # A pad too blurred to decode still centres the descent (id gate handles
+    # the commitment later).
+    img = np.full((960, 1280, 3), (60, 120, 70), np.uint8)
+    pad = cv2.resize(render_pad_bgr(2, 512), (45, 45), interpolation=cv2.INTER_AREA)
+    img[458:503, 618:663] = pad
+    img = cv2.GaussianBlur(img, (7, 7), 0)
+    p = tmp_path / "nadir.png"
+    cv2.imwrite(str(p), img)
+    hit = ta._detect_nadir(p, 0.45, assigned_id=3)
+    assert hit is not None and hit.marker_id is None
+
+
+# ── acquire_and_land_drop: the commitment logic (fake commander + patched detector) ──
+
+class FakeCommander:
+    def __init__(self, state: OrchestratorState) -> None:
+        self.state = state
+        self.landed_calls: list[bool] = []
+        self.released: list[int] = []
+        self.params: dict[str, float] = {}
+
+    async def goto(self, lat, lon, alt_m, yaw_deg=float("nan")) -> None:
+        t = self.state.telemetry
+        t.lat, t.lon, t.relative_alt_m = lat, lon, alt_m
+
+    async def land(self, *, disarm: bool = True) -> None:
+        self.landed_calls.append(disarm)
+        self.state.telemetry.relative_alt_m = 0.0
+
+    async def drop_payload(self, payload_id: int = 0) -> None:
+        self.released.append(payload_id)
+
+    async def set_param_float(self, name: str, value: float) -> None:
+        self.params[name] = value
+
+
+def _state() -> OrchestratorState:
+    home = Coordinate(lat=_LAT, lon=_LON)
+    spec = build_search_pattern(_AREA, home, sweep_alt_m=12.0)
+    plan = render_live_plan(home, spec, discovered=[], profile=COMPETITION)
+    telem = CurrentTelemetry()
+    telem.lat, telem.lon, telem.relative_alt_m = _LAT, _LON, 12.0
+    telem.heading_deg = telem.roll_deg = telem.pitch_deg = 0.0
+    telem.ground_speed_mps = 0.0
+    return OrchestratorState(mode=OrchestratorMode.OFFLINE, plan=plan, telemetry=telem)
+
+
+def _fast_params(**overrides) -> AlignParams:
+    kw = dict(
+        rungs=(12.0, 5.0), rung_tol_m=(1.5, 0.4), rung_descent_mps=(3.0, 1.0),
+        lock_cycles=1, cycle_hz=200.0, acquire_timeout_s=0.2, rung_timeout_s=0.3,
+        median_window=1, settle_after_land_s=0.0, assigned_marker_id=3,
+        # These tests patch _detect_nadir and rely on the default /tmp frame path
+        # (which may hold a stale frame from a prior SITL run); disable the S2
+        # freshness gate so they exercise align logic deterministically.
+        frame_max_age_s=0.0,
+    )
+    kw.update(overrides)
+    return AlignParams(**kw)
+
+
+def _centred_hit(marker_id) -> PadHit:
+    # Centred in the DEFAULT 640x480 projection model; radius ≈ expected for
+    # the 0.2 m marker so the size prior passes at any rung altitude.
+    return PadHit(cx=320, cy=240, marker_id=marker_id, radius_px=0.0,
+                  confidence=0.9, corners=(), pad_side_px=0.0)
+
+
+def _patch_detector(monkeypatch, marker_id) -> None:
+    def fake(frame_path, min_conf, assigned_id):
+        alt = max(state_ref.telemetry.relative_alt_m, 0.5)
+        exp = 271.4 * 0.2 / alt          # fx(640px,1.74rad) * R / slant
+        hit = _centred_hit(marker_id)
+        return PadHit(cx=hit.cx, cy=hit.cy, marker_id=hit.marker_id,
+                      radius_px=exp, confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", fake)
+
+
+state_ref: OrchestratorState
+
+
+def test_lands_on_pad_and_releases_after_touchdown(monkeypatch) -> None:
+    global state_ref
+    state = state_ref = _state()
+    cmd = FakeCommander(state)
+    _patch_detector(monkeypatch, marker_id=3)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1, params=_fast_params()))
+
+    assert res.acquired and res.landed and res.dropped
+    assert cmd.landed_calls == [False]        # touch down ARMED (no disarm)
+    assert cmd.released == [0]                # the egg servo is ALWAYS payload 0
+    assert state.dropped_stops == {1}         # ledger keyed by sortie index
+    assert not math.isnan(res.final_error_m)
+
+
+def test_id_gate_refuses_to_land_without_a_decode(monkeypatch) -> None:
+    global state_ref
+    state = state_ref = _state()
+    cmd = FakeCommander(state)
+    _patch_detector(monkeypatch, marker_id=None)   # cue blobs only, never decoded
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1, params=_fast_params()))
+
+    assert res.acquired                        # the blob did centre the descent
+    assert not res.landed and not res.dropped  # ...but the egg was NOT committed
+    assert cmd.landed_calls == []              # LAND never commanded
+    assert "id-not-confirmed → defer" in res.notes
+    assert any("land_gate_id_not_confirmed" in a for a in state.anomalies)
+    assert state.telemetry.relative_alt_m == 12.0   # climbed back to the top rung
+
+
+def test_wrong_pad_never_acquires_and_defers(monkeypatch) -> None:
+    global state_ref
+    state = state_ref = _state()
+    cmd = FakeCommander(state)
+    # _detect_nadir itself rejects wrong ids → the loop sees nothing at all.
+    monkeypatch.setattr(ta, "_detect_nadir", lambda f, c, a: None)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 2, params=_fast_params()))
+
+    assert not res.acquired and not res.landed and not res.dropped
+    assert cmd.landed_calls == [] and cmd.released == []
+    assert "acquire-timeout: deferred" in res.notes   # gps_fallback=False default
+
+
+def test_uncentred_final_rung_defers_instead_of_landing(monkeypatch) -> None:
+    """Centred-LAND gate (found by the 2026-07-15 GCS run): a biased fix streak
+    kept the vehicle ~0.9 m off the pad — every frame decodes the ASSIGNED id
+    (so the id gate passes) but the fix always projects 0.9 m away, so the
+    final rung can never lock. The old code fell through the rung timeouts and
+    LANDED anyway (2.46 m off-pad in flight — forfeits the landed-on-pad-
+    before-release scoring line). It must defer like the id gate instead."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = FakeCommander(state)
+
+    def biased(frame_path, min_conf, assigned_id):
+        # Offset the hit so the projected fix is ~0.9 m from the vehicle at any
+        # altitude: locks the 1.5 m top rung, can NEVER lock the 0.4 m final.
+        alt = max(state_ref.telemetry.relative_alt_m, 0.5)
+        dx = 271.4 * 0.9 / alt
+        exp = 271.4 * 0.2 / alt
+        return PadHit(cx=int(320 + dx), cy=240, marker_id=3, radius_px=exp,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+
+    monkeypatch.setattr(ta, "_detect_nadir", biased)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1, params=_fast_params()))
+
+    assert res.acquired                        # the pad WAS seen + id decoded
+    assert not res.landed and not res.dropped  # ...but the egg was NOT committed
+    assert cmd.landed_calls == []              # LAND never commanded off-centre
+    assert any("not-centred" in n for n in res.notes)
+    assert any("land_gate_not_centred" in a for a in state.anomalies)
+    assert state.telemetry.relative_alt_m == 12.0   # climbed back to defer
+
+
+def test_release_skipped_when_telemetry_reads_airborne(monkeypatch) -> None:
+    global state_ref
+    state = state_ref = _state()
+    cmd = FakeCommander(state)
+    _patch_detector(monkeypatch, marker_id=3)
+
+    async def land_but_stay_high(*, disarm: bool = True) -> None:
+        cmd.landed_calls.append(disarm)
+        state.telemetry.relative_alt_m = 4.0   # "landed" never confirms
+
+    async def no_touchdown(st, pred, timeout_s, poll_s=0.25) -> bool:
+        return False                           # skip the real 40 s wait
+
+    monkeypatch.setattr(cmd, "land", land_but_stay_high)
+    monkeypatch.setattr(ta, "_wait_until", no_touchdown)
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1,
+        params=_fast_params()))
+
+    assert not res.landed and not res.dropped
+    assert cmd.released == []                  # egg kept — not dropped from 4 m
+    assert any("release_skipped_touchdown_unconfirmed" in a for a in state.anomalies)
+
+
+# ── _drop_once: per-flight payload_id + the DELIVERY audit grammar ──
+
+def test_drop_once_uses_payload_id_and_delivery_grammar() -> None:
+    state = _state()
+    cmd = FakeCommander(state)
+    ok = asyncio.run(_drop_once(cmd, state, stop_index=2, payload_id=2,
+                                delivery_index=3, marker_id=4))
+    assert ok is True
+    assert cmd.released == [2]                 # channel 9+2 = 11
+    line = next(a for a in state.anomalies if "DELIVERY 3 RELEASE" in a)
+    assert "pad=4" in line and "payload=2" in line
+
+
+def test_drop_once_is_idempotent_per_stop_index() -> None:
+    state = _state()
+    cmd = FakeCommander(state)
+    assert asyncio.run(_drop_once(cmd, state, stop_index=0, payload_id=0,
+                                  delivery_index=1, marker_id=3)) is True
+    assert asyncio.run(_drop_once(cmd, state, stop_index=0, payload_id=0,
+                                  delivery_index=1, marker_id=3)) is False
+    assert cmd.released == [0]

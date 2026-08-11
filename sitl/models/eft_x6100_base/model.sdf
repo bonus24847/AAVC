@@ -1,0 +1,718 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  EFT X6100 hexacopter — AAVC 2026 airframe (replaces the x500 quad, 2026-07-22).
+
+  Frame only: links, joints, sensors, landing gear. The flyable model
+  (sitl/models/eft_x6100) merge-includes this and adds the 6 motor plugins plus
+  the nadir camera.
+
+  Geometry mirrors the REAL bird's PX4 control-allocation table (read off the
+  6X on 2026-07-22, airframe 6001 Generic Hexarotor X) scaled to the X6100's
+  arm radius, so SITL allocation matches the aircraft:
+
+      CA rotor (FRD)      KM      this model (ENU)   spin
+      R0 ( 0.000, +0.500) -0.05   ( 0.000, -0.500)   cw
+      R1 ( 0.000, -0.500) +0.05   ( 0.000, +0.500)   ccw
+      R2 (+0.433, -0.250) -0.05   (+0.433, +0.250)   cw
+      R3 (-0.433, +0.250) +0.05   (-0.433, -0.250)   ccw
+      R4 (+0.433, +0.250) +0.05   (+0.433, -0.250)   ccw
+      R5 (-0.433, -0.250) -0.05   (-0.433, +0.250)   cw
+
+  PX4 CA is body-FRD (+Y right), SDF is body-ENU (+Y left) => Y is negated.
+  KM +0.05 <-> ccw, KM -0.05 <-> cw (verified against the x500, whose rotor_0 is
+  front-right / KM +0.05 / ccw). rotor_N here IS PX4 Motor N+1 via
+  SIM_GZ_EC_FUNC(N+1) = 101+N in the 22000_gz_eft_x6100 airframe.
+
+  Geometry and masses come from the team's own power-system document
+  (Power-System-Guide-1.pdf, 2026-07-22) — NOT guesses:
+    frame X6100 wheelbase 1.000 m => arm radius 0.500 m, frame 2.75 kg, MTOW 12 kg
+    EFT E5 per arm: 5008/335KV motor + 40 A ESC + 18x6.5" folding prop = 362 g
+    planned AUW 8.22 kg  (frame 2.75 + E5 x6 2.17 + 6S 7500 mAh x2 2.10
+                          + FC/GPS/PM03D 0.50 + companion+camera 0.35
+                          + release mech 0.20 + egg 0.15)
+    base_link 7.881 kg + 6 x 0.048 kg props + camera 0.05 + lidar 0.001 = 8.22 kg
+    Ixx=Iyy 0.34, Izz 0.64 kg.m^2 (362 g per arm at R=0.5 + central box)
+
+  2026-07-25 — SECOND BATTERY: the aircraft now carries TWO of the same DXF 6S
+  7500 mAh packs wired in PARALLEL (15,000 mAh at 6S, one pack's voltage), so
+  AUW went 7.17 -> 8.22 kg and base_link 6.831 -> 7.881 kg. Hover per motor is
+  now 8.22*9.807/6 = 13.44 N => w = sqrt(13.44/3.765e-5) = 597 rad/s =>
+  throttle (597-150)/850 = 0.53, which is what MPC_THR_HOVER is set to in
+  sitl/px4_patches/22000_gz_eft_x6100 (was 0.48). T/W drops 3.21 -> 2.80
+  (23 kg of thrust against 8.22 kg), still ample.
+  The inertia tensor is deliberately UNCHANGED: the second pack rides beside
+  the first, within ~0.08 m of the CG, so it adds ~1.05*0.08^2 = 0.007 kg.m^2
+  (2 % of Ixx) — inside this model's own fidelity, and far below the arm/motor
+  terms that set the tensor. Revisit only if the pack ends up mounted well off
+  the CG. Energy side of the same change: sitl/aavc_config.yaml `battery`.
+  Still to confirm at G5: the real weigh-in, and the landing-gear height/footprint
+  (0.30 m assumed here) — that footprint has to fit a 1 m pad.
+
+  Landing gear is 0.30 m tall (skid bottoms at z=-0.298 from base_link) —
+  taller than the x500's, which is why the model spawns at z=0.35 and why the
+  nadir camera mount was re-derived in eft_x6100/model.sdf.
+-->
+<sdf version="1.9">
+  <model name="eft_x6100_base">
+    <!-- Ignored on the live spawn path: PX4 spawns this model through a merged
+         <include>, which does NOT inherit the model's own pose. The height that
+         actually applies is PX4_GZ_MODEL_POSE in sitl/launch_sitl.sh — change it
+         THERE when the landing gear changes, or the aircraft spawns with its
+         skids inside the ground and arming flings it. Kept only so a standalone
+         `gz sim` include of this file lands right side up. -->
+    <pose>0 0 0.35 0 0 0</pose>
+    <self_collide>false</self_collide>
+    <static>false</static>
+    <link name="base_link">
+      <inertial>
+        <mass>7.881</mass>
+        <inertia>
+          <ixx>0.34</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.34</iyy>
+          <iyz>0</iyz>
+          <izz>0.64</izz>
+        </inertia>
+      </inertial>
+      <gravity>true</gravity>
+      <velocity_decay/>
+
+      <!-- centre body -->
+      <visual name="body_visual">
+        <pose>0 0 0.02 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.18</radius>
+            <length>0.09</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.15 0.15 0.15 1</diffuse>
+        </material>
+      </visual>
+      <!-- nose marker so heading is readable in the GUI -->
+      <visual name="nose_visual">
+        <pose>0.20 0 0.02 0 1.5708 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.02</radius>
+            <length>0.10</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.8 0.1 0.1 1</ambient>
+          <diffuse>0.9 0.15 0.15 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- 6 arms at +/-30, +/-90, +/-150 deg (hexa-X: no arm on the nose) -->
+      <visual name="arm_0">
+        <pose>0 -0.325 0.03 0 1.5708 -1.5708</pose>
+        <geometry>
+          <cylinder><radius>0.0125</radius><length>0.35</length></cylinder>
+        </geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="arm_1">
+        <pose>0 0.325 0.03 0 1.5708 1.5708</pose>
+        <geometry>
+          <cylinder><radius>0.0125</radius><length>0.35</length></cylinder>
+        </geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="arm_2">
+        <pose>0.2815 0.1625 0.03 0 1.5708 0.5236</pose>
+        <geometry>
+          <cylinder><radius>0.0125</radius><length>0.35</length></cylinder>
+        </geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="arm_3">
+        <pose>-0.2815 -0.1625 0.03 0 1.5708 -2.6180</pose>
+        <geometry>
+          <cylinder><radius>0.0125</radius><length>0.35</length></cylinder>
+        </geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="arm_4">
+        <pose>0.2815 -0.1625 0.03 0 1.5708 -0.5236</pose>
+        <geometry>
+          <cylinder><radius>0.0125</radius><length>0.35</length></cylinder>
+        </geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="arm_5">
+        <pose>-0.2815 0.1625 0.03 0 1.5708 2.6180</pose>
+        <geometry>
+          <cylinder><radius>0.0125</radius><length>0.35</length></cylinder>
+        </geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+
+      <!-- motor cans, one per rotor station -->
+      <visual name="motor_can_0">
+        <pose>0 -0.50 0.055 0 0 0</pose>
+        <geometry><cylinder><radius>0.028</radius><length>0.05</length></cylinder></geometry>
+        <material><ambient>0.2 0.2 0.2 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+      </visual>
+      <visual name="motor_can_1">
+        <pose>0 0.50 0.055 0 0 0</pose>
+        <geometry><cylinder><radius>0.028</radius><length>0.05</length></cylinder></geometry>
+        <material><ambient>0.2 0.2 0.2 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+      </visual>
+      <visual name="motor_can_2">
+        <pose>0.433 0.25 0.055 0 0 0</pose>
+        <geometry><cylinder><radius>0.028</radius><length>0.05</length></cylinder></geometry>
+        <material><ambient>0.2 0.2 0.2 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+      </visual>
+      <visual name="motor_can_3">
+        <pose>-0.433 -0.25 0.055 0 0 0</pose>
+        <geometry><cylinder><radius>0.028</radius><length>0.05</length></cylinder></geometry>
+        <material><ambient>0.2 0.2 0.2 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+      </visual>
+      <visual name="motor_can_4">
+        <pose>0.433 -0.25 0.055 0 0 0</pose>
+        <geometry><cylinder><radius>0.028</radius><length>0.05</length></cylinder></geometry>
+        <material><ambient>0.2 0.2 0.2 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+      </visual>
+      <visual name="motor_can_5">
+        <pose>-0.433 0.25 0.055 0 0 0</pose>
+        <geometry><cylinder><radius>0.028</radius><length>0.05</length></cylinder></geometry>
+        <material><ambient>0.2 0.2 0.2 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+      </visual>
+
+      <!-- landing gear: 4 legs + 2 skid rails, 0.30 m tall -->
+      <visual name="gear_leg_0">
+        <pose>0.20 0.32 -0.15 0 0 0</pose>
+        <geometry><box><size>0.025 0.025 0.26</size></box></geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="gear_leg_1">
+        <pose>0.20 -0.32 -0.15 0 0 0</pose>
+        <geometry><box><size>0.025 0.025 0.26</size></box></geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="gear_leg_2">
+        <pose>-0.20 0.32 -0.15 0 0 0</pose>
+        <geometry><box><size>0.025 0.025 0.26</size></box></geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="gear_leg_3">
+        <pose>-0.20 -0.32 -0.15 0 0 0</pose>
+        <geometry><box><size>0.025 0.025 0.26</size></box></geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="gear_rail_left">
+        <pose>0 0.32 -0.283 0 0 0</pose>
+        <geometry><box><size>0.60 0.03 0.03</size></box></geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="gear_rail_right">
+        <pose>0 -0.32 -0.283 0 0 0</pose>
+        <geometry><box><size>0.60 0.03 0.03</size></box></geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+
+      <!-- Payload-release servo rack (KMUTNB spec 2026-08-11): 4 latch servos
+           in a rectangle at (±0.10, ±0.035) on the CG plane. Visual-only
+           markers just under the belly skin; the actual release is
+           DO_SET_ACTUATOR -> SIM_GZ_SV_FUNC1..4 -> payload_detach_bridge. -->
+      <visual name="drop_servo_0">
+        <pose>0.10 0.035 -0.04 0 0 0</pose>
+        <geometry><box><size>0.030 0.015 0.030</size></box></geometry>
+        <material><ambient>0.15 0.15 0.60 1</ambient><diffuse>0.2 0.2 0.8 1</diffuse></material>
+      </visual>
+      <visual name="drop_servo_1">
+        <pose>-0.10 -0.035 -0.04 0 0 0</pose>
+        <geometry><box><size>0.030 0.015 0.030</size></box></geometry>
+        <material><ambient>0.15 0.15 0.60 1</ambient><diffuse>0.2 0.2 0.8 1</diffuse></material>
+      </visual>
+      <visual name="drop_servo_2">
+        <pose>0.10 -0.035 -0.04 0 0 0</pose>
+        <geometry><box><size>0.030 0.015 0.030</size></box></geometry>
+        <material><ambient>0.15 0.15 0.60 1</ambient><diffuse>0.2 0.2 0.8 1</diffuse></material>
+      </visual>
+      <visual name="drop_servo_3">
+        <pose>-0.10 0.035 -0.04 0 0 0</pose>
+        <geometry><box><size>0.030 0.015 0.030</size></box></geometry>
+        <material><ambient>0.15 0.15 0.60 1</ambient><diffuse>0.2 0.2 0.8 1</diffuse></material>
+      </visual>
+
+      <!-- collisions: centre body + the two skid rails that actually touch down.
+           Contact params copied from the x500 (min_depth/max_vel keep the
+           touchdown from bouncing). -->
+      <collision name="base_link_collision_body">
+        <pose>0 0 0.02 0 0 0</pose>
+        <geometry><box><size>0.36 0.36 0.08</size></box></geometry>
+        <surface>
+          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <friction><ode/></friction>
+        </surface>
+      </collision>
+      <collision name="base_link_collision_rail_left">
+        <pose>0 0.32 -0.283 0 0 0</pose>
+        <geometry><box><size>0.60 0.03 0.03</size></box></geometry>
+        <surface>
+          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <friction><ode/></friction>
+        </surface>
+      </collision>
+      <collision name="base_link_collision_rail_right">
+        <pose>0 -0.32 -0.283 0 0 0</pose>
+        <geometry><box><size>0.60 0.03 0.03</size></box></geometry>
+        <surface>
+          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <friction><ode/></friction>
+        </surface>
+      </collision>
+
+      <sensor name="air_pressure_sensor" type="air_pressure">
+        <always_on>1</always_on>
+        <update_rate>50</update_rate>
+        <air_pressure>
+          <pressure>
+            <noise type="gaussian">
+              <mean>0</mean>
+              <stddev>0.01</stddev>
+            </noise>
+          </pressure>
+        </air_pressure>
+      </sensor>
+      <sensor name="imu_sensor" type="imu">
+        <always_on>1</always_on>
+        <update_rate>250</update_rate>
+        <imu>
+          <angular_velocity>
+            <x>
+              <noise type="gaussian">
+                <mean>0</mean>
+                <stddev>0.00018665</stddev>
+                <dynamic_bias_stddev>3.8785e-05</dynamic_bias_stddev>
+                <dynamic_bias_correlation_time>1000</dynamic_bias_correlation_time>
+              </noise>
+            </x>
+            <y>
+              <noise type="gaussian">
+                <mean>0</mean>
+                <stddev>0.00018665</stddev>
+                <dynamic_bias_stddev>3.8785e-05</dynamic_bias_stddev>
+                <dynamic_bias_correlation_time>1000</dynamic_bias_correlation_time>
+              </noise>
+            </y>
+            <z>
+              <noise type="gaussian">
+                <mean>0</mean>
+                <stddev>0.00018665</stddev>
+                <dynamic_bias_stddev>3.8785e-05</dynamic_bias_stddev>
+                <dynamic_bias_correlation_time>1000</dynamic_bias_correlation_time>
+              </noise>
+            </z>
+          </angular_velocity>
+          <linear_acceleration>
+            <x>
+              <noise type="gaussian">
+                <mean>0</mean>
+                <stddev>0.00186</stddev>
+                <dynamic_bias_stddev>0.006</dynamic_bias_stddev>
+                <dynamic_bias_correlation_time>300</dynamic_bias_correlation_time>
+              </noise>
+            </x>
+            <y>
+              <noise type="gaussian">
+                <mean>0</mean>
+                <stddev>0.00186</stddev>
+                <dynamic_bias_stddev>0.006</dynamic_bias_stddev>
+                <dynamic_bias_correlation_time>300</dynamic_bias_correlation_time>
+              </noise>
+            </y>
+            <z>
+              <noise type="gaussian">
+                <mean>0</mean>
+                <stddev>0.00186</stddev>
+                <dynamic_bias_stddev>0.006</dynamic_bias_stddev>
+                <dynamic_bias_correlation_time>300</dynamic_bias_correlation_time>
+              </noise>
+            </z>
+          </linear_acceleration>
+        </imu>
+      </sensor>
+      <!-- PX4 v1.17's GZBridge subscribes the model magnetometer unconditionally
+           for multicopters; without it EKF2 never gets a heading and arming is
+           denied (silent — the subscribe just never delivers). Block copied from
+           upstream v1.17 x500_base. -->
+      <sensor name="magnetometer_sensor" type="magnetometer">
+        <gz_frame_id>base_link</gz_frame_id>
+        <always_on>1</always_on>
+        <update_rate>100</update_rate>
+        <magnetometer>
+          <x>
+            <noise type="gaussian">
+              <stddev>0.0001</stddev>
+            </noise>
+          </x>
+          <y>
+            <noise type="gaussian">
+              <stddev>0.0001</stddev>
+            </noise>
+          </y>
+          <z>
+            <noise type="gaussian">
+              <stddev>0.0001</stddev>
+            </noise>
+          </z>
+        </magnetometer>
+      </sensor>
+      <sensor name="navsat_sensor" type="navsat">
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+      </sensor>
+    </link>
+
+    <!-- Downward rangefinder = the real bird's Benewake TFmini-S (0.1-12 m).
+         Link/sensor names are the PX4 GZBridge contract (lidar_sensor_link /
+         "lidar"); the rotation is upstream x500_lidar_down's so the bridge
+         auto-detects ROTATION_DOWNWARD_FACING. SIM_GZ_EN_LIDAR defaults to 1.
+         KMUTNB spec 2026-08-11: mounted 0.25 m below the CG, same plane as the
+         nadir camera (matching the real aircraft). Landed the emitter sits at
+         ~0.048 m AGL — under its own 0.1 m minimum range, so the reading is
+         invalid while parked; harmless (EKF2 simply drops rng aiding until
+         airborne, exactly as the real TFmini-S behaves on the skids). -->
+    <joint name="lidar_sensor_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>lidar_sensor_link</child>
+    </joint>
+    <link name="lidar_sensor_link">
+      <pose relative_to="base_link">0 0 -0.25 0 1.57 0</pose>
+      <inertial>
+        <mass>0.001</mass>
+        <inertia>
+          <ixx>0.00001</ixx>
+          <iyy>0.00001</iyy>
+          <izz>0.00001</izz>
+          <ixy>0.0</ixy>
+          <ixz>0.0</ixz>
+          <iyz>0.0</iyz>
+        </inertia>
+      </inertial>
+      <sensor name='lidar' type='gpu_lidar'>
+        <gz_frame_id>lidar_sensor_link</gz_frame_id>
+        <pose>0 0 0 3.14 0 0</pose>
+        <!-- Every update is an offscreen render pass, on the dGPU this host has
+             already hard-frozen under SITL render load. Its only consumer is
+             EKF2 height aiding through the gz bridge, which is fully served at
+             10 Hz for a 0.1-12 m band, so the extra 20 renders a second bought
+             nothing. (Upstream x500_lidar_down ships 50.) -->
+        <update_rate>10</update_rate>
+        <ray>
+          <scan>
+            <horizontal>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0</min_angle>
+              <max_angle>0</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0</min_angle>
+              <max_angle>0</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.1</min>
+            <max>12.0</max>
+            <resolution>0.01</resolution>
+          </range>
+        </ray>
+        <always_on>1</always_on>
+        <!-- Ray markers are a GUI-only nicety and the stack runs headless. -->
+        <visualize>false</visualize>
+      </sensor>
+    </link>
+
+    <!-- rotors: link N == PX4 Motor N+1 (see header table) -->
+    <link name="rotor_0">
+      <gravity>true</gravity>
+      <self_collide>false</self_collide>
+      <velocity_decay/>
+      <pose>0 -0.50 0.09 0 0 0</pose>
+      <inertial>
+        <mass>0.048</mass>
+        <inertia>
+          <ixx>2.0e-06</ixx>
+          <iyy>8.30e-04</iyy>
+          <!-- thin-plate: izz = ixx + iyy. gz rejects the whole model if
+               izz > ixx + iyy (triangle inequality), so keep it at/below. -->
+          <izz>8.30e-04</izz>
+        </inertia>
+      </inertial>
+      <visual name="rotor_0_visual">
+        <pose>-0.036 -0.240 -0.018 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1.385 1.385 1.385</scale>
+            <uri>model://x500_base/meshes/1345_prop_cw.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.15 0.15 0.15 1</ambient>
+          <diffuse>0.2 0.2 0.2 1</diffuse>
+        </material>
+      </visual>
+      <collision name="rotor_0_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><box><size>0.457 0.028 0.0012</size></box></geometry>
+        <surface>
+          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <friction><ode/></friction>
+        </surface>
+      </collision>
+    </link>
+    <joint name="rotor_0_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>rotor_0</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>-1e+16</lower><upper>1e+16</upper></limit>
+        <dynamics><spring_reference>0</spring_reference><spring_stiffness>0</spring_stiffness></dynamics>
+      </axis>
+    </joint>
+
+    <link name="rotor_1">
+      <gravity>true</gravity>
+      <self_collide>false</self_collide>
+      <velocity_decay/>
+      <pose>0 0.50 0.09 0 0 0</pose>
+      <inertial>
+        <mass>0.048</mass>
+        <inertia>
+          <ixx>2.0e-06</ixx>
+          <iyy>8.30e-04</iyy>
+          <!-- thin-plate: izz = ixx + iyy. gz rejects the whole model if
+               izz > ixx + iyy (triangle inequality), so keep it at/below. -->
+          <izz>8.30e-04</izz>
+        </inertia>
+      </inertial>
+      <visual name="rotor_1_visual">
+        <pose>-0.036 -0.240 -0.018 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1.385 1.385 1.385</scale>
+            <uri>model://x500_base/meshes/1345_prop_ccw.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.15 0.15 0.15 1</ambient>
+          <diffuse>0.2 0.2 0.2 1</diffuse>
+        </material>
+      </visual>
+      <collision name="rotor_1_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><box><size>0.457 0.028 0.0012</size></box></geometry>
+        <surface>
+          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <friction><ode/></friction>
+        </surface>
+      </collision>
+    </link>
+    <joint name="rotor_1_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>rotor_1</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>-1e+16</lower><upper>1e+16</upper></limit>
+        <dynamics><spring_reference>0</spring_reference><spring_stiffness>0</spring_stiffness></dynamics>
+      </axis>
+    </joint>
+
+    <link name="rotor_2">
+      <gravity>true</gravity>
+      <self_collide>false</self_collide>
+      <velocity_decay/>
+      <pose>0.433 0.25 0.09 0 0 0</pose>
+      <inertial>
+        <mass>0.048</mass>
+        <inertia>
+          <ixx>2.0e-06</ixx>
+          <iyy>8.30e-04</iyy>
+          <!-- thin-plate: izz = ixx + iyy. gz rejects the whole model if
+               izz > ixx + iyy (triangle inequality), so keep it at/below. -->
+          <izz>8.30e-04</izz>
+        </inertia>
+      </inertial>
+      <visual name="rotor_2_visual">
+        <pose>-0.036 -0.240 -0.018 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1.385 1.385 1.385</scale>
+            <uri>model://x500_base/meshes/1345_prop_cw.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.15 0.15 0.15 1</ambient>
+          <diffuse>0.2 0.2 0.2 1</diffuse>
+        </material>
+      </visual>
+      <collision name="rotor_2_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><box><size>0.457 0.028 0.0012</size></box></geometry>
+        <surface>
+          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <friction><ode/></friction>
+        </surface>
+      </collision>
+    </link>
+    <joint name="rotor_2_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>rotor_2</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>-1e+16</lower><upper>1e+16</upper></limit>
+        <dynamics><spring_reference>0</spring_reference><spring_stiffness>0</spring_stiffness></dynamics>
+      </axis>
+    </joint>
+
+    <link name="rotor_3">
+      <gravity>true</gravity>
+      <self_collide>false</self_collide>
+      <velocity_decay/>
+      <pose>-0.433 -0.25 0.09 0 0 0</pose>
+      <inertial>
+        <mass>0.048</mass>
+        <inertia>
+          <ixx>2.0e-06</ixx>
+          <iyy>8.30e-04</iyy>
+          <!-- thin-plate: izz = ixx + iyy. gz rejects the whole model if
+               izz > ixx + iyy (triangle inequality), so keep it at/below. -->
+          <izz>8.30e-04</izz>
+        </inertia>
+      </inertial>
+      <visual name="rotor_3_visual">
+        <pose>-0.036 -0.240 -0.018 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1.385 1.385 1.385</scale>
+            <uri>model://x500_base/meshes/1345_prop_ccw.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.15 0.15 0.15 1</ambient>
+          <diffuse>0.2 0.2 0.2 1</diffuse>
+        </material>
+      </visual>
+      <collision name="rotor_3_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><box><size>0.457 0.028 0.0012</size></box></geometry>
+        <surface>
+          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <friction><ode/></friction>
+        </surface>
+      </collision>
+    </link>
+    <joint name="rotor_3_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>rotor_3</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>-1e+16</lower><upper>1e+16</upper></limit>
+        <dynamics><spring_reference>0</spring_reference><spring_stiffness>0</spring_stiffness></dynamics>
+      </axis>
+    </joint>
+
+    <link name="rotor_4">
+      <gravity>true</gravity>
+      <self_collide>false</self_collide>
+      <velocity_decay/>
+      <pose>0.433 -0.25 0.09 0 0 0</pose>
+      <inertial>
+        <mass>0.048</mass>
+        <inertia>
+          <ixx>2.0e-06</ixx>
+          <iyy>8.30e-04</iyy>
+          <!-- thin-plate: izz = ixx + iyy. gz rejects the whole model if
+               izz > ixx + iyy (triangle inequality), so keep it at/below. -->
+          <izz>8.30e-04</izz>
+        </inertia>
+      </inertial>
+      <visual name="rotor_4_visual">
+        <pose>-0.036 -0.240 -0.018 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1.385 1.385 1.385</scale>
+            <uri>model://x500_base/meshes/1345_prop_ccw.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.15 0.15 0.15 1</ambient>
+          <diffuse>0.2 0.2 0.2 1</diffuse>
+        </material>
+      </visual>
+      <collision name="rotor_4_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><box><size>0.457 0.028 0.0012</size></box></geometry>
+        <surface>
+          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <friction><ode/></friction>
+        </surface>
+      </collision>
+    </link>
+    <joint name="rotor_4_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>rotor_4</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>-1e+16</lower><upper>1e+16</upper></limit>
+        <dynamics><spring_reference>0</spring_reference><spring_stiffness>0</spring_stiffness></dynamics>
+      </axis>
+    </joint>
+
+    <link name="rotor_5">
+      <gravity>true</gravity>
+      <self_collide>false</self_collide>
+      <velocity_decay/>
+      <pose>-0.433 0.25 0.09 0 0 0</pose>
+      <inertial>
+        <mass>0.048</mass>
+        <inertia>
+          <ixx>2.0e-06</ixx>
+          <iyy>8.30e-04</iyy>
+          <!-- thin-plate: izz = ixx + iyy. gz rejects the whole model if
+               izz > ixx + iyy (triangle inequality), so keep it at/below. -->
+          <izz>8.30e-04</izz>
+        </inertia>
+      </inertial>
+      <visual name="rotor_5_visual">
+        <pose>-0.036 -0.240 -0.018 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>1.385 1.385 1.385</scale>
+            <uri>model://x500_base/meshes/1345_prop_cw.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.15 0.15 0.15 1</ambient>
+          <diffuse>0.2 0.2 0.2 1</diffuse>
+        </material>
+      </visual>
+      <collision name="rotor_5_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><box><size>0.457 0.028 0.0012</size></box></geometry>
+        <surface>
+          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <friction><ode/></friction>
+        </surface>
+      </collision>
+    </link>
+    <joint name="rotor_5_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>rotor_5</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>-1e+16</lower><upper>1e+16</upper></limit>
+        <dynamics><spring_reference>0</spring_reference><spring_stiffness>0</spring_stiffness></dynamics>
+      </axis>
+    </joint>
+  </model>
+</sdf>

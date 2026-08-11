@@ -1,0 +1,231 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  EFT X6100 hexacopter, flyable AAVC config = frame + 6 motors + nadir camera.
+  Spawned by the PX4 posix airframe 22000_gz_eft_x6100 (PX4_SIM_MODEL=eft_x6100).
+
+  Motor plugin motorNumber N consumes Actuators.velocity[N], which PX4 fills from
+  output channel N = Motor N+1 via SIM_GZ_EC_FUNC(N+1)=101+N. The rotor link
+  positions and spin directions are in eft_x6100_base/model.sdf and mirror the
+  real 6X's CA_ROTOR* table (airframe 6001) — read that header before touching
+  either file, and change both together.
+
+  Rotor aero is fitted to the MANUFACTURER BENCH TABLE for the EFT E5
+  (5008/335KV on an 18x6.5" prop, 24 V) reproduced in Power-System-Guide-1.pdf:
+  3,838 g at 100 % throttle => F_max = 37.65 N per motor, so
+  motorConstant = 37.65 / 1000^2 = 3.765e-5 N/(rad/s)^2.
+  Sanity: 8.22 kg AUW (two 6S 7500 mAh packs in parallel, 2026-07-25) needs
+  13.44 N per motor => 597 rad/s, and total thrust 226 N gives T/W 2.80
+  against the document's 23 kg / 8.22 kg = 2.80.
+
+  THROTTLE AXIS: the airframe pins SIM_GZ_EC_MIN = 150, so PX4's throttle maps to
+  omega as w = 150 + 850*t, NOT through the origin. The hover point above
+  therefore sits at throttle 0.53 (which is what MPC_THR_HOVER is set to), not at
+  the 0.597 a through-origin map would give — a 13 % difference, so re-derive
+  against 150+850t or the number will be wrong. Forcing EC_MIN to 0 to make the
+  sim and bench throttle axes agree was tried and REVERTED: with no idle floor
+  the motors sit at zero after arming and the aircraft never spools up. See the
+  airframe file's own header, which owns this decision.
+
+  NADIR camera: same contract as the retired x500_mono_cam — link pitched +pi/2
+  so the optical axis looks straight DOWN, gz topic `camera`, 1280x720 @ 15 Hz.
+  At the KMUTNB 4 m sweep the 400 mm marker is ~54 px — decodes trivially
+  (the old 12 m/18 px booster regime is gone). It is the SOLE control-authority
+  sensor.
+  Mount height (KMUTNB spec 2026-08-11): the REAL aircraft carries the camera
+  and the rangefinder 0.25 m below the CG, so camera_link sits at z=-0.25 —
+  matching eft_x6100_base's lidar_sensor_link. This SUPERSEDES the old
+  "z=-0.02, do NOT lower it further" rule: a landed base_link sits ~0.298 m up,
+  so the lens parks at ~0.048 m AGL — still above the 0.02 m near-clip, but a
+  worst-case contact sink could dip it under the ground visual WHILE PARKED.
+  Harmless: vision is inactive in TAKEOFF/LAND phases, and in flight the view
+  is clear (the payload rack bottoms are level with the lens plane, nothing
+  extends below it — see the world file's belly-cargo derivation).
+-->
+<sdf version='1.9'>
+  <model name='eft_x6100'>
+    <include merge='true'>
+      <uri>eft_x6100_base</uri>
+    </include>
+
+    <plugin filename="gz-sim-multicopter-motor-model-system" name="gz::sim::systems::MulticopterMotorModel">
+      <jointName>rotor_0_joint</jointName>
+      <linkName>rotor_0</linkName>
+      <turningDirection>cw</turningDirection>
+      <timeConstantUp>0.02</timeConstantUp>
+      <timeConstantDown>0.04</timeConstantDown>
+      <maxRotVelocity>1000.0</maxRotVelocity>
+      <motorConstant>3.765e-05</motorConstant>
+      <momentConstant>0.02</momentConstant>
+      <commandSubTopic>command/motor_speed</commandSubTopic>
+      <motorNumber>0</motorNumber>
+      <rotorDragCoefficient>1.75e-04</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+    <plugin filename="gz-sim-multicopter-motor-model-system" name="gz::sim::systems::MulticopterMotorModel">
+      <jointName>rotor_1_joint</jointName>
+      <linkName>rotor_1</linkName>
+      <turningDirection>ccw</turningDirection>
+      <timeConstantUp>0.02</timeConstantUp>
+      <timeConstantDown>0.04</timeConstantDown>
+      <maxRotVelocity>1000.0</maxRotVelocity>
+      <motorConstant>3.765e-05</motorConstant>
+      <momentConstant>0.02</momentConstant>
+      <commandSubTopic>command/motor_speed</commandSubTopic>
+      <motorNumber>1</motorNumber>
+      <rotorDragCoefficient>1.75e-04</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+    <plugin filename="gz-sim-multicopter-motor-model-system" name="gz::sim::systems::MulticopterMotorModel">
+      <jointName>rotor_2_joint</jointName>
+      <linkName>rotor_2</linkName>
+      <turningDirection>cw</turningDirection>
+      <timeConstantUp>0.02</timeConstantUp>
+      <timeConstantDown>0.04</timeConstantDown>
+      <maxRotVelocity>1000.0</maxRotVelocity>
+      <motorConstant>3.765e-05</motorConstant>
+      <momentConstant>0.02</momentConstant>
+      <commandSubTopic>command/motor_speed</commandSubTopic>
+      <motorNumber>2</motorNumber>
+      <rotorDragCoefficient>1.75e-04</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+    <plugin filename="gz-sim-multicopter-motor-model-system" name="gz::sim::systems::MulticopterMotorModel">
+      <jointName>rotor_3_joint</jointName>
+      <linkName>rotor_3</linkName>
+      <turningDirection>ccw</turningDirection>
+      <timeConstantUp>0.02</timeConstantUp>
+      <timeConstantDown>0.04</timeConstantDown>
+      <maxRotVelocity>1000.0</maxRotVelocity>
+      <motorConstant>3.765e-05</motorConstant>
+      <momentConstant>0.02</momentConstant>
+      <commandSubTopic>command/motor_speed</commandSubTopic>
+      <motorNumber>3</motorNumber>
+      <rotorDragCoefficient>1.75e-04</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+    <plugin filename="gz-sim-multicopter-motor-model-system" name="gz::sim::systems::MulticopterMotorModel">
+      <jointName>rotor_4_joint</jointName>
+      <linkName>rotor_4</linkName>
+      <turningDirection>ccw</turningDirection>
+      <timeConstantUp>0.02</timeConstantUp>
+      <timeConstantDown>0.04</timeConstantDown>
+      <maxRotVelocity>1000.0</maxRotVelocity>
+      <motorConstant>3.765e-05</motorConstant>
+      <momentConstant>0.02</momentConstant>
+      <commandSubTopic>command/motor_speed</commandSubTopic>
+      <motorNumber>4</motorNumber>
+      <rotorDragCoefficient>1.75e-04</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+    <plugin filename="gz-sim-multicopter-motor-model-system" name="gz::sim::systems::MulticopterMotorModel">
+      <jointName>rotor_5_joint</jointName>
+      <linkName>rotor_5</linkName>
+      <turningDirection>cw</turningDirection>
+      <timeConstantUp>0.02</timeConstantUp>
+      <timeConstantDown>0.04</timeConstantDown>
+      <maxRotVelocity>1000.0</maxRotVelocity>
+      <motorConstant>3.765e-05</motorConstant>
+      <momentConstant>0.02</momentConstant>
+      <commandSubTopic>command/motor_speed</commandSubTopic>
+      <motorNumber>5</motorNumber>
+      <rotorDragCoefficient>1.75e-04</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+
+    <link name="camera_link">
+      <pose>0 0 -0.25 0 1.5708 0</pose>
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.050</mass>
+        <inertia>
+          <ixx>0.00004</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.00004</iyy>
+          <iyz>0</iyz>
+          <izz>0.00004</izz>
+        </inertia>
+      </inertial>
+      <sensor name="imager" type="camera">
+        <pose>0 0 0 0 0 0</pose>
+        <camera>
+          <horizontal_fov>1.74</horizontal_fov>
+          <image>
+            <width>1280</width>
+            <height>720</height>
+          </image>
+          <clip>
+            <near>0.02</near>
+            <far>3000</far>
+          </clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>15</update_rate>
+        <visualize>true</visualize>
+        <topic>camera</topic>
+      </sensor>
+      <gravity>true</gravity>
+      <velocity_decay/>
+    </link>
+    <joint name="CameraJoint" type="fixed">
+      <parent>base_link</parent>
+      <child>camera_link</child>
+    </joint>
+
+    <!-- Cargo payloads (Task 10): base_link <-> cargo_payload_N, one
+         DetachableJoint per box, N in 0..3. The four cargo_payload_N models
+         are pre-placed in the belly by sitl/worlds/aavc_field.sdf so each
+         joint binds the instant PX4 spawns this aircraft there.
+
+         Tier 1 (in flight, no extra code): each ~90 g box rides as dead
+         weight through its joint constraint and loads the flight dynamics
+         for as long as it stays attached — gz's physics solver carries it,
+         nothing here has to inject mass separately.
+
+         Tier 2 (release): publishing an Empty message on a plugin's
+         <detach_topic> breaks THAT joint only, so the box falls free onto
+         the pad — sitl/payload_detach_bridge.py (Task 11) fires this from
+         the flight core's own DELIVERY k RELEASE payload=N audit line, so
+         the SITL drop needs no change to the flight core. -->
+    <plugin filename="gz-sim-detachable-joint-system"
+            name="gz::sim::systems::DetachableJoint">
+      <parent_link>base_link</parent_link>
+      <child_model>cargo_payload_0</child_model>
+      <child_link>payload</child_link>
+      <detach_topic>/model/eft_x6100/detach_payload_0</detach_topic>
+    </plugin>
+    <plugin filename="gz-sim-detachable-joint-system"
+            name="gz::sim::systems::DetachableJoint">
+      <parent_link>base_link</parent_link>
+      <child_model>cargo_payload_1</child_model>
+      <child_link>payload</child_link>
+      <detach_topic>/model/eft_x6100/detach_payload_1</detach_topic>
+    </plugin>
+    <plugin filename="gz-sim-detachable-joint-system"
+            name="gz::sim::systems::DetachableJoint">
+      <parent_link>base_link</parent_link>
+      <child_model>cargo_payload_2</child_model>
+      <child_link>payload</child_link>
+      <detach_topic>/model/eft_x6100/detach_payload_2</detach_topic>
+    </plugin>
+    <plugin filename="gz-sim-detachable-joint-system"
+            name="gz::sim::systems::DetachableJoint">
+      <parent_link>base_link</parent_link>
+      <child_model>cargo_payload_3</child_model>
+      <child_link>payload</child_link>
+      <detach_topic>/model/eft_x6100/detach_payload_3</detach_topic>
+    </plugin>
+  </model>
+</sdf>

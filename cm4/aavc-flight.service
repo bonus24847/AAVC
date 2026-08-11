@@ -1,0 +1,29 @@
+# AAVC onboard flight stack — OPTIONAL systemd unit for the CM4 companion.
+# Convenience for process management + journald logging. Install:
+#   sudo cp cm4/aavc-flight.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl start aavc-flight        # start a run; logs: journalctl -u aavc-flight -f
+#   sudo systemctl stop  aavc-flight        # tear the stack down
+#
+# SAFETY: do NOT `systemctl enable` this — auto-start on boot + HEADLESS would
+# auto-arm and auto-fly the mission on power-up. Start it MANUALLY, deliberately,
+# when the aircraft is ready. Restart=no so a finished mission never re-flies.
+# Edit User=, WorkingDirectory=, and the Environment= knobs for your CM4. Defaults
+# to the bench-safe path (dashboard up, operator GO required); set Environment=HEADLESS=1
+# only for an unattended field run (auto-GO when preflight criticals pass).
+[Unit]
+Description=AAVC onboard flight stack (mavlink-router + camera grabber + orchestrator)
+After=multi-user.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/AAVC
+Environment=SERIAL=/dev/ttyACM0
+Environment=BACKEND=v4l2
+# Environment=HEADLESS=1            # uncomment ONLY for unattended field auto-GO
+ExecStart=/usr/bin/env bash cm4/launch_flight.sh
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

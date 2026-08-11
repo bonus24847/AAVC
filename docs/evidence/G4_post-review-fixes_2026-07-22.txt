@@ -1,0 +1,21 @@
+OK   889 telemetry samples, 4 sorties started, 4 releases
+OK   altitude: max 19.73 m ≤ 20.5 m
+OK   transit altitude: 100% of 235 post-capture samples within [18.8, 20.5] m
+OK   search floor: no sub-10 m flight outside the delivery descent
+OK   airspace: whole armed track inside the geofence
+OK   no-fly: track clear of zone 0
+OK   sortie 1: transit P1→P2→P3 / P3→P2→P1 all passed in order
+OK   sortie 2: transit P1→P2→P3 / P3→P2→P1 all passed in order
+OK   sortie 3: transit P1→P2→P3 / P3→P2→P1 all passed in order
+OK   sortie 4: transit P1→P2→P3 / P3→P2→P1 all passed in order
+OK   sortie 1: released 0.21 m from truth pad 5 centre ✓ (id correct)
+OK   sortie 2: released 0.25 m from truth pad 3 centre ✓ (id correct)
+OK   sortie 3: released 0.16 m from truth pad 4 centre ✓ (id correct)
+OK   sortie 4: released 0.19 m from truth pad 6 centre ✓ (id correct)
+OK   sortie 1: landed 2.7 m from the L&R point
+OK   sortie 2: landed 2.7 m from the L&R point
+OK   sortie 3: landed 2.6 m from the L&R point
+OK   sortie 4: landed 2.7 m from the L&R point
+OK   timing: 888 s elapsed ≤ 1200 s window
+
+drone-response verification: PASS (19 checks ok, 0 warnings)

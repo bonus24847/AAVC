@@ -1,0 +1,35 @@
+<?xml version="1.0" ?>
+<!-- KMUTNB sky-field satellite ground patch (Google z20 imagery, fetched and
+     stitched by tools/fetch_sat.py). Plane size/pose and the georeference all
+     come from tools/gen_geo.py: 250 (east) x 220 (north) m centred on the
+     pitch centre circle, world ENU (-14.17, +19.37) about the L&R origin
+     13.8224940 / 100.5122771 (see worlds/kmutnb_skyfield.sdf). North-up, no
+     yaw: image width -> +X (east), height -> +Y (north). Visual only - it
+     sits a hair above the plain ground_plane, which keeps the collision.
+     KEEP IN SYNC: this <size> == fetch_sat PLANE_W/PLANE_H == the include
+     pose in the world file. Re-run fetch_sat.py + clear ~/.gz after moving. -->
+<sdf version="1.9">
+  <model name="ground_sat">
+    <static>true</static>
+    <link name="link">
+      <visual name="visual">
+        <cast_shadows>false</cast_shadows>
+        <geometry>
+          <plane><normal>0 0 1</normal><size>250 220</size></plane>
+        </geometry>
+        <material>
+          <ambient>1 1 1 1</ambient>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+          <pbr>
+            <metal>
+              <albedo_map>materials/textures/sat_real.png</albedo_map>
+              <metalness>0</metalness>
+              <roughness>1</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

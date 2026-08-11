@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.key
+secrets/
+
+# Sim artifacts
+sitl/.PX4_build/
+sitl/logs/
+sitl/sessions/
+sitl/targets_ground_truth.json
+*.ulog
+*.bag
+*.mcap
+
+# Generated run artifacts (audit logs, captures)
+runs/
+logs/
+
+# Reference literature (large PDFs; recoverable from the publishers) + LaTeX build
+paper/
+proposal_latex/build/
+
+# Model weights (we ship classical CV only — nothing should land here)
+*.pt
+*.onnx
+
+# Node / dashboard build outputs
+dashboard/web/node_modules/
+dashboard/web/dist/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Stray spreadsheet copies (keep local, do not track)
+*(Copy).xlsx

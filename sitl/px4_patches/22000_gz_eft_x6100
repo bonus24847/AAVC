@@ -1,0 +1,107 @@
+#!/bin/sh
+#
+# @name Gazebo EFT X6100 hexacopter (AAVC 2026)
+#
+# @type Hexarotor x
+#
+# AAVC-added airframe (not upstream). The CA_ROTOR* table below mirrors the real
+# aircraft's PX4 6001 "Generic Hexarotor X" allocation, read off the Pixhawk 6X
+# on 2026-07-22 and scaled from the normalised 0.5 arm to the X6100's documented
+# 0.500 m arm radius (1,000 mm wheelbase, Power-System-Guide-1.pdf), so SITL and
+# the real bird allocate identically.
+# What is matched to the real aircraft is THRUST vs WEIGHT, not the throttle
+# number: the sim maps throttle to rotor speed as w = 150 + 850t, which is not
+# the EFT ESC's own curve, so the throttle at which the model hovers (0.48) is
+# not the 0.56 the bench table reports. Peak thrust (37.65 N/motor) and
+# thrust-to-weight (3.21) are exact, which is what the flight behaviour depends
+# on. Setting EC_MIN to 0 to force the two throttle axes to agree was tried and
+# reverted: with no idle floor the motors sit at zero after arming and the
+# aircraft never spools up.
+# The matching Gazebo model lives in the AAVC repo: sitl/models/eft_x6100.
+#
+
+. ${R}etc/init.d/rc.mc_defaults
+
+PX4_SIMULATOR=${PX4_SIMULATOR:=gz}
+PX4_GZ_WORLD=${PX4_GZ_WORLD:=default}
+PX4_SIM_MODEL=${PX4_SIM_MODEL:=eft_x6100}
+
+param set-default SIM_GZ_EN 1
+
+# rc.mc_defaults sets MAV_TYPE 2 (quad); hexarotor is 13.
+param set-default MAV_TYPE 13
+
+param set-default CA_AIRFRAME 0
+param set-default CA_ROTOR_COUNT 6
+
+param set-default CA_ROTOR0_PX 0.0
+param set-default CA_ROTOR0_PY 0.50
+param set-default CA_ROTOR0_KM -0.05
+
+param set-default CA_ROTOR1_PX 0.0
+param set-default CA_ROTOR1_PY -0.50
+param set-default CA_ROTOR1_KM 0.05
+
+param set-default CA_ROTOR2_PX 0.433
+param set-default CA_ROTOR2_PY -0.25
+param set-default CA_ROTOR2_KM -0.05
+
+param set-default CA_ROTOR3_PX -0.433
+param set-default CA_ROTOR3_PY 0.25
+param set-default CA_ROTOR3_KM 0.05
+
+param set-default CA_ROTOR4_PX 0.433
+param set-default CA_ROTOR4_PY 0.25
+param set-default CA_ROTOR4_KM 0.05
+
+param set-default CA_ROTOR5_PX -0.433
+param set-default CA_ROTOR5_PY -0.25
+param set-default CA_ROTOR5_KM -0.05
+
+param set-default SIM_GZ_EC_FUNC1 101
+param set-default SIM_GZ_EC_FUNC2 102
+param set-default SIM_GZ_EC_FUNC3 103
+param set-default SIM_GZ_EC_FUNC4 104
+param set-default SIM_GZ_EC_FUNC5 105
+param set-default SIM_GZ_EC_FUNC6 106
+
+param set-default SIM_GZ_EC_MIN1 150
+param set-default SIM_GZ_EC_MIN2 150
+param set-default SIM_GZ_EC_MIN3 150
+param set-default SIM_GZ_EC_MIN4 150
+param set-default SIM_GZ_EC_MIN5 150
+param set-default SIM_GZ_EC_MIN6 150
+
+param set-default SIM_GZ_EC_MAX1 1000
+param set-default SIM_GZ_EC_MAX2 1000
+param set-default SIM_GZ_EC_MAX3 1000
+param set-default SIM_GZ_EC_MAX4 1000
+param set-default SIM_GZ_EC_MAX5 1000
+param set-default SIM_GZ_EC_MAX6 1000
+
+# 8.22 kg AUW (two 6S 7500 mAh packs in parallel since 2026-07-25) needs
+# 13.44 N per motor; at kf 3.765e-5 that is w=597 rad/s, i.e. throttle 0.53 on
+# this sim's 150..1000 mapping. T/W 2.80 either way. Was 0.48 at 7.17 kg.
+param set-default MPC_THR_HOVER 0.53
+param set-default NAV_DLL_ACT 2
+
+# ---------------------------------------------------------------------------
+# AAVC payload-release servos (KMUTNB sky-field mission, 2026-08-11).
+# PX4 has no MAV_CMD_DO_SET_SERVO handler; releases use MAV_CMD_DO_SET_ACTUATOR
+# (187) -> FunctionActuatorSet -> output function Peripheral_via_Actuator_Set N
+# (301..306). Mapped onto the gz servo channels so each command is visible on
+# the gz topic /model/eft_x6100/servo_<n-1> (gz.msgs.Double, radians) where
+# sitl/payload_detach_bridge.py --servo turns it into a DetachableJoint detach.
+# Disarmed/failsafe pinned to 100 (= hold): a failsafe must never drop cargo.
+param set-default SIM_GZ_SV_FUNC1 301
+param set-default SIM_GZ_SV_FUNC2 302
+param set-default SIM_GZ_SV_FUNC3 303
+param set-default SIM_GZ_SV_FUNC4 304
+param set-default SIM_GZ_SV_DIS1 100
+param set-default SIM_GZ_SV_DIS2 100
+param set-default SIM_GZ_SV_DIS3 100
+param set-default SIM_GZ_SV_DIS4 100
+param set-default SIM_GZ_SV_FAIL1 100
+param set-default SIM_GZ_SV_FAIL2 100
+param set-default SIM_GZ_SV_FAIL3 100
+param set-default SIM_GZ_SV_FAIL4 100

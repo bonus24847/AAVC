@@ -1,0 +1,36 @@
+<?xml version="1.0" ?>
+<!-- Primitive house: tan box walls (6x5x3) + dark-red roof slab. Static
+     scenery placed OUTSIDE the field perimeter. -->
+<sdf version="1.9">
+  <model name="house">
+    <static>true</static>
+    <link name="link">
+      <visual name="walls">
+        <pose>0 0 1.5 0 0 0</pose>
+        <geometry>
+          <box><size>6 5 3</size></box>
+        </geometry>
+        <material>
+          <ambient>0.78 0.72 0.58 1</ambient>
+          <diffuse>0.88 0.82 0.66 1</diffuse>
+        </material>
+      </visual>
+      <visual name="roof">
+        <pose>0 0 3.35 0 0 0</pose>
+        <geometry>
+          <box><size>6.6 5.6 0.8</size></box>
+        </geometry>
+        <material>
+          <ambient>0.45 0.13 0.10 1</ambient>
+          <diffuse>0.60 0.17 0.13 1</diffuse>
+        </material>
+      </visual>
+      <collision name="col">
+        <pose>0 0 1.75 0 0 0</pose>
+        <geometry>
+          <box><size>6.6 5.6 3.5</size></box>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,492 @@
+@import "tailwindcss";
+
+/*
+ * AAVC GCS — "Calm Precision" operational theme
+ * ---------------------------------------------------------------------------
+ * Refined dark mission-control aesthetic: a quiet near-black field with faint
+ * depth, hairline-machined panels, and big tabular numerics. Colour is RESERVED
+ * for status — most of the UI is calm neutral so the few coloured things (a
+ * critical battery, an ARMED chip, an ABORT button) pop instantly.
+ *
+ *   - IBM Plex Sans  — UI labels, buttons, headings (NOT a stylised face;
+ *                      readability first — a previous build's geometric display
+ *                      font turned A→△ / V→∇ and was unreadable in flight)
+ *   - IBM Plex Mono  — every number, command verb, and log line (tabular figures)
+ *
+ * Severity language (unchanged — widgets key off these tiers):
+ *   RED critical · AMBER warning · YELLOW caution · GREEN nominal · CYAN info.
+ * Surfaces step down in depth: body → panel → inset. Class + CSS-var names are
+ * a stable contract the widgets depend on; only the styling here is refined.
+ */
+
+@theme {
+  /* Severity palette — numeric hex (grep-able), kept as the widget contract. */
+  --color-aavc-critical:       #ff5169;       /* signal red    */
+  --color-aavc-critical-bg:    #3b0a13;
+  --color-aavc-warning:        #ffab2e;       /* amber         */
+  --color-aavc-warning-bg:     #3a1f04;
+  --color-aavc-caution:        #ffd43b;       /* yellow        */
+  --color-aavc-caution-bg:     #372806;
+  --color-aavc-nominal:        #34d399;       /* calm green    */
+  --color-aavc-nominal-bg:     #04261d;
+  --color-aavc-info:           #38d4ee;       /* cyan          */
+  --color-aavc-info-bg:        #042b38;
+
+  /* Surface depths — deep blue-black body, raised panels, insets. */
+  --color-aavc-body:           #070b15;
+  --color-aavc-panel:          #0d1322;
+  --color-aavc-panel-2:        #161f33;
+  --color-aavc-panel-3:        #233048;
+
+  --color-aavc-border:         #1b2640;
+  --color-aavc-border-hot:     #2c3a58;
+
+  /* Text shades. */
+  --color-aavc-ink:            #eef2f9;
+  --color-aavc-ink-2:          #c4cee0;
+  --color-aavc-ink-dim:        #8694ad;
+  --color-aavc-ink-mute:       #5a6880;
+
+  /* Single interactive accent (focus rings, active affordances). */
+  --color-aavc-accent:         #38d4ee;
+}
+
+/* ---------- base + atmosphere ---------- */
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+}
+
+html {
+  color: var(--color-aavc-ink);
+  font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Quiet depth: a cool glow up top + a barely-there grid. Not flashy — it just
+   stops the dark field from reading as flat black under the panels. */
+body {
+  background-color: var(--color-aavc-body);
+  background-image:
+    radial-gradient(120% 80% at 50% -20%, #11203a 0%, rgba(17, 32, 58, 0) 60%),
+    linear-gradient(0deg, #05080f 0%, var(--color-aavc-body) 40%),
+    linear-gradient(var(--color-aavc-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-aavc-border) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+  background-position: 0 0, 0 0, -1px -1px, -1px -1px;
+  background-attachment: fixed;
+}
+/* Fade the grid so it's a texture, not a chart. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(110% 90% at 50% 0%, transparent 30%, var(--color-aavc-body) 88%);
+  z-index: 0;
+}
+#app { position: relative; z-index: 1; }
+
+.font-mono,
+.aavc-num,
+.mono {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+/* ---------- panel chrome ---------- */
+
+.aavc-panel {
+  position: relative;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 2.5%, transparent) 0%, transparent 64px),
+    var(--color-aavc-panel);
+  border: 1px solid var(--color-aavc-border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, #fff 4%, transparent) inset,
+              0 8px 24px -16px rgba(0, 0, 0, 0.8);
+}
+
+.aavc-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 15px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--color-aavc-ink-dim);
+  border-bottom: 1px solid var(--color-aavc-border);
+  flex-shrink: 0;
+}
+/* A small accent tick before the title — a quiet "machined" mark. */
+.aavc-panel-header > span:first-child::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 11px;
+  margin-right: 9px;
+  vertical-align: -1px;
+  border-radius: 2px;
+  background: var(--color-aavc-accent);
+  opacity: 0.85;
+}
+
+.aavc-panel-body {
+  padding: 14px 15px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ---------- chips (severity-led) ---------- */
+
+.aavc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--color-aavc-border-hot);
+  background: var(--color-aavc-panel-2);
+  color: var(--color-aavc-ink-2);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.aavc-chip-critical {
+  color: var(--color-aavc-critical);
+  background: color-mix(in srgb, var(--color-aavc-critical) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-aavc-critical) 50%, transparent);
+}
+.aavc-chip-warning {
+  color: var(--color-aavc-warning);
+  background: color-mix(in srgb, var(--color-aavc-warning) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-aavc-warning) 50%, transparent);
+}
+.aavc-chip-caution {
+  color: var(--color-aavc-caution);
+  background: color-mix(in srgb, var(--color-aavc-caution) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-aavc-caution) 50%, transparent);
+}
+.aavc-chip-nominal {
+  color: var(--color-aavc-nominal);
+  background: color-mix(in srgb, var(--color-aavc-nominal) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-aavc-nominal) 50%, transparent);
+}
+.aavc-chip-info {
+  color: var(--color-aavc-info);
+  background: color-mix(in srgb, var(--color-aavc-info) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-aavc-info) 50%, transparent);
+}
+
+.aavc-chip-armed {
+  color: #fff;
+  background: color-mix(in srgb, var(--color-aavc-critical) 30%, transparent);
+  border-color: var(--color-aavc-critical);
+  animation: aavc-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes aavc-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-aavc-critical) 55%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-aavc-critical) 0%, transparent); }
+}
+
+/* ---------- readouts (big telemetry numbers) ---------- */
+
+.aavc-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 0;
+}
+
+.aavc-readout-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--color-aavc-ink-mute);
+}
+
+.aavc-readout-value {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+  font-weight: 600;
+  font-size: 24px;
+  letter-spacing: -0.01em;
+  color: var(--color-aavc-ink);
+  line-height: 1.05;
+}
+
+.aavc-readout-value.size-lg { font-size: 33px; letter-spacing: -0.02em; }
+.aavc-readout-value.size-sm { font-size: 17px; }
+
+.aavc-readout-unit {
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--color-aavc-ink-mute);
+  margin-left: 5px;
+}
+
+.aavc-readout-value.tier-critical { color: var(--color-aavc-critical); }
+.aavc-readout-value.tier-warning  { color: var(--color-aavc-warning);  }
+.aavc-readout-value.tier-caution  { color: var(--color-aavc-caution);  }
+.aavc-readout-value.tier-nominal  { color: var(--color-aavc-nominal);  }
+.aavc-readout-value.tier-info     { color: var(--color-aavc-info);     }
+
+/* ---------- buttons ---------- */
+
+.aavc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 15px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-aavc-ink);
+  background: linear-gradient(180deg, var(--color-aavc-panel-2), color-mix(in srgb, var(--color-aavc-panel-2) 70%, #000));
+  border: 1px solid var(--color-aavc-border-hot);
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 90ms ease-out, border-color 90ms ease-out, transform 60ms ease-out;
+  min-height: 40px;
+}
+
+.aavc-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--color-aavc-panel-3), var(--color-aavc-panel-2));
+  border-color: var(--color-aavc-ink-mute);
+}
+
+.aavc-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.aavc-btn:focus-visible {
+  outline: none;
+  border-color: var(--color-aavc-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-aavc-accent) 28%, transparent);
+}
+
+.aavc-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  filter: saturate(0.35);
+}
+
+.aavc-btn-primary {
+  color: #04130d;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-aavc-nominal) 92%, #fff), var(--color-aavc-nominal));
+  border-color: color-mix(in srgb, var(--color-aavc-nominal) 70%, #000);
+  text-shadow: 0 1px 0 color-mix(in srgb, #fff 30%, transparent);
+}
+.aavc-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: #fff;
+}
+
+.aavc-btn-warning {
+  color: #1a0f00;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-aavc-warning) 92%, #fff), var(--color-aavc-warning));
+  border-color: color-mix(in srgb, var(--color-aavc-warning) 70%, #000);
+}
+.aavc-btn-warning:hover:not(:disabled) { filter: brightness(1.07); }
+
+.aavc-btn-danger {
+  color: #ffdfe4;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-aavc-critical) 22%, var(--color-aavc-critical-bg)), var(--color-aavc-critical-bg));
+  border-color: var(--color-aavc-critical);
+}
+.aavc-btn-danger:hover:not(:disabled) {
+  background: var(--color-aavc-critical);
+  color: #fff;
+  border-color: #fff;
+}
+
+.aavc-btn-ghost {
+  background: transparent;
+  border-color: var(--color-aavc-border);
+  color: var(--color-aavc-ink-dim);
+}
+.aavc-btn-ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, #fff 4%, transparent);
+  color: var(--color-aavc-ink);
+}
+
+/* Big command-bar buttons */
+.aavc-btn-cmd {
+  min-height: 54px;
+  font-size: 14px;
+  padding: 0 18px;
+  letter-spacing: 0.10em;
+  border-radius: 9px;
+}
+
+/* Toggle (Arm-to-command) — large + obvious, red when live */
+.aavc-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.aavc-toggle input { display: none; }
+.aavc-toggle-track {
+  position: relative;
+  width: 52px;
+  height: 26px;
+  background: var(--color-aavc-panel-2);
+  border: 1px solid var(--color-aavc-border-hot);
+  border-radius: 999px;
+  transition: background 180ms ease, border-color 180ms ease;
+}
+.aavc-toggle-track::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 18px;
+  height: 18px;
+  background: var(--color-aavc-ink-mute);
+  border-radius: 50%;
+  transition: left 180ms cubic-bezier(0.6, 0, 0.4, 1), background 180ms ease;
+}
+.aavc-toggle input:checked + .aavc-toggle-track {
+  background: var(--color-aavc-critical);
+  border-color: var(--color-aavc-critical);
+}
+.aavc-toggle input:checked + .aavc-toggle-track::after {
+  left: 28px;
+  background: #ffffff;
+}
+
+/* ---------- inputs ---------- */
+
+.aavc-input {
+  display: block;
+  width: 100%;
+  background: var(--color-aavc-body);
+  border: 1px solid var(--color-aavc-border-hot);
+  color: var(--color-aavc-ink);
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 14px;
+  padding: 9px 11px;
+  border-radius: 8px;
+}
+.aavc-input:focus {
+  outline: none;
+  border-color: var(--color-aavc-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-aavc-accent) 26%, transparent);
+}
+
+/* ---------- modal ---------- */
+
+.aavc-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 6, 14, 0.82);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.aavc-modal {
+  min-width: 420px;
+  max-width: 92vw;
+  background: var(--color-aavc-panel);
+  border: 1px solid var(--color-aavc-border-hot);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 24px 64px -24px rgba(0, 0, 0, 0.9);
+}
+
+.aavc-modal-strip {
+  height: 4px;
+  background: var(--color-aavc-critical);
+}
+
+/* ---------- scrollbar ---------- */
+
+.aavc-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
+.aavc-scroll::-webkit-scrollbar-track { background: transparent; }
+.aavc-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-aavc-panel-3);
+  border-radius: 4px;
+}
+.aavc-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-aavc-ink-mute);
+}
+
+/* ---------- maplibre overrides ---------- */
+
+.maplibregl-canvas { outline: none; }
+.maplibregl-ctrl-attrib-inner a:last-of-type { display: none; }
+
+.maplibregl-ctrl-attrib {
+  background: rgba(13, 19, 34, 0.7) !important;
+  color: var(--color-aavc-ink-mute) !important;
+  font-family: "IBM Plex Sans", sans-serif !important;
+  font-size: 9px !important;
+  padding: 2px 6px !important;
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--color-aavc-ink-dim) !important;
+}
+
+.maplibregl-popup-content {
+  background: var(--color-aavc-panel) !important;
+  color: var(--color-aavc-ink) !important;
+  border: 1px solid var(--color-aavc-border-hot) !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  font-family: "IBM Plex Sans", sans-serif !important;
+  font-size: 12px !important;
+}
+.maplibregl-popup-tip {
+  border-top-color: var(--color-aavc-border-hot) !important;
+}
+.maplibregl-popup-close-button {
+  color: var(--color-aavc-ink-dim) !important;
+  font-size: 18px !important;
+  padding: 0 6px !important;
+}
+.maplibregl-popup-close-button:hover {
+  color: var(--color-aavc-ink) !important;
+  background: transparent !important;
+}
+
+.maplibregl-ctrl-group {
+  background: var(--color-aavc-panel) !important;
+  border: 1px solid var(--color-aavc-border) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.maplibregl-ctrl-group button {
+  background: transparent !important;
+  color: var(--color-aavc-ink) !important;
+}
+.maplibregl-ctrl-group button:hover {
+  background: var(--color-aavc-panel-2) !important;
+}
