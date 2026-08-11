@@ -55,6 +55,37 @@ class AuditLog:
         self.path = Path(path) if path is not None else None
         if self.path is not None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._rotate_stale()
+
+    def _rotate_stale(self) -> None:
+        """Rotate a pre-existing audit file aside as ``audit_<mtime>.jsonl``.
+
+        A re-used mission_id used to APPEND run after run into one
+        audit.jsonl, which fed tools/verify_flight.py a concatenation of
+        flights: measured 2026-08-12, a clean 13-check PASS read as 17
+        VIOLATIONS because run A's releases were scored against run B's
+        seeded truth. One file per process keeps every consumer
+        (verify_flight, payload_detach_bridge's EOF tail, the post-flight
+        truth audit) single-run by construction; the rotated copies keep the
+        history. Best-effort like everything here — a failed rename falls
+        back to the old append behaviour rather than raising."""
+        try:
+            if self.path is None or not self.path.exists():
+                return
+            stamp = datetime.fromtimestamp(
+                self.path.stat().st_mtime, tz=timezone.utc
+            ).strftime("%Y%m%dT%H%M%SZ")
+            backup = self.path.with_name(f"audit_{stamp}.jsonl")
+            # A same-second collision only happens on rapid restarts; keep
+            # both by suffixing rather than clobbering the earlier history.
+            n = 1
+            while backup.exists():
+                backup = self.path.with_name(f"audit_{stamp}_{n}.jsonl")
+                n += 1
+            self.path.rename(backup)
+            logger.info(f"[audit] rotated stale audit trail → {backup.name}")
+        except Exception as e:
+            logger.warning(f"[audit] could not rotate stale audit file: {e}")
 
     def record(self, entry: str) -> None:
         if self.path is None:
