@@ -94,6 +94,7 @@ if [ -f "$AAVC_GCS" ]; then
     fi
     /usr/bin/python3 "$AAVC_GCS" --field "$REPO_ROOT/gcs/kmutnb_field.yaml" \
         --captures "$REPO_ROOT/captures" --url udpin:0.0.0.0:14550 \
+        --mission-cmd "'$REPO_ROOT/sitl/run_mission.sh' {ids}" \
         --port "$GCS_PORT" >/tmp/aavc_gcs_console.log 2>&1 &
     echo "[stack] AAVC GCS console → http://127.0.0.1:${GCS_PORT}"
 else
