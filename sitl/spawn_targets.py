@@ -75,10 +75,13 @@ BASELINE_PADS = (
 DEFAULT_N_PADS = 6           # event briefing: 6 pads placed on the field; the
                               # committee assigns 4 per team (sitl.n_pads / --n-pads)
 # KMUTNB: the whole search polygon is 30 x 40 m (the KMITL field was ~220 x
-# 60), so the placement gates scale with it: 12 m separation still exceeds
-# the tracker's serve-dedupe (6 m) and cluster radius (5 m); a 4 m inset
-# keeps a 1 m pad fully inside the polygon with GPS slack.
-MIN_SEPARATION_M = 12.0      # keep pads well apart (also > tracker dedupe radius)
+# 60), so the placement gates scale with it: 10 m separation still comfortably
+# exceeds the tracker's serve-dedupe (6 m) and cluster radius (5 m); a 4 m
+# inset keeps a 1 m pad fully inside the polygon with GPS slack. (12 m was
+# tried first: the rejection sampler could only fit 5/6 pads in the 22 x 32 m
+# effective area — measured live 2026-08-12. The static BASELINE keeps its
+# larger 14.5 m spacing; this bound only gates --seed layouts.)
+MIN_SEPARATION_M = 10.0      # keep pads well apart (also > tracker dedupe radius)
 POLYGON_INSET_M = 4.0        # keep pads off the search-area boundary
 # Every pad name that could ever be spawned (ids 1-6, the full DICT_4X4_50
 # competition set — NOT just DEFAULT_N_PADS or the configured n_pads), so the

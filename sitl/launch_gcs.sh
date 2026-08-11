@@ -127,15 +127,18 @@ echo "  Pads on the field — assignable ArUco ids:  ${IDS:-<none?>}"
 echo "  In the pre-flight card, click ONLY these ids into the"
 echo "  mission queue (in sortie order), then GO once per sortie."
 echo "============================================================"
+# Bridges: venv python + apt dist-packages appended (gz-transport13 is
+# apt-level, cv2 is venv-level on this host — see Makefile BRIDGE_PY).
+BRIDGE_PY=(env PYTHONPATH=/usr/lib/python3/dist-packages "$REPO_ROOT/.venv/bin/python")
 echo "[gcs] starting the camera bridge…"
-/usr/bin/python3 sitl/gz_camera_bridge.py >/tmp/aavc_bridge.log 2>&1 &
+"${BRIDGE_PY[@]}" sitl/gz_camera_bridge.py >/tmp/aavc_bridge.log 2>&1 &
 # Payload-detach bridge in SERVO mode: every release — the orchestrator's
 # autonomous drop_payload AND the AAVC GCS "ปล่อย servo" buttons — arrives as
-# DO_SET_ACTUATOR, shows on gz /model/eft_x6100/servo_0..3, and sheds the
+# DO_SET_ACTUATOR, shows on gz /model/eft_x6100[_0]/servo_0..3, and sheds the
 # matching cargo box. No audit file needed on this path (audit-tail mode
 # remains available: make payload-bridge RUN=runs/<id>/audit.jsonl).
 echo "[gcs] starting the payload-detach bridge (servo mode)…"
-/usr/bin/python3 sitl/payload_detach_bridge.py --servo --model eft_x6100 \
+"${BRIDGE_PY[@]}" sitl/payload_detach_bridge.py --servo --model eft_x6100 \
     >/tmp/aavc_detach.log 2>&1 &
 
 # AAVC GCS console (user-mandated telemetry + manual servo release UI) on

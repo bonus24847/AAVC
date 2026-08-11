@@ -54,10 +54,14 @@ sitl:
 spawn-targets:
 	$(PY) sitl/spawn_targets.py --config sitl/aavc_config.yaml $(if $(SEED),--seed $(SEED))
 
-# Camera bridge runs under SYSTEM python3 because python3-gz-transport is an
-# apt-installed Debian package and is not visible from .venv (pure-pip).
+# Bridges need BOTH worlds: gz-transport13 lives in the apt dist-packages
+# (invisible to the pip venv) while cv2 lives in the venv (this host's system
+# python3 has no python3-opencv). Run them on the venv python with the system
+# dist-packages APPENDED via PYTHONPATH — venv packages still win on conflict,
+# and the scope is just these bridge targets (make test strips PYTHONPATH).
+BRIDGE_PY := env PYTHONPATH=/usr/lib/python3/dist-packages .venv/bin/python
 camera-bridge:
-	/usr/bin/python3 sitl/gz_camera_bridge.py
+	$(BRIDGE_PY) sitl/gz_camera_bridge.py
 
 # OPTIONAL: tails a mission run's audit.jsonl (SYSTEM python3, same reason as
 # camera-bridge above) and publishes gz Empty on /model/<model>/detach_payload_N
@@ -67,14 +71,14 @@ camera-bridge:
 # (required — the mission's own run directory), e.g.
 #   make payload-bridge RUN=runs/aavc_delivery_mission/audit.jsonl
 payload-bridge:
-	/usr/bin/python3 sitl/payload_detach_bridge.py $(RUN) --model eft_x6100
+	$(BRIDGE_PY) sitl/payload_detach_bridge.py $(RUN) --model eft_x6100
 
-# Servo-path variant (KMUTNB): watches /model/eft_x6100/servo_0..3 — the gz
-# side of MAV_CMD_DO_SET_ACTUATOR (orchestrator drop_payload AND the AAVC GCS
-# "ปล่อย servo" buttons) — and sheds the matching cargo box. Combine with the
-# audit tail in one process: RUN=runs/<id>/audit.jsonl make payload-bridge-servo
+# Servo-path variant (KMUTNB): watches /model/eft_x6100[_0]/servo_0..3 — the
+# gz side of MAV_CMD_DO_SET_ACTUATOR (orchestrator drop_payload AND the AAVC
+# GCS "ปล่อย servo" buttons) — and sheds the matching cargo box. Combine with
+# the audit tail in one process: RUN=runs/<id>/audit.jsonl make payload-bridge-servo
 payload-bridge-servo:
-	/usr/bin/python3 sitl/payload_detach_bridge.py $(RUN) --servo --model eft_x6100
+	$(BRIDGE_PY) sitl/payload_detach_bridge.py $(RUN) --servo --model eft_x6100
 
 # AAVC GCS console (~/Desktop/aavc-gcs) against this repo's field file: live
 # telemetry map (leaflet) + geofence/search/transit overlay + the manual

@@ -215,13 +215,20 @@ def _run(audit: Path | None, model: str, poll_s: float, *,
                     _shed(i, f"SERVO {i + 1} angle {msg.data:+.2f} rad")
             return cb
 
-        for i in range(_N_PAYLOADS):
-            topic = f"/model/{model}/servo_{i}"
-            if not node.subscribe(Double, topic, _make_servo_cb(i)):
-                print(f"[detach] WARNING: subscribe failed for {topic}")
-            else:
-                print(f"[detach] watching {topic} "
-                      f"(release at >= {_RELEASE_ANGLE_RAD} rad)")
+        # PX4's gz_bridge names the spawned entity `<PX4_SIM_MODEL>_<instance>`
+        # (observed live 2026-08-12: servo topics at /model/eft_x6100_0/…), so
+        # watch BOTH the bare model name and the instance-0 variant — a
+        # subscription to a topic nobody advertises is harmless, and the
+        # detach PUBLISH side is unaffected (its topic is the literal string
+        # in the DetachableJoint SDF, /model/eft_x6100/detach_payload_N).
+        for name in (model, f"{model}_0"):
+            for i in range(_N_PAYLOADS):
+                topic = f"/model/{name}/servo_{i}"
+                if not node.subscribe(Double, topic, _make_servo_cb(i)):
+                    print(f"[detach] WARNING: subscribe failed for {topic}")
+                else:
+                    print(f"[detach] watching {topic} "
+                          f"(release at >= {_RELEASE_ANGLE_RAD} rad)")
 
     if audit is not None:
         print(f"[detach] bridging {audit} → model={model} "

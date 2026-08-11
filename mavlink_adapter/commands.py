@@ -754,6 +754,12 @@ class DroneCommander:
             import time as _time
 
             from pymavlink import mavutil
+
+            # pymavlink 2.4.49 dropped the MAV_CMD_DO_SET_ACTUATOR name from
+            # its generated enums (checked 2026-08-12) — the command itself is
+            # still perfectly sendable as its raw id, 187.
+            do_set_actuator = getattr(
+                mavutil.mavlink, "MAV_CMD_DO_SET_ACTUATOR", 187)
             mav = mavutil.mavlink_connection(
                 endpoint, source_system=255, source_component=0,
             )
@@ -772,7 +778,7 @@ class DroneCommander:
                     params[actuator_index - 1] = _pwm_to_norm(pwm)
                     mav.mav.command_long_send(
                         tgt_sys, tgt_comp,
-                        mavutil.mavlink.MAV_CMD_DO_SET_ACTUATOR, 0,
+                        do_set_actuator, 0,
                         *params, 0.0,
                     )
                     _time.sleep(0.6)
