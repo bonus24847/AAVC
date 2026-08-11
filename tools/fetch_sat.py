@@ -27,9 +27,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
-
 from gen_geo import GEO, _local_enu_to_latlon
+from PIL import Image
 
 LAT0, LON0 = GEO.lnr_lat, GEO.lnr_lon                 # L&R = world origin
 CENTER_E, CENTER_N = GEO.sat_center_enu               # plane centre (pitch centre)

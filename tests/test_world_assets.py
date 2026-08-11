@@ -18,7 +18,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
-_WORLD = _REPO / "sitl" / "worlds" / "aavc_field.sdf"
+_WORLD = _REPO / "sitl" / "worlds" / "kmutnb_skyfield.sdf"
 _MODEL = _REPO / "sitl" / "models" / "cargo_box" / "model.sdf"
 _MODEL_CONFIG = _REPO / "sitl" / "models" / "cargo_box" / "model.config"
 
@@ -53,11 +53,11 @@ def test_world_includes_four_cargo_boxes_on_the_launch_pad() -> None:
     for inc in includes:
         pose = [float(v) for v in (inc.findtext("pose") or "").split()]
         x, y = pose[0], pose[1]
-        # On the 10x10 m launch pad (spans ±5 in ENU), ≥2 m clear of the (0,0)
-        # spawn, east side (clear of the H-marker bars at |x|<=2) and inside
-        # the corner posts at (±4.5, ±4.5).
-        assert 2.4 <= x <= 4.4, f"{inc.findtext('name')}: x={x}"
-        assert -4.0 <= y <= 4.0, f"{inc.findtext('name')}: y={y}"
+        # On the KMUTNB 6x6 m launch slab (spans ±3 in ENU), ≥2 m clear of the
+        # (0,0) spawn, east side (clear of the H-marker bars at |x|<=2.0) and
+        # inside the corner posts at (±2.8, ±2.8).
+        assert 2.2 <= x <= 2.9, f"{inc.findtext('name')}: x={x}"
+        assert -2.4 <= y <= 2.4, f"{inc.findtext('name')}: y={y}"
 
 
 def test_cargo_box_model_config_exists() -> None:
@@ -352,7 +352,13 @@ def test_belly_cargo_clears_the_nadir_camera_frustum() -> None:
     half_h = _payload_half_extents()[2]
     for name, x, y, z, half_x, half_y in _belly_cargo_boxes():
         depth = cam_z - (z - half_h)          # lens -> box bottom, along -Z
-        assert depth > 0, f"{name} is above the camera"
+        # KMUTNB rack: the camera moved to z=-0.25 (real-aircraft mount) and
+        # the payload boxes hang z -0.25..-0.07 — bottoms level with the lens
+        # plane. A box whose LOWEST face is at/above the lens (depth <= 0)
+        # cannot enter a downward frustum at all; the frustum arithmetic below
+        # still guards any future re-arrangement that dips a box under it.
+        if depth <= 1e-9:
+            continue
         clearance = max(abs(x) - half_x - depth * tan_x,   # fore/aft (narrow)
                         abs(y) - half_y - depth * tan_y)   # lateral (wide)
         assert clearance >= _SENSOR_CLEARANCE_MARGIN_M, (

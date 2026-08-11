@@ -123,7 +123,11 @@ class _FakeAction:
         pass
 
     async def takeoff(self) -> None:
-        self._st["alt"] = 15.0
+        # Arrive AT the profile-derived hold altitude (a literal 15.0 breached
+        # the KMUTNB profile's 4 m abort ceiling the moment the envelope
+        # started scaling with the active profile).
+        from orchestrator.sysid_sweep import DEFAULT_HOLD_ALT_M
+        self._st["alt"] = DEFAULT_HOLD_ALT_M
         self._calls.append("takeoff")
 
     async def hold(self) -> None:
@@ -206,6 +210,7 @@ def _run_stream(alt: float):
     from orchestrator.sysid_sweep import (
         DEFAULT_ALT_CEILING_ABORT_M,
         DEFAULT_ALT_FLOOR_ABORT_M,
+        DEFAULT_HOLD_ALT_M,
         SweepResult,
         _stream_sweep,
         sweep_spec_for,
@@ -215,25 +220,34 @@ def _run_stream(alt: float):
     res = SweepResult(axis="roll")
     return asyncio.run(_stream_sweep(
         _StreamOnlyCommander(), spec, {"alt": alt, "climb": 0.0},
-        target_alt=15.0, alt_floor_m=DEFAULT_ALT_FLOOR_ABORT_M, res=res,
-        alt_ceiling_m=DEFAULT_ALT_CEILING_ABORT_M))
+        target_alt=DEFAULT_HOLD_ALT_M, alt_floor_m=DEFAULT_ALT_FLOOR_ABORT_M,
+        res=res, alt_ceiling_m=DEFAULT_ALT_CEILING_ABORT_M))
 
 
 def test_a_ceiling_abort_says_it_hit_the_ceiling():
     """run_sweep replaces res.detail on every abort, so a climb through the
     ceiling used to read exactly like an offboard rejection — silent on the one
-    failure this guard exists to surface."""
-    ok, why = _run_stream(alt=25.0)
+    failure this guard exists to surface. Altitudes derive from the module's
+    own profile-scaled envelope, not literals, so the test tracks the active
+    profile (competition 20 m OR the KMUTNB 5 m field)."""
+    from orchestrator.sysid_sweep import DEFAULT_ALT_CEILING_ABORT_M
+
+    breach = DEFAULT_ALT_CEILING_ABORT_M + 1.0
+    ok, why = _run_stream(alt=breach)
     assert not ok
-    assert "ceiling" in why and "25.0" in why
+    assert "ceiling" in why and f"{breach:.1f}" in why
 
 
 def test_a_floor_abort_says_it_sank():
-    ok, why = _run_stream(alt=2.0)
+    from orchestrator.sysid_sweep import DEFAULT_ALT_FLOOR_ABORT_M
+
+    ok, why = _run_stream(alt=DEFAULT_ALT_FLOOR_ABORT_M * 0.5)
     assert not ok
     assert "floor" in why
 
 
 def test_a_clean_sweep_reports_no_abort_reason():
-    ok, why = _run_stream(alt=15.0)
+    from orchestrator.sysid_sweep import DEFAULT_HOLD_ALT_M
+
+    ok, why = _run_stream(alt=DEFAULT_HOLD_ALT_M)
     assert ok and why == ""

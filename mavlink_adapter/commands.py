@@ -77,13 +77,12 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     "MC_YAWRATE_MAX": 45.0,     # limit body yaw rate (deg/s); default 200. The hexa's
                                 # Izz dwarfs its yaw authority — it cannot chase 50.
     "MPC_YAWRAUTO_MAX": 25.0,   # gentler auto heading slews (deg/s) — the AUTO yaw cap
-    "MPC_XY_VEL_MAX": 10.0,     # UNLOCK horizontal speed (m/s); default 12. Top of the
-                                # 8-10 band the power-system document specifies — the
-                                # PM03D is 60 A and hover already draws ~29 A.
-    "MPC_XY_CRUISE": 8.0,       # auto cruise speed (m/s) — slower sweep = more frames
-                                # per target = reliable blind discovery, and inside
-                                # what 30 deg of tilt can accelerate to (the
-                                # g*tan(tilt) bound is mass-independent)
+    "MPC_XY_VEL_MAX": 5.0,      # horizontal speed ceiling (m/s); KMUTNB: the longest
+                                # leg is ~52 m and accuracy is the brief — 10 m/s
+                                # buys nothing here and doubles the overshoot.
+    "MPC_XY_CRUISE": 3.0,       # auto cruise speed (m/s) — accuracy-over-speed:
+                                # slower sweep = more frames per target = reliable
+                                # blind discovery + tight leg tracking
     # No arm/disarm cycle per land-and-drop (operator decision 2026-06-11): the
     # vehicle touches down, drops, and takes off again WHILE ARMED. This also pins
     # PX4's home to the LAUNCH point (home is re-captured at every arming — a
@@ -97,13 +96,15 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     # the knob to raise (toward the g*tan(30 deg) = 5.66 ceiling) if the window
     # ever needs time back. MPC_JERK_AUTO does shape AUTO and was the change that
     # took the transit legs off 58% of theoretical.
-    "MPC_ACC_HOR": 3.0,         # THE AUTO horizontal accel cap (m/s²)
+    "MPC_ACC_HOR": 2.0,         # THE AUTO horizontal accel cap (m/s²) — KMUTNB
+                                # accuracy set (3.0 was the KMITL value)
     "MPC_ACC_HOR_MAX": 5.0,     # manual position mode only; PX4 default 5
-    "MPC_JERK_AUTO": 5.0,       # AUTO jerk (m/s³); PX4 default 4 — 3x the mass of
-                                # the old quad spools in and out of cruise slower
-    "NAV_ACC_RAD": 2.0,         # waypoint acceptance radius (m) — less overshoot.
-                                # NOT widened for speed: the aircraft would cut the
-                                # corner at the SCORED transit coordinates.
+    "MPC_JERK_AUTO": 3.0,       # AUTO jerk (m/s³); PX4 default 4 — paired with
+                                # the accel cap for the accuracy profile
+    "NAV_ACC_RAD": 1.0,         # waypoint acceptance radius (m) — KMUTNB: transit
+                                # legs are 10-20 m apart; 2 m would cut visible
+                                # corners at the SCORED transit coordinates.
+                                # mission.py _ARRIVAL_RADIUS_M = this + 1.
     # ── XY position/velocity loop: wind-rejection tune for the land-ON precision
     # (G6 touchdown scatter). MUST mirror sitl/aavc_config.yaml px4_tuning — the
     # config overrides this dict, but a config-absent run falls back HERE, and
@@ -115,29 +116,28 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     # ── descent: FAST high, SLOW low. This is the fast CAP up high; tactical_align
     # steps MPC_Z_VEL_MAX_DN down per rung, then LAND_SPEED crawls the touchdown (no
     # slam — protects airframe + payload servo, stops the SITL model punching through). ──
-    "MPC_Z_VEL_MAX_DN": 3.0,    # MANUAL/offboard descent cap (m/s); default 1.5 — PX4
+    "MPC_Z_VEL_MAX_DN": 1.5,    # MANUAL/offboard descent cap (m/s); default 1.5 — PX4
                                 # reads this only outside AUTO, so it does NOT shape
                                 # the mission's descents. See MPC_Z_V_AUTO_DN below.
     "MPC_Z_V_AUTO_DN": 0.4,     # THE AUTO descent speed (m/s); PX4 default 1.5. The
                                 # validated pad-approach descent — unpinned, a real 6X
                                 # would drop onto the pad 4x faster than anything tested.
                                 # mission.py raises it only for the L&R staged descent.
-    "MPC_Z_VEL_MAX_UP": 2.0,    # cap AUTO climb (m/s; default 3) — 3 overshot to 19.68 m
-                                # under the 20 m ceiling; 2.0 halves the overshoot (~v²)
+    "MPC_Z_VEL_MAX_UP": 1.5,    # cap AUTO climb (m/s; default 3) — overshoot scales
+                                # ~v² and the KMUTNB ceiling sits only 1 m above
+                                # transit, so the band shrinks with the field
     # Takeoff climbs to transit_alt - 2 m and mission.py stages the last 2 m at
-    # 1 m/s, so this sits inside the margin the climb cap was tuned against.
-    # Unpinned it rode the PX4 default 1.5 (measured ~1.0 m/s) — slower than the
-    # 2.0 climb cap that was validated. Never above MPC_Z_VEL_MAX_UP.
-    "MPC_TKO_SPEED": 2.0,       # takeoff climb speed (m/s); PX4 default 1.5
+    # 1 m/s. Never above MPC_Z_VEL_MAX_UP.
+    "MPC_TKO_SPEED": 1.5,       # takeoff climb speed (m/s); PX4 default 1.5
     "MPC_LAND_SPEED": 0.3,      # slow final touchdown (m/s); default 0.7 — NOT raised:
                                 # a global bump made AUTO.LAND climb to 41 m (e02ffa3);
                                 # the L&R descent is staged in mission.py instead
-    "MPC_LAND_ALT1": 10.0,      # start slowing the descent at 10 m AGL
-    "MPC_LAND_ALT2": 5.0,       # final crawl speed below 5 m AGL
+    "MPC_LAND_ALT1": 4.0,       # start slowing the descent at 4 m AGL (5 m band)
+    "MPC_LAND_ALT2": 2.0,       # final crawl speed below 2 m AGL
     # Any failsafe RTL (geofence breach, datalink loss, watchdog) climbs to
     # RTL_RETURN_ALT first — the PX4 default is 60 m, which would smash through
-    # the AAVC 20 m ceiling. Pin it AT the ceiling (rules: transit strictly 20 m).
-    "RTL_RETURN_ALT": 20.0,     # failsafe return altitude (m); PX4 default 60
+    # the KMUTNB 5 m ceiling. Pin it just under the ceiling.
+    "RTL_RETURN_ALT": 4.5,      # failsafe return altitude (m); PX4 default 60
     # Downward rangefinder (Benewake TFmini-S) aids height through the delivery
     # descent and touchdown; 1 is already the 6X default but pin it so a param
     # reset cannot silently drop height aiding. The serial port assignment

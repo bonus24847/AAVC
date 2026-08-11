@@ -99,3 +99,64 @@ def test_lower_sweep_alt_needs_more_legs() -> None:
     lo = build_search_pattern(GEOFENCE, HOME, sweep_alt_m=10.0)
     assert lo.leg_count >= hi.leg_count
     assert lo.swath_m < hi.swath_m
+
+
+# ── axis_deg: rotated-field sweep (KMUTNB sky-field, pitch axis 143.8°) ──────
+# The KMUTNB search polygon is a rectangle rotated ~36° off ENU. The legacy
+# grid sweeps the polygon's ENU bounding box, whose corners fall OUTSIDE such
+# a polygon (and the airspace around it); with axis_deg the identical grid
+# logic runs in the field frame instead. These use the REAL config polygons.
+
+def _kmutnb_cfg():
+    from pathlib import Path
+
+    import yaml
+    repo = Path(__file__).resolve().parents[1]
+    return yaml.safe_load((repo / "sitl" / "aavc_config.yaml").read_text())
+
+
+def test_axis_deg_keeps_every_waypoint_inside_the_rotated_airspace() -> None:
+    cfg = _kmutnb_cfg()
+    sc = cfg["search"]
+    home = Coordinate(lat=cfg["site"]["center_lat"],
+                      lon=cfg["site"]["center_lon"])
+    spec = build_search_pattern(
+        cfg["search_area"], home,
+        sweep_alt_m=float(sc["sweep_alt_m"]),
+        overlap_frac=float(sc["overlap_frac"]),
+        margin_m=float(sc["margin_m"]),
+        speed_mps=float(sc["speed_mps"]),
+        ceiling_m=float(cfg["mission"]["altitude_ceiling_m"]),
+        axis_deg=float(sc["sweep_axis_deg"]),
+    )
+    airspace = [(float(v[0]), float(v[1])) for v in cfg["controlled_airspace"]]
+    for wp in spec.waypoints:
+        assert _point_in_polygon(wp.lat, wp.lon, airspace), (
+            f"waypoint {wp.lat:.7f},{wp.lon:.7f} escaped the rotated airspace")
+
+
+def test_without_axis_deg_the_rotated_field_sweep_would_breach() -> None:
+    """Documents WHY axis_deg exists: on the rotated KMUTNB polygon the legacy
+    ENU-bbox sweep provably leaves the airspace — if this ever starts passing,
+    the fields aren't rotated any more and axis_deg can be retired."""
+    cfg = _kmutnb_cfg()
+    home = Coordinate(lat=cfg["site"]["center_lat"],
+                      lon=cfg["site"]["center_lon"])
+    spec = build_search_pattern(
+        cfg["search_area"], home, sweep_alt_m=4.0, overlap_frac=0.4,
+        margin_m=4.0, speed_mps=3.0, ceiling_m=5.0,
+    )
+    airspace = [(float(v[0]), float(v[1])) for v in cfg["controlled_airspace"]]
+    escaped = sum(
+        0 if _point_in_polygon(wp.lat, wp.lon, airspace) else 1
+        for wp in spec.waypoints)
+    assert escaped > 0
+
+
+def test_axis_deg_none_is_bit_for_bit_legacy() -> None:
+    """axis_deg=None must not perturb the existing ENU-aligned behaviour."""
+    a = build_search_pattern(GEOFENCE, HOME, sweep_alt_m=16.0, overlap_frac=0.3)
+    b = build_search_pattern(GEOFENCE, HOME, sweep_alt_m=16.0, overlap_frac=0.3,
+                             axis_deg=None)
+    assert [(w.lat, w.lon, w.alt_m) for w in a.waypoints] == \
+           [(w.lat, w.lon, w.alt_m) for w in b.waypoints]

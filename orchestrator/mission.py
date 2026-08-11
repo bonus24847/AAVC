@@ -109,7 +109,10 @@ _LAND_STAGE_MIN_MPS = 0.5     # pessimistic sink rate used to size the wait
 # to the pinned MPC_Z_V_AUTO_DN (tests/test_px4_tuning_parity.py): it is the
 # descent the release accuracy was validated at, and it is restored the moment
 # the L&R touchdown is done so the next sortie's pad approach is unchanged.
-_LAND_STAGE_MPS = 2.5         # L&R staged-descent speed (m/s)
+_LAND_STAGE_MPS = 1.5         # L&R staged-descent speed (m/s). KMUTNB: 2.5 ->
+                              # 1.5 — transit is 4 m and _LAND_STAGE_ALT_M is
+                              # 5, so the staged leg is a near-no-op here; keep
+                              # it <= MPC_Z_VEL_MAX_DN (parity test invariant)
 _PAD_DESCENT_MPS = 0.4        # validated pad-approach descent (m/s)
 # Mid-flight per-delivery battery guard: don't START a new descent if the pack
 # is already at/near the FC's low-battery RTL threshold — the FC failsafe would

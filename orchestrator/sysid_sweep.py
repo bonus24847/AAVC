@@ -34,18 +34,24 @@ from mission_brain.profile import load_profile
 _AXES = ("roll", "pitch", "yaw")
 _STREAM_HZ = 50.0
 
-# Altitude envelope — clamped well under the 20 m AGL competition ceiling. The
-# hold altitude gives headroom for the chirp's vertical swing; the floor is an
-# ABSOLUTE abort (a genuine fall toward the ground), not a deviation tolerance.
-DEFAULT_HOLD_ALT_M = 15.0
-DEFAULT_ALT_FLOOR_ABORT_M = 6.0
+# Altitude envelope — every number here derives from the ACTIVE mission
+# profile's ceiling so the tuning tool follows the field it runs on: the KMITL
+# competition profile (ceiling 20) reproduces the validated 15 / 6 / 19 set,
+# while the KMUTNB sky-field profile (ceiling 5) scales the whole envelope
+# into its band (hold 3, floor 1.5, abort 4) instead of commanding a 15 m
+# hover through a 5 m ceiling. The hold altitude gives headroom for the
+# chirp's vertical swing; the floor is an ABSOLUTE abort (a genuine fall
+# toward the ground), not a deviation tolerance.
+_PROFILE_CEILING_M = load_profile().altitude_ceiling_m
+DEFAULT_HOLD_ALT_M = min(15.0, _PROFILE_CEILING_M * 0.6)
+DEFAULT_ALT_FLOOR_ABORT_M = min(6.0, DEFAULT_HOLD_ALT_M * 0.5)
 # The mirror of the floor abort. The original loop only guarded against sinking,
 # but a hover base that over-estimates the aircraft's true hover thrust makes the
-# chirp CLIMB — on a 20 m ceiling that is the more expensive direction to miss.
-# Derived from the mission profile rather than restated: the competition ceiling
-# is the number that moves (a rules revision, a lower practice-site cap), and a
-# literal here would keep aborting at 19 m after it did.
-DEFAULT_ALT_CEILING_ABORT_M = load_profile().altitude_ceiling_m - 1.0
+# chirp CLIMB — the more expensive direction to miss. Derived from the mission
+# profile rather than restated: the ceiling is the number that moves (a rules
+# revision, a lower practice-site cap), and a literal here would keep aborting
+# at the old height after it did.
+DEFAULT_ALT_CEILING_ABORT_M = _PROFILE_CEILING_M - 1.0
 # Altitude-hold collective loop run DURING the chirp. It MUST be well damped: a
 # P+I loop with no velocity damping AND no anti-windup went UNSTABLE in SITL — the
 # chirp perturbed altitude, the integral wound up, and the aircraft oscillated

@@ -57,7 +57,10 @@ def test_align_params_competition_defaults_are_locked() -> None:
 
 def test_egg_release_servo_config_is_locked() -> None:
     c = ConnectionConfig()
-    assert c.drop_servo_channel == 9             # AUX 9 (confirm at G5)
+    # KMUTNB 2026-08-11: base actuator-set index 1 (DO_SET_ACTUATOR 1..4 —
+    # PX4 has no DO_SET_SERVO handler; the old AUX-9 numbering addressed a
+    # command that was never implemented).
+    assert c.drop_servo_channel == 1
     assert c.drop_servo_pwm_release == 1900
     assert c.drop_servo_pwm_hold == 1100
     assert c.drop_payload_count == 1             # one release mechanism → payload_id 0
@@ -91,4 +94,6 @@ def test_shared_envelope_constants() -> None:
     # The touchdown guard is the touchdown threshold (1.5) + 1.0 m frame-drift.
     assert TOUCHDOWN_ALT_GUARD_M == AlignParams().land_alt_threshold_m + 1.0
     assert CEILING_WARN_M == 0.5
-    assert CEILING_BREACH_M == 2.0
+    # KMUTNB: breach band 1.5 (RTH at ceiling+1.5 = 6.5 m on the 5 m field —
+    # proportionate to the small band; 2.0 tolerated a 40%-over hold).
+    assert CEILING_BREACH_M == 1.5
