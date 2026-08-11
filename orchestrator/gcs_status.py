@@ -47,6 +47,27 @@ _R_EARTH_M = 6_378_137.0
 # fails the \d+ and is not shown as a delivered pad.
 _RELEASE = re.compile(r"DELIVERY \d+ RELEASE pad=(?P<pad>\d+)")
 
+# MissionPhase.value -> the console's 4-step mission bar (its phaseIdx() does
+# SUBSTRING matching on [recon, load, deliver, done], so the label carries the
+# raw phase in parentheses for operator detail without breaking the stepper).
+# "load" = eggs aboard / operator GO; the recon steps are the blind sweep; the
+# whole serve-egress-land tail lives under "deliver" (4 steps is the console's
+# vocabulary, not ours). Terminal must be EXACTLY "done" — the console stops
+# its mission clock only on that exact string (MCLOCK.done check).
+_STEP_OF = {
+    "preflight": "load",
+    "takeoff": "recon",
+    "transit_ingress": "recon",
+    "search": "recon",
+    "localize": "deliver",
+    "drop": "deliver",
+    "track": "deliver",
+    "transit_egress": "deliver",
+    "land": "deliver",
+    "rth": "deliver",
+    "abort": "deliver",
+}
+
 
 class GcsMissionStatus:
     """Best-effort writer of the AAVC GCS console's mission_status.json."""
@@ -59,7 +80,8 @@ class GcsMissionStatus:
         self._pads: dict[str, list[float]] = {}
         self._delivered: list[int] = []
         self._assigned = [int(i) for i in assigned]
-        self._phase = "preflight"
+        self._phase = "load (preflight)"
+        self._mission_time: float | None = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -85,6 +107,24 @@ class GcsMissionStatus:
     def set_phase(self, phase: str) -> None:
         with self._lock:
             self._phase = str(phase)
+        self._write()
+
+    def set_progress(self, raw_phase: str, mission_time_s: float) -> None:
+        """1 Hz heartbeat from the orchestrator's REAL MissionPhase: drives the
+        console's mission stepper + ⏱ clock, and keeps ``updated`` fresh so
+        the console's 45 s staleness gate never hides a live mission between
+        sparse events (the original event-only writes did exactly that)."""
+        step = _STEP_OF.get(str(raw_phase), "recon")
+        with self._lock:
+            self._phase = f"{step} ({raw_phase})"
+            self._mission_time = float(mission_time_s)
+        self._write()
+
+    def set_done(self, mission_time_s: float) -> None:
+        """Terminal write — exactly "done" (see _STEP_OF note)."""
+        with self._lock:
+            self._phase = "done"
+            self._mission_time = float(mission_time_s)
         self._write()
 
     def on_audit(self, entry: str) -> None:
@@ -130,6 +170,8 @@ class GcsMissionStatus:
                     "pads_mapped": dict(self._pads),
                     "updated": time.time(),
                 }
+                if self._mission_time is not None:
+                    doc["mission_time"] = round(self._mission_time, 1)
             tmp = self.path.with_name(self.path.name + ".tmp")
             tmp.write_text(json.dumps(doc), encoding="utf-8")
             os.replace(tmp, self.path)

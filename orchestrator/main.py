@@ -817,7 +817,22 @@ async def run(args: argparse.Namespace) -> int:
             skip_preflight=args.skip_preflight,
         )
         on_plan_update = _plan_pusher(dash)
-        gcs_feed.set_phase("flying")
+
+        # 1 Hz mirror of the REAL mission phase + flight clock onto the AAVC
+        # GCS console's stepper (user report 2026-08-12: the mission bar never
+        # moved with the actual flight). Poll rather than hook: state.phase is
+        # assigned from a dozen sites across mission.py/tactical_align.py, and
+        # a 1 s cadence also keeps the console's 45 s staleness gate fed.
+        async def _gcs_progress_poll() -> None:
+            while True:
+                try:
+                    gcs_feed.set_progress(state.phase.value,
+                                          state.time_elapsed_s())
+                except Exception:  # display aid — never disturb the mission
+                    pass
+                await asyncio.sleep(1.0)
+
+        gcs_poll = asyncio.create_task(_gcs_progress_poll())
         try:
             await run_delivery_mission(
                 commander, state, tracker, spec,
@@ -848,6 +863,7 @@ async def run(args: argparse.Namespace) -> int:
                         "[main] LAND failed too — FC failsafes are the only net left"
                     )
         finally:
+            gcs_poll.cancel()
             # Tear down supervision + telemetry on EVERY path (success or the
             # emergency RTH above) — previously these only ran on the happy path.
             for label, stop in (
@@ -872,7 +888,7 @@ async def run(args: argparse.Namespace) -> int:
                     state.record_audit(f"AUDIT {line}")
 
         logger.info(f"[main] mission terminal={state.terminal.value}")
-        gcs_feed.set_phase(state.terminal.value)
+        gcs_feed.set_done(state.time_elapsed_s())
         return 0 if state.terminal in (
             TerminalState.COMPLETED, TerminalState.LANDED_RTH) else 1
     finally:

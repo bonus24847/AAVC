@@ -33,7 +33,7 @@ def test_startup_clobbers_a_stale_status_file(tmp_path: Path) -> None:
     GcsMissionStatus(p, _LAT0, _LON0, assigned=[3, 1])
     doc = _read(p)
     assert doc["pads_mapped"] == {}          # stale pads GONE before first poll
-    assert doc["phase"] == "preflight"
+    assert doc["phase"] == "load (preflight)"  # console stepper: eggs loading
     assert doc["assigned"] == [3, 1]
 
 
@@ -75,3 +75,21 @@ def test_tracker_pusher_shows_only_confirmed_decoded_pads(tmp_path: Path) -> Non
     push(None)
     push(None)                                # idempotent on repeat fixes
     assert sorted(_read(p)["pads_mapped"]) == ["3"]
+
+
+def test_progress_maps_real_phases_onto_the_console_stepper(tmp_path: Path) -> None:
+    """The console's phaseIdx() substring-matches [recon, load, deliver, done]
+    and stops its mission clock ONLY on the exact string 'done'."""
+    p = tmp_path / "s.json"
+    feed = GcsMissionStatus(p, _LAT0, _LON0, assigned=[])
+    for raw, step in (("preflight", "load"), ("takeoff", "recon"),
+                      ("search", "recon"), ("localize", "deliver"),
+                      ("drop", "deliver"), ("transit_egress", "deliver"),
+                      ("rth", "deliver")):
+        feed.set_progress(raw, 42.0)
+        doc = _read(p)
+        assert doc["phase"].startswith(step), (raw, doc["phase"])
+        assert raw in doc["phase"]           # operator still sees the real phase
+        assert doc["mission_time"] == 42.0
+    feed.set_done(214.0)
+    assert _read(p)["phase"] == "done"       # exact — the console clock-stop key
