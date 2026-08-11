@@ -86,9 +86,13 @@ payload-bridge-servo:
 # broadcast — which is why aavc_config.yaml sets raw_telemetry_port: 0 (the
 # port has ONE listener; the orchestrator's optional raw widgets cede it).
 # GCS_URL overrides the endpoint, GCS_ARGS passes extras (--port, --baud, …).
+# --captures pins the console to THIS repo's captures/ so its map pads come
+# from OUR orchestrator's live mission_status.json (orchestrator/gcs_status.py
+# — pads appear as the drone scans them). Without it the console auto-shares
+# a SIBLING project's captures dir and renders that project's stale pads.
 AAVC_GCS ?= $(HOME)/Desktop/aavc-gcs/src/aavc_gcs.py
 aavc-gcs:
-	/usr/bin/python3 $(AAVC_GCS) --field gcs/kmutnb_field.yaml --url $(if $(GCS_URL),$(GCS_URL),udpin:0.0.0.0:14550) $(GCS_ARGS)
+	/usr/bin/python3 $(AAVC_GCS) --field gcs/kmutnb_field.yaml --captures captures --url $(if $(GCS_URL),$(GCS_URL),udpin:0.0.0.0:14550) $(GCS_ARGS)
 
 # REAL cameras on the CM4 (G5+) -> the SAME /tmp/aavc_*.png frames as the gz
 # bridge. BACKEND=v4l2 (USB/UVC, runs in .venv) | picamera2 (CSI/libcamera, needs

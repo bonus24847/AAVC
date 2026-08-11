@@ -147,7 +147,11 @@ echo "[gcs] starting the payload-detach bridge (servo mode)…"
 AAVC_GCS="${AAVC_GCS:-$HOME/Desktop/aavc-gcs/src/aavc_gcs.py}"
 if [ -f "$AAVC_GCS" ]; then
     echo "[gcs] starting the AAVC GCS console (http://127.0.0.1:8000)…"
+    # --captures = THIS repo's captures/: the console's map pads come from our
+    # orchestrator's live mission_status.json (pads appear as they are
+    # scanned), never a sibling project's stale file.
     /usr/bin/python3 "$AAVC_GCS" --field "$REPO_ROOT/gcs/kmutnb_field.yaml" \
+        --captures "$REPO_ROOT/captures" \
         --url udpin:0.0.0.0:14550 --port 8000 >/tmp/aavc_gcs_console.log 2>&1 &
 else
     echo "[gcs] WARNING: $AAVC_GCS not found — skipping the AAVC GCS console"

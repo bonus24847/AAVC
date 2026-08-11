@@ -51,6 +51,7 @@ from vision.projection import configure_cameras
 from . import audit, preflight
 from .energy_policy import EnergyPolicy, energy_consumed_mah
 from .frame_recorder import FrameRecorder
+from .gcs_status import GcsMissionStatus
 from .mission import FlightGate, run_delivery_mission
 from .safety import SafetyWatchdog
 from .state import OrchestratorMode, OrchestratorState, TerminalState
@@ -541,7 +542,25 @@ async def run(args: argparse.Namespace) -> int:
     # Crash-safe audit trail.
     run_dir = audit.setup_run_logging(plan.mission_id)
     audit_log = audit.AuditLog(run_dir / "audit.jsonl")
-    state.audit_sink = audit_log.record
+    # Live pad feed for the AAVC GCS console (user contract 2026-08-12: a pad
+    # appears on the console map only once the drone has SCANNED/confirmed
+    # it). Constructed here — before any flying — because its first write
+    # clears whatever stale mission_status.json a previous run left behind.
+    # The audit sink is teed so DELIVERY … RELEASE lines colour pads
+    # delivered on the console; the scan-side hook is registered on the
+    # VisionWorker below.
+    gcs_feed = GcsMissionStatus(
+        path=Path(cfg.get("gcs_status_path", "captures/mission_status.json")),
+        origin_lat=float(cfg["site"]["center_lat"]),
+        origin_lon=float(cfg["site"]["center_lon"]),
+        assigned=assigned_ids,
+    )
+
+    def _audit_tee(entry: str) -> None:
+        audit_log.record(entry)
+        gcs_feed.on_audit(entry)
+
+    state.audit_sink = _audit_tee
 
     # ── optional GCS dashboard (decoupled seam) ──
     dash = None
@@ -761,6 +780,10 @@ async def run(args: argparse.Namespace) -> int:
         vision = VisionWorker(state, target_description=profile.default_target,
                               frame_max_age_s=frame_max_age_s)
         vision.on_fix(tracker.ingest)     # discovery: confirm targets from fixes
+        # AAVC GCS console feed: registered AFTER tracker.ingest (same ordering
+        # rule as the dashboard pusher below) and independent of it, so
+        # --no-dashboard runs still light pads up on the console map.
+        vision.on_fix(gcs_feed.tracker_pusher(tracker))
         if dash is not None and getattr(dash, "broadcaster", None) is not None:
             b = dash.broadcaster
             if hasattr(b, "record_vision"):
@@ -794,6 +817,7 @@ async def run(args: argparse.Namespace) -> int:
             skip_preflight=args.skip_preflight,
         )
         on_plan_update = _plan_pusher(dash)
+        gcs_feed.set_phase("flying")
         try:
             await run_delivery_mission(
                 commander, state, tracker, spec,
@@ -848,6 +872,7 @@ async def run(args: argparse.Namespace) -> int:
                     state.record_audit(f"AUDIT {line}")
 
         logger.info(f"[main] mission terminal={state.terminal.value}")
+        gcs_feed.set_phase(state.terminal.value)
         return 0 if state.terminal in (
             TerminalState.COMPLETED, TerminalState.LANDED_RTH) else 1
     finally:
