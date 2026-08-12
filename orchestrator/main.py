@@ -202,6 +202,8 @@ def _sortie_gate_factory(
     energy_policy: Any = None,
     skip_preflight: bool = False,
     headless_timeout_s: float = 120.0,
+    commander: Any = None,
+    rc_go: bool = False,
 ) -> FlightGate:
     """Build the per-FLIGHT gate (rules V1.3): before EVERY flight the mission
     holds in ``MissionPhase.PREFLIGHT`` until the operator GOs.
@@ -427,7 +429,58 @@ def _sortie_gate_factory(
         state.record_anomaly("preflight_timeout")
         return None
 
-    return _gate
+    if not rc_go:
+        return _gate
+
+    async def _wait_rc_go(sortie: int) -> bool:
+        """RC-GO hold (operator conops 2026-08-12): the GO above only STAGED
+        the flight — nothing moves until the SAFETY PILOT arms via RC and
+        flips the mode switch to OFFBOARD. A zero-velocity offboard setpoint
+        is streamed at ~5 Hz for the whole hold: PX4 rejects the OFFBOARD
+        switch without a live setpoint stream, and the stream alone never
+        changes mode or spins a motor. On armed+OFFBOARD the mission takes
+        over within ~200 ms (``arm_and_takeoff`` sees the vehicle already
+        armed, skips the arm, and commands AUTO.TAKEOFF). No timeout: the
+        20-min window clock starts at the flip (mission.py start_window runs
+        AFTER this gate returns), so holding costs nothing."""
+        state.phase = MissionPhase.PREFLIGHT
+        logger.info(f"[preflight] flight {sortie}: RC-GO — staged; ARM with "
+                    "the RC, then flip to OFFBOARD to launch…")
+        state.record_audit(f"t={state.time_elapsed_s():.1f}s RC-GO flight "
+                           f"{sortie} staged — waiting for RC arm + OFFBOARD")
+        prime_warned = False
+        while state.terminal == TerminalState.RUNNING:
+            t = state.telemetry
+            if t.is_armed and t.flight_mode == "OFFBOARD":
+                logger.info(f"[preflight] flight {sortie}: RC-GO — armed + "
+                            "OFFBOARD observed, launching")
+                state.record_audit(
+                    f"t={state.time_elapsed_s():.1f}s RC-GO flight {sortie} "
+                    "armed+OFFBOARD — launching")
+                return True
+            if commander is not None:
+                try:
+                    await commander.prime_offboard_hold()
+                    prime_warned = False
+                except Exception as e:
+                    # Keep holding — the OFFBOARD switch simply won't engage
+                    # until the stream is back. Warn once per outage.
+                    if not prime_warned:
+                        logger.warning(f"[preflight] RC-GO setpoint stream "
+                                       f"failed ({e}) — retrying")
+                        prime_warned = True
+            await asyncio.sleep(0.2)
+        return False
+
+    async def _rc_go_gate(sortie: int) -> list[int] | None:
+        chunk = await _gate(sortie)
+        if chunk is None:
+            return None
+        if not await _wait_rc_go(sortie):
+            return None
+        return chunk
+
+    return _rc_go_gate
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -815,6 +868,7 @@ async def run(args: argparse.Namespace) -> int:
             profile=profile, policy=policy, energy_policy=energy_policy,
             tracker=tracker,
             skip_preflight=args.skip_preflight,
+            commander=commander, rc_go=args.rc_go,
         )
         on_plan_update = _plan_pusher(dash)
 
@@ -1052,6 +1106,12 @@ def main() -> None:
     p.add_argument("--mode", choices=("mission", "tuning"), default="mission",
                    help="mission = fly the delivery sorties (default); "
                         "tuning = System-ID/Autotune only, no mission (separate program)")
+    p.add_argument("--rc-go", action="store_true",
+                   help="the PILOT launches: after the GO stages the flight, "
+                        "hold + stream offboard setpoints and release only "
+                        "when the RC has ARMED and flipped to OFFBOARD "
+                        "(flip to POSCTL mid-flight = orchestrator stands "
+                        "down)")
     p.add_argument("--skip-preflight", action="store_true",
                    help="bypass the pre-flight readiness gate (bench/debug only)")
     p.add_argument("--host", default="127.0.0.1")

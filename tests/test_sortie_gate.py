@@ -20,7 +20,7 @@ from mission_brain.schemas import Coordinate
 from mission_brain.search_pattern import build_search_pattern
 from orchestrator.main import _sortie_gate_factory
 from orchestrator.mission import FlightGate
-from orchestrator.state import OrchestratorMode, OrchestratorState
+from orchestrator.state import OrchestratorMode, OrchestratorState, TerminalState
 from orchestrator.target_tracker import TargetTracker
 from orchestrator.time_policy import TimePolicy
 
@@ -340,3 +340,71 @@ def test_go_after_a_fully_served_queue_does_not_launch_a_redundant_flight() -> N
         "a fully-served queue must not launch a redundant flight even when "
         "the GO's positionally-resolved id (already delivered) is supplied "
         "exactly as dashboard/commands.py computes it")
+
+
+# ── RC-GO (operator conops 2026-08-12) ──────────────────────────────────────
+# rc_go=True wraps the gate: after the normal GO resolves a chunk, the flight
+# is only RELEASED when the RC has armed AND flipped the mode to OFFBOARD —
+# the hold streams prime_offboard_hold() so that switch can engage at all.
+
+
+class _RcGoCommander:
+    def __init__(self) -> None:
+        self.primes = 0
+
+    async def prime_offboard_hold(self) -> None:
+        self.primes += 1
+
+
+def _rc_gate_for(state: OrchestratorState, commander: _RcGoCommander) -> FlightGate:
+    return _sortie_gate_factory(
+        state, dash=None, home=_HOME, geofence=[tuple(v) for v in _AREA],
+        cfg={}, profile=COMPETITION, policy=TimePolicy(),
+        tracker=cast(TargetTracker, _Tracker()),
+        skip_preflight=True,
+        commander=commander, rc_go=True,
+    )
+
+
+def test_rc_go_holds_until_armed_and_offboard() -> None:
+    state = _state([3, 1, 4, 6], eggs_aboard=4)
+    cmd = _RcGoCommander()
+    gate = _rc_gate_for(state, cmd)
+
+    async def _fly() -> list[int] | None:
+        task = asyncio.create_task(gate(1))
+        await asyncio.sleep(0.5)
+        assert not task.done()                  # nothing armed → keep holding
+        state.telemetry.is_armed = True
+        await asyncio.sleep(0.5)
+        assert not task.done()                  # armed alone must NOT release
+        state.telemetry.flight_mode = "OFFBOARD"
+        return await asyncio.wait_for(task, timeout=5.0)
+
+    assert asyncio.run(_fly()) == [3, 1, 4, 6]
+    assert cmd.primes > 0       # the hold streamed setpoints for the RC switch
+
+
+def test_rc_go_releases_none_when_terminal_leaves_running() -> None:
+    state = _state([3])
+    gate = _rc_gate_for(state, _RcGoCommander())
+
+    async def _abort() -> list[int] | None:
+        task = asyncio.create_task(gate(1))
+        await asyncio.sleep(0.3)
+        state.set_terminal(TerminalState.PILOT_TAKEOVER)
+        return await asyncio.wait_for(task, timeout=5.0)
+
+    assert asyncio.run(_abort()) is None
+
+
+def test_rc_go_false_keeps_the_plain_gate() -> None:
+    state = _state([3, 1])
+    gate = _sortie_gate_factory(
+        state, dash=None, home=_HOME, geofence=[tuple(v) for v in _AREA],
+        cfg={}, profile=COMPETITION, policy=TimePolicy(),
+        tracker=cast(TargetTracker, _Tracker()),
+        skip_preflight=True,
+        commander=_RcGoCommander(), rc_go=False,
+    )
+    assert _go(gate, 1) == [3]      # releases immediately — no RC hold

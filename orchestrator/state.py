@@ -34,6 +34,11 @@ class TerminalState(str, Enum):
     LANDED_RTH = "landed_rth"   # RTH triggered, landed safely
     ABORTED = "aborted"          # Safety abort
     FAILED = "failed"            # Connection lost, crash, etc.
+    # The safety pilot flipped the RC into a manual mode (RC-GO conops,
+    # 2026-08-12): the orchestrator stands down COMPLETELY — unlike every
+    # other terminal it must never be followed by a companion command; the
+    # pilot owns the aircraft from this moment on.
+    PILOT_TAKEOVER = "pilot_takeover"
 
 
 @dataclass

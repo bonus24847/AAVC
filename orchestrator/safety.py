@@ -40,6 +40,14 @@ DemGrid = Any
 
 _R_EARTH_M = 6_378_137.0
 
+# RC modes that mean the SAFETY PILOT has taken the aircraft (RC-GO conops,
+# 2026-08-12): the moment one is sustained the orchestrator must stand down —
+# a re-sent GOTO would yank the vehicle straight back into AUTO mid-rescue.
+# AUTO modes (HOLD/RTL/LAND/…) are absent ON PURPOSE: those can be the
+# watchdog's or the mission's own doing and must not read as a takeover.
+_PILOT_MODES = frozenset(
+    {"MANUAL", "ALTCTL", "POSCTL", "ACRO", "STABILIZED", "RATTITUDE"})
+
 
 def _dem_lat_lon_to_en(lat: float, lon: float, lat0: float, lon0: float) -> tuple[float, float]:
     """Flat-earth ENU offset (m) in the DEM's frame — mirrors mapping.lidar3d so DEM
@@ -119,6 +127,7 @@ class SafetyWatchdog:
         gps_loss_threshold_s: float = 5.0,
         battery_nan_threshold_s: float = 10.0,
         telemetry_stale_threshold_s: float = 10.0,
+        pilot_takeover_threshold_s: float = 1.0,
         geofence_margin_m: float = 5.0,
         no_fly_zones: list[list[list[float]]] | None = None,
         altitude_ceiling_m: float = 20.0,
@@ -147,6 +156,7 @@ class SafetyWatchdog:
         self.gps_loss_threshold_s = gps_loss_threshold_s
         self.battery_nan_threshold_s = battery_nan_threshold_s
         self.telemetry_stale_threshold_s = telemetry_stale_threshold_s
+        self.pilot_takeover_threshold_s = pilot_takeover_threshold_s
         self.geofence_margin_m = geofence_margin_m
         # V1.3 airspace rules: no-fly polygons (entry prohibited), the 20 m
         # ceiling (transit flies AT it, so warn has headroom above), and the
@@ -187,6 +197,7 @@ class SafetyWatchdog:
         self._gps_lost_since: float | None = None
         self._battery_nan_since: float | None = None
         self._telemetry_stale_since: float | None = None
+        self._manual_mode_since: float | None = None
         # Terminal action in progress: None | "rth" | "abort". The watchdog
         # keeps checking DURING an in-progress RTH (run as a background task,
         # not awaited inline) so a worsening condition can escalate to LAND.
@@ -252,6 +263,34 @@ class SafetyWatchdog:
         if not t.is_armed:
             # Pre-takeoff or post-landing — nothing further to check
             return
+
+        # 1.5 Pilot takeover (RC-GO conops 2026-08-12): a sustained MANUAL
+        # flight mode while armed and past PREFLIGHT means the safety pilot
+        # flipped the RC switch — stand down COMPLETELY. The terminal is set
+        # DIRECTLY (never via _trigger_rth/_trigger_abort): any companion
+        # command after this point would fight the pilot for the aircraft.
+        # Debounced so a transient mode blip during PX4's own transitions
+        # can't spuriously end the mission. PREFLIGHT is exempt: the RC-GO
+        # hold has the pilot arming in POSCTL on the ground BEFORE the
+        # OFFBOARD flip that launches the flight.
+        if (self.enforce_mission_limits
+                and st.phase != MissionPhase.PREFLIGHT
+                and t.flight_mode in _PILOT_MODES):
+            now = asyncio.get_running_loop().time()
+            if self._manual_mode_since is None:
+                self._manual_mode_since = now
+            elif now - self._manual_mode_since >= self.pilot_takeover_threshold_s:
+                logger.critical(
+                    f"[safety] PILOT TAKEOVER ({t.flight_mode}) — orchestrator "
+                    "standing down, no further commands")
+                st.record_anomaly(f"pilot_takeover_{t.flight_mode.lower()}")
+                st.record_audit(
+                    f"t={st.time_elapsed_s():.1f}s PILOT TAKEOVER "
+                    f"mode={t.flight_mode} — orchestrator standing down")
+                st.set_terminal(TerminalState.PILOT_TAKEOVER)
+                return
+        else:
+            self._manual_mode_since = None
 
         # 2. Battery
         if not math.isnan(t.battery_percent):

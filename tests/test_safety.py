@@ -422,3 +422,79 @@ def test_below_floor_during_delivery_descent_is_legal() -> None:
     asyncio.run(_check_and_settle(wd))
     assert not any("below_search_floor" in a for a in state.anomalies)
     assert state.terminal == TerminalState.RUNNING
+
+
+# ── pilot takeover (RC-GO conops 2026-08-12) ────────────────────────────────
+# A sustained MANUAL mode while armed past PREFLIGHT = the safety pilot took
+# the aircraft. The watchdog must set PILOT_TAKEOVER *directly* — terminal
+# with NO companion command (rth/land would fight the pilot).
+
+
+def test_pilot_takeover_posctl_stands_down_without_commands() -> None:
+    t = _flying_telemetry()
+    t.flight_mode = "POSCTL"
+    wd, state, cmd = _make_wd(t)
+    wd.pilot_takeover_threshold_s = 0.0     # collapse the debounce for the test
+    state.phase = MissionPhase.TRANSIT_INGRESS
+
+    async def _two_ticks() -> None:
+        await _check_and_settle(wd)         # tick 1 starts the debounce window
+        await _check_and_settle(wd)         # tick 2 crosses it
+    asyncio.run(_two_ticks())
+
+    assert state.terminal == TerminalState.PILOT_TAKEOVER
+    assert cmd.rth_calls == 0 and cmd.land_calls == 0
+    assert any("pilot_takeover_posctl" in a for a in state.anomalies)
+
+
+def test_pilot_takeover_exempt_during_preflight_rc_go_hold() -> None:
+    # RC-GO: the pilot ARMS in POSCTL on the ground while the gate still holds
+    # in PREFLIGHT — that exact posture must never read as a takeover.
+    t = _flying_telemetry()
+    t.flight_mode = "POSCTL"
+    wd, state, cmd = _make_wd(t)
+    wd.pilot_takeover_threshold_s = 0.0
+    state.phase = MissionPhase.PREFLIGHT
+
+    async def _two_ticks() -> None:
+        await _check_and_settle(wd)
+        await _check_and_settle(wd)
+    asyncio.run(_two_ticks())
+
+    assert state.terminal == TerminalState.RUNNING
+
+
+def test_pilot_takeover_is_debounced_and_resets_on_auto_mode() -> None:
+    # One POSCTL sample followed by an AUTO mode = a transient blip, not a
+    # takeover; the debounce clock must reset (default 1 s threshold).
+    t = _flying_telemetry()
+    t.flight_mode = "POSCTL"
+    wd, state, cmd = _make_wd(t)
+    state.phase = MissionPhase.SEARCH
+
+    async def _blip() -> None:
+        await _check_and_settle(wd)         # starts the window
+        t.flight_mode = "MISSION"
+        await _check_and_settle(wd)         # resets it
+        t.flight_mode = "POSCTL"
+        await _check_and_settle(wd)         # fresh window — still below 1 s
+    asyncio.run(_blip())
+
+    assert state.terminal == TerminalState.RUNNING
+    assert wd._manual_mode_since is not None
+
+
+def test_offboard_and_auto_modes_are_not_a_takeover() -> None:
+    t = _flying_telemetry()
+    wd, state, cmd = _make_wd(t)
+    wd.pilot_takeover_threshold_s = 0.0
+    state.phase = MissionPhase.LOCALIZE
+
+    async def _ticks() -> None:
+        for mode in ("OFFBOARD", "MISSION", "HOLD", "RETURN_TO_LAUNCH", "LAND"):
+            t.flight_mode = mode
+            await _check_and_settle(wd)
+            await _check_and_settle(wd)
+    asyncio.run(_ticks())
+
+    assert state.terminal == TerminalState.RUNNING

@@ -20,7 +20,7 @@ from mavsdk import System
 from mavsdk.action import ActionError
 from mavsdk.mission import MissionItem, MissionProgress
 from mavsdk.mission import MissionPlan as _MissionPlan
-from mavsdk.offboard import Attitude, AttitudeRate
+from mavsdk.offboard import Attitude, AttitudeRate, VelocityBodyYawspeed
 
 # MissionItem is re-exported so the executor can build mission items without
 # importing mavsdk directly. The Mission plugin's MissionItem is the right
@@ -486,6 +486,16 @@ class DroneCommander:
     # Thin wrappers over the MAVSDK offboard plugin used by orchestrator.sysid_sweep
     # to inject a frequency-sweep excitation. Offboard streaming must be primed with
     # a setpoint BEFORE start() and kept fed at ≥2 Hz, or PX4 rejects/exits offboard.
+
+    async def prime_offboard_hold(self) -> None:
+        """Send ONE zero-velocity offboard setpoint — no mode change, no
+        ``offboard.start()``. The RC-GO preflight hold (orchestrator/main.py)
+        streams this at ~5 Hz so the PILOT's OFFBOARD switch can engage: PX4
+        refuses the mode unless a fresh offboard signal (>2 Hz) is already
+        arriving. The mode change itself stays on the RC — in RC-GO the
+        web/companion never launches the aircraft."""
+        await self.system.offboard.set_velocity_body(
+            VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))
 
     async def offboard_start(self) -> None:
         await self.system.offboard.start()

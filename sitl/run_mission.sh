@@ -25,6 +25,12 @@ fi
 EXTRA=()
 if [ "${REAL:-0}" = "1" ]; then
     EXTRA+=(--connect "udpin://0.0.0.0:14540")
+    # REAL bird defaults to RC-GO (operator conops 2026-08-12): the console's
+    # 🚀 only STAGES the flight — the SAFETY PILOT arms via RC and flips to
+    # OFFBOARD to launch; flipping to POSCTL mid-flight makes the orchestrator
+    # stand down. The web never moves the aircraft. RC_GO=0 restores the
+    # auto-launch behaviour (orchestrator arms itself right after preflight).
+    RC_GO="${RC_GO:-1}"
 else
     # SITL dirty-field precheck (2026-08-12, hit live by the operator): cargo
     # boxes shed by a PREVIOUS run stay lying ON the pads and hide the ArUco
@@ -41,7 +47,11 @@ else
     [ -f /tmp/aavc_targets.json ] && EXTRA+=(--truth-json /tmp/aavc_targets.json)
 fi
 
-echo "[run_mission] assigned ids: $IDS (${REAL:+REAL bird}${REAL:-SITL})"
+if [ "${RC_GO:-0}" = "1" ]; then
+    EXTRA+=(--rc-go)
+fi
+
+echo "[run_mission] assigned ids: $IDS (${REAL:+REAL bird}${REAL:-SITL})${RC_GO:+ rc-go=$RC_GO}"
 exec env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" -m orchestrator.main \
     --config sitl/aavc_config.yaml --no-dashboard \
     --assigned-ids "$IDS" "${EXTRA[@]}"

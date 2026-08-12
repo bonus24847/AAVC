@@ -54,24 +54,35 @@ bash sitl/launch_stack.sh        # หรือ make stack — ตั้ง --mi
    `BAT1_*` calibrate แล้ว, แบตเต็ม, กล่อง/ไข่ใส่ครบ, GPS 3D fix, safety pilot ถือ RC
 2. เปิด console (คำสั่งข้อ 3 ด้านบน) → เห็น telemetry สด → **✏️ เลือก pad** ตาม id
    ที่กรรมการ/โจทย์กำหนด → **💾 บันทึก**
-3. ทุกคนถอยพ้นวง → **🚀 บิน mission [REAL]** → ยืนยัน → โดรน arm-takeoff เอง
-4. ระหว่างบิน: ปุ่มแก้ไข/ปล่อย servo ล็อกเทาหมดโดยอัตโนมัติ — **การแทรกแซงมีทางเดียว
-   คือ RC ของ safety pilot** (mode switch / kill) ซึ่งเหนือกว่า offboard เสมอ
-5. ลงจอด + disarm → ปุ่มปลดล็อกเอง → เก็บผล ULog/audit จาก CM4
+3. ทุกคนถอยพ้นวง → **🚀 บิน mission [REAL]** = **stage เท่านั้น** (โหลด mission เข้า
+   เครื่องรอ — เครื่องยังไม่ขยับ)
+4. safety pilot **arm ด้วย RC** (POSCTL) → **สลับเข้า OFFBOARD = เครื่องออก**
+   (ลำดับเต็มในหัวข้อ RC-GO ถัดไป)
+5. ระหว่างบิน: ปุ่มเว็บล็อกเทาหมด — การแทรกแซงมีทางเดียวคือ RC:
+   **สลับเข้า POSCTL = ยึดเครื่องคืน** (orchestrator หยุดสั่งถาวร) หรือ kill
+6. ลงจอด + disarm → ปุ่มปลดล็อกเอง → เก็บผล ULog/audit จาก CM4
 
-⚠ **ห้าม arm เองหรือสลับ offboard เองก่อนกด 🚀** — ปุ่ม 🚀 คือคำสั่ง arm ของภารกิจ:
-orchestrator บน CM4 จะเช็ค preflight แล้ว arm + takeoff เองทันทีที่ผ่าน เหตุผลที่ลำดับอื่นใช้ไม่ได้:
+## RC-GO: การปล่อยเครื่องเป็นของ RC ไม่ใช่ของเว็บ (default ของ REAL)
 
-- **arm เองก่อน → ปุ่ม 🚀 จะปฏิเสธ** (interlock "ห้ามสั่งขณะ armed" กันสั่งซ้อนกลางอากาศ
-  — ตั้งใจออกแบบไว้แบบนี้) และ PX4 จับ home ตอน arm: ต้อง arm ที่จุด L&R โดย
-  orchestrator เพื่อให้ home/นาฬิกา window ตรงกับภารกิจ
-- **สลับ RC เข้า OFFBOARD เอง → PX4 ปฏิเสธ/failsafe** เพราะโหมด offboard ต้องมี
-  companion stream setpoint อยู่ก่อนแล้ว — ถ้า orchestrator ยังไม่ได้เริ่ม (ยังไม่กด 🚀)
-  ไม่มีสัญญาณอะไรให้ตาม และถึงกดแล้ว mission ก็บินโหมด AUTO เกือบทั้งเที่ยว
-  (takeoff/goto/land) โดย orchestrator เป็นคนสลับโหมดเองทุกจังหวะ
-- บทบาทของคน: operator = เลือก pad + กด 🚀; **safety pilot = ถือ RC เฉย ๆ**
-  ไม่แตะสวิตช์จนกว่าจะต้อง override (mode switch ออกจาก AUTO หรือ kill) —
-  สวิตช์ RC เหนือกว่าคำสั่ง companion เสมอ จึงเป็นเบรกมือที่ใช้ได้ตลอดเวลา
+โหมด REAL ตั้งต้นเป็น **RC-GO** (`run_mission.sh` ใส่ `RC_GO=1` ให้เอง;
+`RC_GO=0` ถอยกลับเป็นแบบ 🚀-แล้วบินเลยของ SITL) — ปุ่มเว็บ**ไม่มีสิทธิ์ทำให้
+เครื่องขยับ** ทุกการปล่อยเครื่องอยู่บนมือ RC:
+
+1. **กด 🚀 = stage**: orchestrator บน CM4 เช็ค preflight แล้ว**หยุดรอ** พร้อม
+   stream setpoint ความเร็วศูนย์ ~5 Hz — stream นี้ไม่สั่งอะไรและไม่เปลี่ยนโหมด
+   มันแค่เปิดทางให้สวิตช์ OFFBOARD ของ RC เข้าได้ (PX4 ปฏิเสธ OFFBOARD
+   ถ้าไม่มี setpoint สดวิ่งอยู่)
+2. **arm ด้วย RC** (POSCTL) — เครื่องนิ่งอยู่กับพื้น
+3. **สลับเข้า OFFBOARD = ปล่อยเครื่อง**: orchestrator เห็น armed+OFFBOARD
+   แล้วรับช่วงใน ~0.2 วิ (takeoff → transit → …) **นาฬิกา 20 นาทีเริ่มนับที่
+   จังหวะสลับสวิตช์** ไม่ใช่ตอนกด 🚀 — รอนานแค่ไหนก็ไม่เสียเวลา window
+4. **มีปัญหา → สลับเข้า POSCTL**: PX4 เชื่อ RC ทันที และภายใน ~1 วิ
+   orchestrator **หยุดสั่งถาวร** (audit `PILOT TAKEOVER`, ไม่มี goto/land
+   ย้อนมาสู้กับนักบิน) — จากนั้นเอาลงเองได้เลย
+
+ลำดับต้อง **stage ก่อน → arm ทีหลัง**: interlock ของเว็บปฏิเสธการกด 🚀 ขณะ
+armed (กันสั่งซ้อนกลางอากาศ) และก่อน stage ยังไม่มี setpoint stream —
+สวิตช์ OFFBOARD จะเข้าไม่ได้อยู่ดี
 
 ข้อควรระวังของจริง: ถ้า WiFi/ssh ถึง CM4 ไม่ได้ ปุ่ม 🚀 จะขึ้น error ทันที (ssh ล้มเหลว
 = ข้อความโผล่บนหน้าเว็บ) — mission ที่**บินไปแล้ว**ไม่พึ่ง ssh/WiFi ต่อ (orchestrator
@@ -85,8 +96,8 @@ WiFi ถึง CM4 ไปได้ไม่ไกล — **ไม่เป็น
 
 | ลิงก์ | ใช้ทำอะไร | ต้องถึงเมื่อไหร่ |
 |---|---|---|
-| WiFi → CM4 (ssh) | deploy, ปุ่ม 🚀, `status_sync`, เก็บ ULog/audit | เฉพาะโดรนอยู่พื้นที่ L&R (ก่อนบิน + หลังลง) |
-| Nomad ELRS (RC) | override ของ safety pilot (mode/kill) | **ตลอดเที่ยวบิน** — ลิงก์ safety ตัวจริง |
+| WiFi → CM4 (ssh) | deploy, ปุ่ม 🚀 (stage), `status_sync`, เก็บ ULog/audit | เฉพาะโดรนอยู่พื้นที่ L&R (ก่อนบิน + หลังลง) |
+| Nomad ELRS (RC + MAVLink) | arm/OFFBOARD = ปล่อยเครื่อง (RC-GO), POSCTL/kill = ยึดคืน + telemetry ลงจอ 14550 | **ตลอดเที่ยวบิน** — ลิงก์ safety ตัวจริง |
 | จอ console กลางเที่ยว | ดูเฉย ๆ ไม่ใช่ safety | ไม่บังคับ — หลุดแล้ว mission บินต่อจนจบเอง |
 
 **status sync (จำเป็นในโหมด REAL):** orchestrator เขียน `captures/mission_status.json`
@@ -100,14 +111,34 @@ cm4/status_sync.sh aavc@<cm4>
 เทาให้เอง) แล้วเด้งกลับมาสดทันทีที่โดรนกลับเข้าระยะ (เช่น ตอนลงจอดที่ L&R —
 ผล ✓ ครบทุก pad จะขึ้นตอนนั้น)
 
-**อยากได้จอสดตลอดเที่ยว (ของแถม ไม่บังคับ):**
-- ทางที่ 1 — **ELRS MAVLink mode** บน Nomad: ELRS ≥3.4 ทั้ง TX/RX สลับโหมด MAVLink,
-  RX ต่อ UART ของ 6X, telemetry วิ่ง RC link → backpack ของ Nomad → UDP 14550 →
-  console ตรง ๆ **VERIFY-AT-BENCH ก่อนเท่านั้น**: ต้องยืนยันว่า build fmu-v6x ของเรา
-  รับ RC-over-MAVLink (`RADIO_RC_CHANNELS`) แล้ว failsafe ครบเหมือน CRSF —
-  **ห้ามสลับโหมดครั้งแรกที่หน้างาน** เพราะมันแตะลิงก์ safety
-- ทางที่ 2 — ซื้อวิทยุ telemetry SiK 915 MHz หนึ่งคู่ (~พันบาท) เสียบ TELEM1 → USB
-  โน้ตบุ๊ก → 14550: จอสดเต็มสนามโดยไม่แตะลิงก์ RC เลย (ทางมาตรฐาน แนะนำถ้าจะซื้อ)
+## Nomad ELRS MAVLink mode (ทางที่เลือกใช้ — operator 2026-08-12)
 
-ค่าเริ่มต้นที่แนะนำสำหรับ test แรก ๆ: **Nomad คงเป็น RC ล้วน (CRSF)** — อย่าเพิ่งเอา
-ลิงก์ safety ไปพ่วงงานจอ
+RC + telemetry วิ่งบนลิงก์ ELRS เส้นเดียว: 6X ↔ ELRS RX ↔ อากาศ ↔ Nomad ↔
+backpack ของโมดูล → UDP **14550** → console กินตรง ๆ ทั้งเที่ยว (operator เคยบิน
+โครงนี้มาก่อนแล้วกับ FC เดิม — แต่ **6X + PX4 1.17 ของเรายังไม่เคย** จึงต้องไล่
+bench checklist ให้ครบก่อน ห้ามสลับโหมดครั้งแรกที่หน้างาน เพราะแตะลิงก์ safety):
+
+**Bench checklist (props off, ทำครั้งเดียว):**
+1. ELRS **≥3.4 ทั้ง TX (Nomad) + RX** → ตั้ง serial protocol = **MAVLink**
+   ทั้งคู่ (Lua script / WebUI)
+2. ELRS RX ย้ายไป **UART ว่างของ 6X** (เช่น TELEM1) — ตั้ง `MAV_n_CONFIG`
+   ของพอร์ตนั้น + baud ตามค่า ELRS WebUI และลด rate ลง (ลิงก์แคบ ~กิโลไบต์/วิ
+   เอาแค่ HEARTBEAT/position/battery/mode พอสำหรับจอ)
+3. **RC เข้า**: PX4 ต้องเห็นช่อง RC ที่มากับ MAVLink (`RADIO_RC_CHANNELS`) —
+   ดู radio bars ใน QGC / `listener input_rc` แล้ว **arm ด้วย RC ให้สำเร็จ**
+   (โหมดนี้ไม่ใช้ CRSF driver — ข้อจำกัด `CONFIG_DRIVERS_RC_CRSF_RC` หายไป)
+4. **Failsafe**: ปิด Nomad ทั้งเครื่อง → PX4 ต้องประกาศ RC loss ในไม่กี่วินาที
+   และ action เป็น RTL ตามที่ pin ไว้ — ข้อนี้ผ่านไม่ได้ = ไม่บินจริง
+5. **Telemetry ลงจอ**: โน้ตบุ๊กต่อ WiFi ของ backpack (ระยะแค่โต๊ะ operator ↔
+   นักบิน) → console เห็น HEARTBEAT/ตำแหน่งที่ 14550 → เดินถือเครื่องออกไป
+   สุดสนาม จอต้องยังสด
+6. ปิดท้ายด้วย **RC-GO เต็มลำดับบน bench**: stage → arm → OFFBOARD (มอเตอร์ถอด
+   ใบ) → POSCTL → เห็น `PILOT TAKEOVER` ใน audit
+
+ทางสำรอง — วิทยุ telemetry SiK 915 MHz หนึ่งคู่ (~พันบาท) เสียบ TELEM1 → USB
+โน้ตบุ๊ก → 14550: จอสดเต็มสนามโดยไม่พ่วงลิงก์ RC (มาตรฐานสุด ถ้า MAVLink mode
+ติดขัดข้อไหนให้ถอยมาทางนี้ + Nomad กลับเป็น CRSF ล้วน)
+
+หมายเหตุ: จอสดจาก Nomad คือ telemetry (ตำแหน่ง/โหมด/แบต) — ส่วน stepper/pad ✓
+มาจาก `mission_status.json` ผ่าน `status_sync` (WiFi) เหมือนเดิม: กลางเที่ยวอาจ
+ค้าง แล้วสรุปผลครบตอนโดรนกลับเข้าระยะ
