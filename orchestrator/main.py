@@ -50,6 +50,7 @@ from vision.projection import configure_cameras
 
 from . import audit, preflight
 from .energy_policy import EnergyPolicy, energy_consumed_mah
+from .field_override import FieldOverrideError, apply_field_override
 from .frame_recorder import FrameRecorder
 from .gcs_status import GcsMissionStatus
 from .mission import FlightGate, run_delivery_mission
@@ -485,6 +486,15 @@ def _sortie_gate_factory(
 
 async def run(args: argparse.Namespace) -> int:
     cfg = _load_config(Path(args.config))
+    if args.field_override:
+        # Operator-drawn geometry from the GCS map editor. FAILS CLOSED: an
+        # unreadable/invalid override aborts the run — never a silent
+        # fallback onto yaml geometry the operator thinks they replaced.
+        try:
+            apply_field_override(cfg, Path(args.field_override))
+        except FieldOverrideError as e:
+            logger.error(f"[main] field override REFUSED: {e}")
+            return 2
     profile = load_profile(args.profile)
     logger.info(f"[main] profile={profile.name} ceiling={profile.altitude_ceiling_m} m "
                 f"transit={profile.transit_alt_m} m floor={profile.search_floor_m} m "
@@ -1106,6 +1116,12 @@ def main() -> None:
     p.add_argument("--mode", choices=("mission", "tuning"), default="mission",
                    help="mission = fly the delivery sorties (default); "
                         "tuning = System-ID/Autotune only, no mission (separate program)")
+    p.add_argument("--field-override", default=None,
+                   help="operator-drawn field geometry json from the GCS map "
+                        "editor (captures/field_override.json) — replaces "
+                        "controlled_airspace/search_area/transit_route (and "
+                        "optionally the L&R point); an invalid file ABORTS "
+                        "the run rather than falling back")
     p.add_argument("--rc-go", action="store_true",
                    help="the PILOT launches: after the GO stages the flight, "
                         "hold + stream offboard setpoints and release only "

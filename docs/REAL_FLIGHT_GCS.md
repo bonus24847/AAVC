@@ -1,5 +1,38 @@
 # สั่งบิน mission จาก AAVC GCS — SIM vs เครื่องจริง
 
+## console เดียว สั่งได้หลาย mission
+
+`aavc_gcs.py` เป็นกลาง — สนาม (`--field`) + คำสั่ง mission (`--mission-cmd`)
+ถูกกำหนดตอนเปิด console การสลับ mission = เปิด console ผ่าน dispatcher:
+
+```bash
+~/Desktop/aavc-gcs/gcs_launch.sh kmutnb-sim               # สนามซ้อม มจพ. (SITL)
+~/Desktop/aavc-gcs/gcs_launch.sh kmutnb-real aavc@<cm4>   # สนามซ้อม มจพ. (เครื่องจริง)
+~/Desktop/aavc-gcs/gcs_launch.sh aavc-sim                 # repo แข่ง (mission_AAVC) —
+                                                          # รอ contract 3 ชิ้นจาก repo นั้น
+```
+
+ขั้นตอนต่อเที่ยวบิน**เหมือนกันทุก mission** — repo ไหนอยากให้ console สั่งได้
+ต้องมี: (1) entry แบบ `run_mission.sh` รับ `{ids}` (2) field yaml ของสนามมัน
+(3) ตัวเขียน `mission_status.json` ลง captures
+
+## 🗺 วาดสนามเองบนแผนที่ (field editor)
+
+ปุ่ม **🗺 วาดสนาม** บน console: เลือก layer (🟥 airspace / 🟨 พื้นที่สแกน /
+🟦 ทางเข้า P1→P3 / 🟩 จุด L&R) → คลิกวางจุดบนแผนที่ (ลากขยับได้ ↩ ลบจุด
+🗑 ล้าง layer) → **💾 บันทึกสนาม** = เขียน `captures/field_override.json`
+(schema v1 — format กลางที่เสนอให้ repo แข่งใช้ด้วย) จากนั้น:
+
+- `run_mission.sh` เห็นไฟล์นี้แล้วส่งให้ orchestrator บินตาม**สนามที่วาด**แทน
+  ค่าใน yaml — ไฟล์เพี้ยน = **ไม่บินเลย** (fail closed) ไม่มีการเดาเงียบ ๆ
+- แผนที่ console แสดงเส้นชุดที่วาด (tooltip ต่อท้าย "(วาดเอง)") = สิ่งที่
+  โดรนจะบินจริง; **♻️ ใช้สนามเดิม** ลบ override กลับไปใช้ yaml
+- เครื่องจริง: `status_sync` ดันไฟล์ขึ้น CM4 ให้เองทุก 2 วิ (และลบตามเมื่อ
+  กด ♻️) — **ต้องเปิด status_sync เสมอ** (launch_gcs_real.sh เปิดให้อยู่แล้ว)
+  และวาด+บันทึกให้เสร็จ**ก่อนกด 🚀** (ตอน mission ทำงาน ปุ่มวาดล็อก)
+- จุด L&R วาดได้เผื่อสนามแข่งจริง (พิกัดนิ่งตอน event briefing) —
+  **อย่าตั้ง L&R ใน SITL** เพราะโลกจำลองไม่ย้ายตาม (orchestrator จะเตือนใน log)
+
 ปุ่มบน GCS ชุดเดียวกันใช้ได้ทั้งสองโลก ต่างกันแค่ **คำสั่งที่ตั้งไว้ตอนเปิด console**
 (`--mission-cmd`) และป้ายบนปุ่มจะบอกเองว่า console นี้บินโลกไหน:
 
