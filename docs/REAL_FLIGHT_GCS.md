@@ -30,7 +30,8 @@ bash sitl/launch_stack.sh        # หรือ make stack — ตั้ง --mi
 โครงสร้าง: **orchestrator รันบน CM4** (companion บนโดรน) — โน้ตบุ๊ก GCS เป็นแค่จอ+ปุ่ม
 ปุ่ม 🚀 จึงต้อง ssh ไปสั่ง CM4 ไม่ใช่รันบนโน้ตบุ๊ก
 
-1. **บน CM4**: ติดตั้ง repo นี้ (`make install`) + mavlink-router แยกสตรีม FC:
+1. **บน CM4**: อัพ repo ขึ้นไปด้วย `cm4/deploy.sh aavc@<cm4> --install`
+   (rsync + สร้าง venv บน CM4 เอง — รันซ้ำได้ตลอด incremental) + mavlink-router แยกสตรีม FC:
    - `udpin://0.0.0.0:14540` → orchestrator (offboard, บน CM4 เอง)
    - `<ip โน้ตบุ๊ก>:14550` → GCS (telemetry)
 2. **ตั้ง ssh key** จากโน้ตบุ๊กเข้า CM4 (กดปุ่มแล้วต้องไม่ถามรหัส): `ssh-copy-id aavc@<cm4>`
