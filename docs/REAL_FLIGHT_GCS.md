@@ -57,6 +57,20 @@ bash sitl/launch_stack.sh        # หรือ make stack — ตั้ง --mi
    คือ RC ของ safety pilot** (mode switch / kill) ซึ่งเหนือกว่า offboard เสมอ
 5. ลงจอด + disarm → ปุ่มปลดล็อกเอง → เก็บผล ULog/audit จาก CM4
 
+⚠ **ห้าม arm เองหรือสลับ offboard เองก่อนกด 🚀** — ปุ่ม 🚀 คือคำสั่ง arm ของภารกิจ:
+orchestrator บน CM4 จะเช็ค preflight แล้ว arm + takeoff เองทันทีที่ผ่าน เหตุผลที่ลำดับอื่นใช้ไม่ได้:
+
+- **arm เองก่อน → ปุ่ม 🚀 จะปฏิเสธ** (interlock "ห้ามสั่งขณะ armed" กันสั่งซ้อนกลางอากาศ
+  — ตั้งใจออกแบบไว้แบบนี้) และ PX4 จับ home ตอน arm: ต้อง arm ที่จุด L&R โดย
+  orchestrator เพื่อให้ home/นาฬิกา window ตรงกับภารกิจ
+- **สลับ RC เข้า OFFBOARD เอง → PX4 ปฏิเสธ/failsafe** เพราะโหมด offboard ต้องมี
+  companion stream setpoint อยู่ก่อนแล้ว — ถ้า orchestrator ยังไม่ได้เริ่ม (ยังไม่กด 🚀)
+  ไม่มีสัญญาณอะไรให้ตาม และถึงกดแล้ว mission ก็บินโหมด AUTO เกือบทั้งเที่ยว
+  (takeoff/goto/land) โดย orchestrator เป็นคนสลับโหมดเองทุกจังหวะ
+- บทบาทของคน: operator = เลือก pad + กด 🚀; **safety pilot = ถือ RC เฉย ๆ**
+  ไม่แตะสวิตช์จนกว่าจะต้อง override (mode switch ออกจาก AUTO หรือ kill) —
+  สวิตช์ RC เหนือกว่าคำสั่ง companion เสมอ จึงเป็นเบรกมือที่ใช้ได้ตลอดเวลา
+
 ข้อควรระวังของจริง: ถ้า WiFi/ssh ถึง CM4 ไม่ได้ ปุ่ม 🚀 จะขึ้น error ทันที (ssh ล้มเหลว
 = ข้อความโผล่บนหน้าเว็บ) — mission ที่**บินไปแล้ว**ไม่พึ่ง ssh/WiFi ต่อ (orchestrator
 อยู่บนโดรน) หลุด link แล้ว mission บินต่อจนจบเอง มีแต่จอที่มืด
