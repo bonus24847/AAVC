@@ -45,6 +45,8 @@ bash sitl/launch_stack.sh        # หรือ make stack — ตั้ง --mi
    ```
    (ไม่ใส่ `--reset-cmd` → ปุ่ม 🧹 หายไปเอง; `REAL=1` ใน run_mission.sh
    สลับไป `--connect udpin://0.0.0.0:14540` และตัด truth audit ให้แล้ว)
+4. **เปิด status sync** อีก terminal (จอ stepper/pad ✓ ต้องพึ่งตัวนี้ — ดู
+   "ลิงก์วิทยุหน้างาน" ด้านล่าง): `cm4/status_sync.sh aavc@<cm4>`
 
 ## เครื่องจริง: ขั้นตอนสั่งบินหน้างาน (ลำดับจริงตอนซ้อม/แข่ง)
 
@@ -74,3 +76,38 @@ orchestrator บน CM4 จะเช็ค preflight แล้ว arm + takeoff 
 ข้อควรระวังของจริง: ถ้า WiFi/ssh ถึง CM4 ไม่ได้ ปุ่ม 🚀 จะขึ้น error ทันที (ssh ล้มเหลว
 = ข้อความโผล่บนหน้าเว็บ) — mission ที่**บินไปแล้ว**ไม่พึ่ง ssh/WiFi ต่อ (orchestrator
 อยู่บนโดรน) หลุด link แล้ว mission บินต่อจนจบเอง มีแต่จอที่มืด
+
+## ลิงก์วิทยุหน้างาน: WiFi ระยะสั้น + Nomad (ELRS)
+
+WiFi ถึง CM4 ไปได้ไม่ไกล — **ไม่เป็นไร ระบบออกแบบมาแบบนั้น**: WiFi ถูกใช้เฉพาะตอน
+โดรน**อยู่บนพื้นที่ L&R ข้างโต๊ะ** (ระยะไม่กี่เมตร) ส่วนลิงก์เดียวที่ต้องถึงตลอด
+เที่ยวบินคือ **RC ของ safety pilot (Nomad/ELRS)** ซึ่งระยะไกลกว่าสนามหลายเท่าอยู่แล้ว
+
+| ลิงก์ | ใช้ทำอะไร | ต้องถึงเมื่อไหร่ |
+|---|---|---|
+| WiFi → CM4 (ssh) | deploy, ปุ่ม 🚀, `status_sync`, เก็บ ULog/audit | เฉพาะโดรนอยู่พื้นที่ L&R (ก่อนบิน + หลังลง) |
+| Nomad ELRS (RC) | override ของ safety pilot (mode/kill) | **ตลอดเที่ยวบิน** — ลิงก์ safety ตัวจริง |
+| จอ console กลางเที่ยว | ดูเฉย ๆ ไม่ใช่ safety | ไม่บังคับ — หลุดแล้ว mission บินต่อจนจบเอง |
+
+**status sync (จำเป็นในโหมด REAL):** orchestrator เขียน `captures/mission_status.json`
+บน CM4 แต่ console อ่านไฟล์บนโน้ตบุ๊ก — เปิด terminal คู่กับ console:
+
+```bash
+cm4/status_sync.sh aavc@<cm4>
+```
+
+ดึงทุก 2 วิ ผ่าน ssh; หลุดระยะ = จอ stepper/pad ✓ ค้าง (console มี staleness gate 45 วิ
+เทาให้เอง) แล้วเด้งกลับมาสดทันทีที่โดรนกลับเข้าระยะ (เช่น ตอนลงจอดที่ L&R —
+ผล ✓ ครบทุก pad จะขึ้นตอนนั้น)
+
+**อยากได้จอสดตลอดเที่ยว (ของแถม ไม่บังคับ):**
+- ทางที่ 1 — **ELRS MAVLink mode** บน Nomad: ELRS ≥3.4 ทั้ง TX/RX สลับโหมด MAVLink,
+  RX ต่อ UART ของ 6X, telemetry วิ่ง RC link → backpack ของ Nomad → UDP 14550 →
+  console ตรง ๆ **VERIFY-AT-BENCH ก่อนเท่านั้น**: ต้องยืนยันว่า build fmu-v6x ของเรา
+  รับ RC-over-MAVLink (`RADIO_RC_CHANNELS`) แล้ว failsafe ครบเหมือน CRSF —
+  **ห้ามสลับโหมดครั้งแรกที่หน้างาน** เพราะมันแตะลิงก์ safety
+- ทางที่ 2 — ซื้อวิทยุ telemetry SiK 915 MHz หนึ่งคู่ (~พันบาท) เสียบ TELEM1 → USB
+  โน้ตบุ๊ก → 14550: จอสดเต็มสนามโดยไม่แตะลิงก์ RC เลย (ทางมาตรฐาน แนะนำถ้าจะซื้อ)
+
+ค่าเริ่มต้นที่แนะนำสำหรับ test แรก ๆ: **Nomad คงเป็น RC ล้วน (CRSF)** — อย่าเพิ่งเอา
+ลิงก์ safety ไปพ่วงงานจอ
