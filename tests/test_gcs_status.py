@@ -93,3 +93,36 @@ def test_progress_maps_real_phases_onto_the_console_stepper(tmp_path: Path) -> N
         assert doc["mission_time"] == 42.0
     feed.set_done(214.0)
     assert _read(p)["phase"] == "done"       # exact — the console clock-stop key
+
+
+def test_release_snapshots_the_nadir_frame_as_proof_photo(
+        tmp_path: Path, monkeypatch) -> None:
+    # Operator request 2026-08-12: each RELEASE keeps that instant's nadir
+    # frame as captures/release_pad<id>.png (the GCS "did it place the box
+    # ON the pad?" photo). Point the module's frame path into tmp so the
+    # test never touches a live /tmp/aavc_nadir.png.
+    import orchestrator.gcs_status as gs
+    frame = tmp_path / "nadir.png"
+    frame.write_bytes(b"PNGBYTES")
+    monkeypatch.setattr(gs, "_NADIR_FRAME", frame)
+
+    p = tmp_path / "captures" / "mission_status.json"
+    stale = tmp_path / "captures"
+    stale.mkdir()
+    (stale / "release_pad9.png").write_bytes(b"OLD")   # last run's photo
+    feed = GcsMissionStatus(p, _LAT0, _LON0, assigned=[3])
+
+    assert not (stale / "release_pad9.png").exists()   # rotated at startup
+    feed.on_audit("t=1.0s DELIVERY 1 RELEASE pad=3 payload=0 lat=1 lon=2")
+    shot = stale / "release_pad3.png"
+    assert shot.read_bytes() == b"PNGBYTES"
+
+
+def test_release_snapshot_missing_frame_never_raises(
+        tmp_path: Path, monkeypatch) -> None:
+    import orchestrator.gcs_status as gs
+    monkeypatch.setattr(gs, "_NADIR_FRAME", tmp_path / "no_such_frame.png")
+    p = tmp_path / "mission_status.json"
+    feed = GcsMissionStatus(p, _LAT0, _LON0, assigned=[3])
+    feed.on_audit("t=1.0s DELIVERY 1 RELEASE pad=3 payload=0 lat=1 lon=2")
+    assert 3 in _read(p)["delivered"]      # the delivery tick still lands

@@ -24,5 +24,9 @@ echo "[status-sync] $HOST:~/$DIR/captures/ -> $REPO_ROOT/captures/ every ${IVL}s
 while true; do
     rsync -az --timeout=4 -e "ssh -o ConnectTimeout=3 -o BatchMode=yes" \
         "$HOST:$DIR/captures/" "$REPO_ROOT/captures/" 2>/dev/null || true
+    # live nadir frame for the console's 📷 panel (fresh only while the
+    # aircraft is in WiFi range — the panel shows the frame age honestly)
+    rsync -az --timeout=4 -e "ssh -o ConnectTimeout=3 -o BatchMode=yes" \
+        "$HOST:/tmp/aavc_nadir.png" "$REPO_ROOT/captures/nadir.png" 2>/dev/null || true
     sleep "$IVL"
 done
