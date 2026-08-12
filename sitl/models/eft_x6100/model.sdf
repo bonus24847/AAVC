@@ -184,10 +184,22 @@
       <child>camera_link</child>
     </joint>
 
-    <!-- Cargo payloads (Task 10): base_link <-> cargo_payload_N, one
-         DetachableJoint per box, N in 0..3. The four cargo_payload_N models
-         are pre-placed in the belly by sitl/worlds/aavc_field.sdf so each
-         joint binds the instant PX4 spawns this aircraft there.
+    <!-- Cargo payloads (Task 10; NESTED since 2026-08-12): base_link <->
+         cargo_payload_N, one DetachableJoint per box, N in 0..3. The boxes
+         are nested includes of THIS model (below), so they spawn atomically
+         with the aircraft and every joint binds before the first physics
+         step — no more pre-placing them in the world and hoping the spawn
+         race holds (the old aavc_field.sdf approach).
+
+         MOUNT HEIGHT (user spec 2026-08-12): the latch point is the servo
+         rack at (±0.10, ±0.035, 0) — ON the CG plane — so each box hangs
+         with its TOP FACE at z_body 0: box centre z = -0.09 (0.18 tall, so
+         it spans -0.18..0). The box overlaps base_link_collision_body
+         (z -0.02..+0.06) by 2 cm, which is why cargo_payload masks its
+         collision to 0x02 and the body masks to 0xfd — box<->airframe never
+         contact, box<->ground/slab/pad still do. Box bottoms at -0.18 stay
+         ABOVE the sensor plane (camera + lidar lenses at z -0.25), so the
+         nadir cone and the lidar ray remain unobstructed.
 
          Tier 1 (in flight, no extra code): each ~90 g box rides as dead
          weight through its joint constraint and loads the flight dynamics
@@ -197,8 +209,29 @@
          Tier 2 (release): publishing an Empty message on a plugin's
          <detach_topic> breaks THAT joint only, so the box falls free onto
          the pad — sitl/payload_detach_bridge.py (Task 11) fires this from
-         the flight core's own DELIVERY k RELEASE payload=N audit line, so
-         the SITL drop needs no change to the flight core. -->
+         the flight core's own DELIVERY k RELEASE payload=N audit line (or
+         the gz servo topics in servo mode), so the SITL drop needs no
+         change to the flight core. -->
+    <include>
+      <name>cargo_payload_0</name>
+      <uri>model://cargo_payload</uri>
+      <pose>0.10 0.035 -0.09 0 0 0</pose>
+    </include>
+    <include>
+      <name>cargo_payload_1</name>
+      <uri>model://cargo_payload</uri>
+      <pose>-0.10 -0.035 -0.09 0 0 0</pose>
+    </include>
+    <include>
+      <name>cargo_payload_2</name>
+      <uri>model://cargo_payload</uri>
+      <pose>0.10 -0.035 -0.09 0 0 0</pose>
+    </include>
+    <include>
+      <name>cargo_payload_3</name>
+      <uri>model://cargo_payload</uri>
+      <pose>-0.10 0.035 -0.09 0 0 0</pose>
+    </include>
     <plugin filename="gz-sim-detachable-joint-system"
             name="gz::sim::systems::DetachableJoint">
       <parent_link>base_link</parent_link>

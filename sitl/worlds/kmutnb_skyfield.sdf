@@ -190,59 +190,16 @@
       <pose>2.7 -0.4 0.10 0 0 -1.2</pose>
     </include>
 
-    <!-- ============================================================
-         DYNAMIC BELLY CARGO: 4 cargo_payload boxes (~90 g each, real mass +
-         inertia) pre-placed at the WORLD-ORIGIN spawn belly so their
-         DetachableJoints (sitl/models/eft_x6100/model.sdf, base_link <->
-         cargo_payload_N) bind the instant PX4 spawns the aircraft there.
-         Coupled to launch_sitl.sh PX4_GZ_MODEL_POSE="0,0,0.35,0,0,0".
-
-         KMUTNB 4-SERVO RACK (user spec 2026-08-11): the release servos sit at
-         (±0.10, ±0.035, 0) on the airframe — a tight rectangle around the CG
-         at the CG plane — mapped to DO_SET_ACTUATOR servo 1..4. Each payload
-         hangs under its servo, so the boxes spawn at the SAME x/y with yaw 0
-         (box footprint 0.16 x 0.065 m: y edges gap 5 mm — cargo_payload.sdf
-         was slimmed 0.07 -> 0.065 for exactly this rack; x edges gap 40 mm).
-
-         z derivation (same I6 logic as the KMITL world): gz runs `-r` before
-         PX4 spawns, so each box must REST on the slab, not float or
-         penetrate: z = slab top 0.10 + box half-height 0.09 = 0.19 (box spans
-         world z 0.10..0.28). Clearances at spawn (base_link z 0.35):
-           - base_link_collision_body world z [0.33, 0.41]: box top 0.28 stays
-             0.05 m below it (the x/y footprints DO overlap now — the rack is
-             under the belly — so the z gap is the load-bearing clearance).
-           - belly sensors: camera + lidar lenses at z -0.25 => world 0.10 at
-             spawn... while LANDED. In flight the boxes hang z -0.25..-0.07
-             below base_link, bottoms level WITH the sensor plane, so the
-             nadir cone and the lidar ray stay unobstructed (nothing extends
-             below the lens plane).
-           - skid rails y ±[0.305, 0.335]: boxes |y| <= 0.0675 — never in the
-             same Y band.
-         Sign alternation 0:+x+y 1:-x-y 2:+x-y 3:-x+y keeps the net CG moment
-         zero when full and again after the first two releases; the worst
-         intermediate offset is one box: 0.09 kg x 0.106 m / 8.2 kg = 1.2 mm
-         of CG travel. Shed by sitl/payload_detach_bridge.py (audit mode) or
-         by the servo mode watching /model/eft_x6100/servo_0..3. -->
-    <include>
-      <name>cargo_payload_0</name>
-      <uri>model://cargo_payload</uri>
-      <pose>0.10 0.035 0.19 0 0 0</pose>
-    </include>
-    <include>
-      <name>cargo_payload_1</name>
-      <uri>model://cargo_payload</uri>
-      <pose>-0.10 -0.035 0.19 0 0 0</pose>
-    </include>
-    <include>
-      <name>cargo_payload_2</name>
-      <uri>model://cargo_payload</uri>
-      <pose>0.10 -0.035 0.19 0 0 0</pose>
-    </include>
-    <include>
-      <name>cargo_payload_3</name>
-      <uri>model://cargo_payload</uri>
-      <pose>-0.10 0.035 0.19 0 0 0</pose>
-    </include>
+    <!-- DYNAMIC BELLY CARGO moved INTO the aircraft (2026-08-12, user z-spec):
+         the 4 cargo_payload boxes are now NESTED includes of
+         sitl/models/eft_x6100/model.sdf at (±0.10, ±0.035, -0.09) — top face
+         on the CG plane, right under the 4-servo latch rack at
+         (±0.10, ±0.035, 0). They spawn atomically WITH the aircraft, so the
+         old world-level pre-placement (and its slab-rest z=0.19 spawn-race
+         derivation) is gone. Sign alternation 0:+x+y 1:-x-y 2:+x-y 3:-x+y
+         keeps the net CG moment zero when full and again after the first two
+         releases. Shed by sitl/payload_detach_bridge.py (audit mode) or the
+         servo mode watching /model/eft_x6100[_0]/servo_0..3. -->
 
     <!-- Launch / recovery slab (6 x 6 m — scaled to the small field; the
          L&R zone radius in config is 8 m). Grey (V~128) stays under the pad

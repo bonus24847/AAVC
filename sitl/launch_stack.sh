@@ -43,7 +43,11 @@ stack_stop() {
     pkill -9 -f 'launch_sitl.s[h]'            2>/dev/null
     pkill -9 -f 'gz_camera_bridg[e]'          2>/dev/null
     pkill -9 -f 'payload_detach_bridg[e]'     2>/dev/null
-    pkill -9 -f 'aavc_gcs.p[y]'               2>/dev/null
+    # KEEP_CONSOLE=1 (the GCS 🧹 field-reset path): the reset is SPAWNED BY
+    # the console — killing it here would cut the operator's own page dead.
+    if [ "${KEEP_CONSOLE:-0}" != "1" ]; then
+        pkill -9 -f 'aavc_gcs.p[y]'           2>/dev/null
+    fi
     pkill -9 -f 'mavsdk_serve[r]'             2>/dev/null
     pkill -9 -f 'orchestrator.mai[n]'         2>/dev/null
     sleep 2
@@ -86,8 +90,11 @@ echo "[stack] SITL ready (heartbeat + 3D fix)."
 echo "[stack] bridges up (camera + payload servo watch)."
 
 # 4) AAVC GCS console on this repo's field/captures (stale-pad fix).
+#    KEEP_CONSOLE=1 (the 🧹 reset path) leaves the running console untouched.
 GCS_PORT="${GCS_PORT:-8000}"
-if [ -f "$AAVC_GCS" ]; then
+if [ "${KEEP_CONSOLE:-0}" = "1" ]; then
+    echo "[stack] console kept alive (KEEP_CONSOLE=1 — GCS 🧹 field reset)"
+elif [ -f "$AAVC_GCS" ]; then
     if ss -tln 2>/dev/null | grep -q ":${GCS_PORT} "; then
         echo "[stack] port ${GCS_PORT} busy → 8020"
         GCS_PORT=8020
@@ -95,6 +102,8 @@ if [ -f "$AAVC_GCS" ]; then
     /usr/bin/python3 "$AAVC_GCS" --field "$REPO_ROOT/gcs/kmutnb_field.yaml" \
         --captures "$REPO_ROOT/captures" --url udpin:0.0.0.0:14550 \
         --mission-cmd "'$REPO_ROOT/sitl/run_mission.sh' {ids}" \
+        --mission-label SIM \
+        --reset-cmd "env KEEP_CONSOLE=1 GUI=${GUI:-0} bash '$REPO_ROOT/sitl/launch_stack.sh'" \
         --port "$GCS_PORT" >/tmp/aavc_gcs_console.log 2>&1 &
     echo "[stack] AAVC GCS console → http://127.0.0.1:${GCS_PORT}"
 else

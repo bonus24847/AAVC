@@ -216,26 +216,26 @@
       </visual>
 
       <!-- Payload-release servo rack (KMUTNB spec 2026-08-11): 4 latch servos
-           in a rectangle at (±0.10, ±0.035) on the CG plane. Visual-only
-           markers just under the belly skin; the actual release is
+           in a rectangle at (±0.10, ±0.035, 0) — ON the CG plane exactly
+           (user spec; z moved -0.04 -> 0 on 2026-08-12). The release is
            DO_SET_ACTUATOR -> SIM_GZ_SV_FUNC1..4 -> payload_detach_bridge. -->
       <visual name="drop_servo_0">
-        <pose>0.10 0.035 -0.04 0 0 0</pose>
+        <pose>0.10 0.035 0 0 0 0</pose>
         <geometry><box><size>0.030 0.015 0.030</size></box></geometry>
         <material><ambient>0.15 0.15 0.60 1</ambient><diffuse>0.2 0.2 0.8 1</diffuse></material>
       </visual>
       <visual name="drop_servo_1">
-        <pose>-0.10 -0.035 -0.04 0 0 0</pose>
+        <pose>-0.10 -0.035 0 0 0 0</pose>
         <geometry><box><size>0.030 0.015 0.030</size></box></geometry>
         <material><ambient>0.15 0.15 0.60 1</ambient><diffuse>0.2 0.2 0.8 1</diffuse></material>
       </visual>
       <visual name="drop_servo_2">
-        <pose>0.10 -0.035 -0.04 0 0 0</pose>
+        <pose>0.10 -0.035 0 0 0 0</pose>
         <geometry><box><size>0.030 0.015 0.030</size></box></geometry>
         <material><ambient>0.15 0.15 0.60 1</ambient><diffuse>0.2 0.2 0.8 1</diffuse></material>
       </visual>
       <visual name="drop_servo_3">
-        <pose>-0.10 0.035 -0.04 0 0 0</pose>
+        <pose>-0.10 0.035 0 0 0 0</pose>
         <geometry><box><size>0.030 0.015 0.030</size></box></geometry>
         <material><ambient>0.15 0.15 0.60 1</ambient><diffuse>0.2 0.2 0.8 1</diffuse></material>
       </visual>
@@ -247,7 +247,11 @@
         <pose>0 0 0.02 0 0 0</pose>
         <geometry><box><size>0.36 0.36 0.08</size></box></geometry>
         <surface>
-          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <!-- bitmask 0xfd = everything EXCEPT the cargo boxes (0x02): the
+               boxes' tops sit AT the CG plane inside this volume (user
+               z-spec 2026-08-12) — see cargo_payload/model.sdf. -->
+          <contact><collide_bitmask>0xfd</collide_bitmask>
+            <ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
           <friction><ode/></friction>
         </surface>
       </collision>

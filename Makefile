@@ -103,7 +103,7 @@ payload-bridge-servo:
 # a SIBLING project's captures dir and renders that project's stale pads.
 AAVC_GCS ?= $(HOME)/Desktop/aavc-gcs/src/aavc_gcs.py
 aavc-gcs:
-	/usr/bin/python3 $(AAVC_GCS) --field gcs/kmutnb_field.yaml --captures captures --url $(if $(GCS_URL),$(GCS_URL),udpin:0.0.0.0:14550) --mission-cmd "'$(CURDIR)/sitl/run_mission.sh' {ids}" $(GCS_ARGS)
+	/usr/bin/python3 $(AAVC_GCS) --field gcs/kmutnb_field.yaml --captures captures --url $(if $(GCS_URL),$(GCS_URL),udpin:0.0.0.0:14550) --mission-cmd "'$(CURDIR)/sitl/run_mission.sh' {ids}" --mission-label SIM --reset-cmd "env KEEP_CONSOLE=1 GUI=$(if $(GUI),$(GUI),0) bash '$(CURDIR)/sitl/launch_stack.sh'" $(GCS_ARGS)
 
 # REAL cameras on the CM4 (G5+) -> the SAME /tmp/aavc_*.png frames as the gz
 # bridge. BACKEND=v4l2 (USB/UVC, runs in .venv) | picamera2 (CSI/libcamera, needs

@@ -75,23 +75,6 @@ def test_cargo_box_model_config_exists() -> None:
 _PAYLOAD_MODEL = _REPO / "sitl" / "models" / "cargo_payload" / "model.sdf"
 _PAYLOAD_MODEL_CONFIG = _REPO / "sitl" / "models" / "cargo_payload" / "model.config"
 _AIRCRAFT_MODEL = _REPO / "sitl" / "models" / "eft_x6100" / "model.sdf"
-# base_link_collision_body's world-frame UNDERSIDE (M7, review 2026-07-24):
-# sitl/models/eft_x6100_base/model.sdf has local pose z=0.02, box height 0.08
-# => half 0.04; the aircraft spawns at world z=0.35 via sitl/launch_sitl.sh's
-# PX4_GZ_MODEL_POSE="0,0,0.35,0,0,0" => world z-range [0.33, 0.41] (the same
-# arithmetic the world file's own I6 derivation comment re-does by hand).
-# Hard-coded rather than parsed out of launch_sitl.sh's shell env var (the
-# collision geometry is this repo's own SDF and parseable with the same
-# ElementTree already used above; the spawn pose is not XML at all) — a
-# regex shell-script parse is disproportionate machinery for one constant,
-# and (like _launch_pad_top_z) it is re-derived and cross-checked by hand in
-# the world file's own comment at every geometry change, not asserted here.
-_BASE_LINK_COLLISION_UNDERSIDE_WORLD_Z = 0.33
-# The same PX4_GZ_MODEL_POSE spawn height the constant above is derived from
-# (0.33 = 0.35 + 0.02 - 0.04), kept separate because the sensor-occlusion
-# checks below need the raw spawn z to convert the world-frame cargo poses
-# into the base_link frame the camera and lidar are mounted in.
-_AIRCRAFT_SPAWN_WORLD_Z = 0.35
 _BASE_MODEL = _REPO / "sitl" / "models" / "eft_x6100_base" / "model.sdf"
 # Clearance a belly box must keep from the edge of a downward sensor's cone.
 # The DetachableJoint is a rigid weld, so the box does not actually move in
@@ -154,35 +137,18 @@ def test_aircraft_has_four_detach_topics() -> None:
     }
 
 
-def _launch_pad_top_z(world: ET.Element) -> float:
-    """The launch-pad slab's TOP face height (world z) — derived from the
-    world file's own ``<model name="launch_pad">`` pose + collision box size,
-    not a hard-coded literal, so it tracks the slab if its geometry ever
-    changes.
-
-    I6 (review 2026-07-24): the belly cargo_payload boxes spawn directly over
-    this slab (footprint x,y in [-5,5]) while still belly-strapped to the
-    aircraft — their DetachableJoint has not formed yet, since PX4 spawns the
-    aircraft seconds after gz starts running (`-r`) — so they rest ON the
-    slab, not on the world GROUND PLANE (z=0). The ground plane is the WRONG
-    clearance datum: it sits 0.10 m below the slab's real top face, and a box
-    cleared only against z=0 can still be a free rigid body in penetrating
-    contact with the slab, which gz ejects before any joint can weld it in
-    place.
+def test_aircraft_includes_four_cargo_payloads_on_the_latch_plane() -> None:
+    """The 4 belly boxes are NESTED includes of the aircraft model
+    (2026-08-12 rework): they spawn atomically WITH the aircraft — no more
+    world-level pre-placement racing the PX4 spawn — and each hangs from the
+    servo rack with its TOP face ON the CG plane (user z-spec: the latch
+    servos sit at (±0.10, ±0.035, 0), so box centre z = -half_height).
     """
-    pad = next(m for m in world.findall("model") if m.get("name") == "launch_pad")
-    pose_z = float((pad.findtext("pose") or "0 0 0").split()[2])
-    size = [float(v) for v in
-            (pad.findtext(".//collision/geometry/box/size") or "").split()]
-    return pose_z + size[2] / 2.0
-
-
-def test_world_includes_four_cargo_payloads() -> None:
-    root = ET.parse(_WORLD).getroot()
-    world = root.find("world")
-    assert world is not None
+    root = ET.parse(_AIRCRAFT_MODEL).getroot()
+    model = root.find("model")
+    assert model is not None
     includes = [
-        inc for inc in world.iter("include")
+        inc for inc in model.iter("include")
         if (inc.findtext("uri") or "").strip() == "model://cargo_payload"
     ]
     names = [(inc.findtext("name") or "").strip() for inc in includes]
@@ -193,17 +159,7 @@ def test_world_includes_four_cargo_payloads() -> None:
         "cargo_payload_3",
     ]
 
-    # Bounds on the poses the belly ground-clearance analysis (Task 10
-    # report) actually depends on — names/URIs alone don't lock those.
-    # Half-height comes from the model's own collision box, not a hardcoded
-    # duplicate, so this bound tracks the model if its size ever changes.
-    payload_root = ET.parse(_PAYLOAD_MODEL).getroot()
-    collisions = payload_root.findall(".//collision")
-    assert len(collisions) == 1
-    size = [float(v) for v in (collisions[0].findtext(".//box/size") or "").split()]
-    half_height = size[2] / 2.0
-    launch_pad_top_z = _launch_pad_top_z(world)
-
+    half_x, half_y, half_h = _payload_half_extents()
     net_moment = [0.0, 0.0]
     for inc in includes:
         pose = [float(v) for v in (inc.findtext("pose") or "").split()]
@@ -212,47 +168,60 @@ def test_world_includes_four_cargo_payloads() -> None:
         name = inc.findtext("name")
         net_moment[0] += x
         net_moment[1] += y
-        # Belly placement: within the rail-to-rail belly width laterally, and
-        # high enough that the box BOTTOM (z - half_height) still clears the
-        # LAUNCH-PAD SLAB TOP it actually spawns resting on (I6) — NOT the
-        # world ground plane 0.10 m below it.
-        #
-        # This used to also pin `x == 0.0` ("centred fore/aft, zero net
-        # pitch moment" — Task 10 report). That was the wrong invariant and
-        # it froze the bug in place: x=0 is precisely where the nadir camera
-        # and the downward lidar look from, so the boxes blinded both (see
-        # the sensor-clearance tests below, which now own the X placement).
-        # The trim property it was really after is the NET moment over all
-        # four boxes, asserted once after the loop.
-        #
-        # Lateral bound is edge-aware, not centre-only: the boxes are yawed
-        # 90° so their 0.16 m axis is the lateral one, and a centre-only
-        # bound would let an edge run out past the skid rails unnoticed.
-        span_y = abs(y) + (size[0] / 2.0 * abs(math.sin(yaw))
-                           + size[1] / 2.0 * abs(math.cos(yaw)))
+        # Lateral bound is edge-aware, not centre-only: a yawed box's 0.16 m
+        # axis could be the lateral one, and a centre-only bound would let an
+        # edge run out past the skid rails unnoticed.
+        span_y = abs(y) + (half_x * abs(math.sin(yaw))
+                           + half_y * abs(math.cos(yaw)))
         assert span_y <= 0.2, f"{name}: reaches y={span_y}"
-        assert z - half_height >= launch_pad_top_z - 1e-9, (
-            f"{name}: bottom z={z - half_height} is below the launch-pad "
-            f"slab top ({launch_pad_top_z}) it actually rests on — a free "
-            "body there is in penetrating contact before any DetachableJoint "
-            "forms (I6)")
-        # M7 (review 2026-07-24): the bottom bound above only stops a box from
-        # sinking into the slab — nothing previously stopped a future RAISE
-        # from pushing it up INTO base_link_collision_body instead, the same
-        # class of penetrating-contact bug from the other direction.
-        assert z + half_height <= _BASE_LINK_COLLISION_UNDERSIDE_WORLD_Z, (
-            f"{name}: top z={z + half_height} is inside "
-            f"base_link_collision_body (underside "
-            f"{_BASE_LINK_COLLISION_UNDERSIDE_WORLD_Z}) — a free body there "
-            "is in penetrating contact with the aircraft's own collision "
-            "body before any DetachableJoint forms (I6, mirrored)")
+        # The latch-plane invariant itself: top face exactly at z_body 0.
+        assert abs(z + half_h) < 1e-9, (
+            f"{name}: top face z={z + half_h} — the box must hang with its "
+            "top ON the CG plane, i.e. centre z = -half_height "
+            f"({-half_h}), per the user's servo-rack spec")
 
-    # The real trim invariant the old `x == 0.0` was reaching for: the four
-    # boxes together must add no roll or pitch moment. Signs alternate across
-    # both axes, so this also leaves the aircraft balanced again after the
-    # first two of the four releases.
+    # Trim invariant: the four boxes together add no roll or pitch moment.
+    # Signs alternate across both axes, so the aircraft is balanced again
+    # after the first two of the four releases too.
     assert net_moment == [0.0, 0.0], (
         f"belly cargo is off-centre as a set: sum(x,y) = {net_moment}")
+
+
+def test_cargo_and_airframe_collisions_are_mask_isolated() -> None:
+    """Top face at the CG plane deliberately overlaps
+    base_link_collision_body (z_body -0.02..+0.06) by 2 cm — without contact
+    isolation the solver ejects the boxes at spawn before the
+    DetachableJoints bind. The box masks its collision to 0x02 and the body
+    to 0xfd (bit 1 clear): box<->airframe can NEVER contact, while
+    ground/slab/pads (default 0xffff) still catch a shed box.
+    """
+    payload = ET.parse(_PAYLOAD_MODEL).getroot()
+    box_mask = (payload.findtext(
+        ".//collision/surface/contact/collide_bitmask") or "").strip()
+    assert box_mask and int(box_mask, 16) == 0x02
+
+    base = ET.parse(_BASE_MODEL).getroot()
+    body = next(c for c in base.iter("collision")
+                if c.get("name") == "base_link_collision_body")
+    body_mask = (body.findtext(
+        "surface/contact/collide_bitmask") or "").strip()
+    assert body_mask and int(body_mask, 16) == 0xFD
+    assert int(box_mask, 16) & int(body_mask, 16) == 0, (
+        "box and airframe masks intersect — spawn-time ejection is back")
+
+
+def test_world_no_longer_preplaces_cargo_payloads() -> None:
+    """Guard the 2026-08-12 rework: the world must NOT still include
+    world-level cargo_payload models — a leftover would spawn a FIFTH+ box
+    resting on the slab, and the DetachableJoint child_model lookup could
+    bind the wrong instance.
+    """
+    root = ET.parse(_WORLD).getroot()
+    world = root.find("world")
+    assert world is not None
+    stray = [inc for inc in world.iter("include")
+             if (inc.findtext("uri") or "").strip() == "model://cargo_payload"]
+    assert not stray, [i.findtext("name") for i in stray]
 
 
 # ---------------------------------------------------------------------------
@@ -288,17 +257,17 @@ def _belly_cargo_boxes() -> list[tuple[str, float, float, float, float, float]]:
     """Each belly box as (name, x, y, z_baselink, half_x, half_y) — an
     axis-aligned footprint in the base_link frame, yaw folded in.
 
-    z is converted out of the world frame the world file places them in (they
-    are NOT children of the aircraft until the DetachableJoint binds) into the
-    base_link frame the sensors are mounted in. A yawed box is reduced to its
-    enclosing AABB (hx|cos|+hy|sin|), which is conservative for any yaw.
+    Since the 2026-08-12 rework the boxes are NESTED includes of the aircraft
+    model, so their poses are already in the base_link frame — no world-frame
+    spawn-height conversion needed. A yawed box is reduced to its enclosing
+    AABB (hx|cos|+hy|sin|), which is conservative for any yaw.
     """
-    root = ET.parse(_WORLD).getroot()
-    world = root.find("world")
-    assert world is not None
+    root = ET.parse(_AIRCRAFT_MODEL).getroot()
+    model = root.find("model")
+    assert model is not None
     hx, hy = _payload_half_extents()[:2]
     boxes = []
-    for inc in world.iter("include"):
+    for inc in model.iter("include"):
         if (inc.findtext("uri") or "").strip() != "model://cargo_payload":
             continue
         pose = [float(v) for v in (inc.findtext("pose") or "").split()]
@@ -306,7 +275,7 @@ def _belly_cargo_boxes() -> list[tuple[str, float, float, float, float, float]]:
         c, s = abs(math.cos(yaw)), abs(math.sin(yaw))
         boxes.append((
             (inc.findtext("name") or "").strip(),
-            pose[0], pose[1], pose[2] - _AIRCRAFT_SPAWN_WORLD_Z,
+            pose[0], pose[1], pose[2],
             hx * c + hy * s, hx * s + hy * c,
         ))
     assert len(boxes) == 4

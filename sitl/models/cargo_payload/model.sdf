@@ -65,11 +65,20 @@
           <diffuse>1.00 0.50 0.08 1</diffuse>
         </material>
       </visual>
-      <!-- single collision = the card box itself -->
+      <!-- single collision = the card box itself.
+           collide_bitmask 0x02 (2026-08-12, user z-spec): the box now rides
+           with its TOP at the CG plane, overlapping base_link_collision_body
+           (z [-0.02,+0.06]) by 2 cm — without isolation the contact solver
+           ejects it at spawn before the DetachableJoint binds. The body
+           collision masks to 0xfd (bit 1 clear), so box<->body NEVER contact
+           while ground/slab/pads (default 0xffff) still catch a shed box. -->
       <collision name="collision">
         <geometry>
           <box><size>0.16 0.065 0.18</size></box>
         </geometry>
+        <surface>
+          <contact><collide_bitmask>0x02</collide_bitmask></contact>
+        </surface>
       </collision>
     </link>
   </model>

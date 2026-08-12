@@ -26,6 +26,17 @@ EXTRA=()
 if [ "${REAL:-0}" = "1" ]; then
     EXTRA+=(--connect "udpin://0.0.0.0:14540")
 else
+    # SITL dirty-field precheck (2026-08-12, hit live by the operator): cargo
+    # boxes shed by a PREVIOUS run stay lying ON the pads and hide the ArUco
+    # markers — the next mission then can't decode those pads at all (looks
+    # like "pads missing" on the GCS map) and flies home with eggs unserved.
+    # The detach bridge's log is truncated at every stack (re)start, so any
+    # "shed" line in it means THIS field already has boxes down. Refuse with
+    # a clear message — the console surfaces this line in the browser.
+    if grep -q 'shed payload' /tmp/aavc_detach.log 2>/dev/null; then
+        echo "❌ สนามยังมีกล่องจากรอบก่อนวางบัง marker อยู่ — กดปุ่ม 🧹 รีเซ็ตสนาม ก่อนบินใหม่" >&2
+        exit 1
+    fi
     # SITL: enable the post-flight truth audit when the spawner wrote one.
     [ -f /tmp/aavc_targets.json ] && EXTRA+=(--truth-json /tmp/aavc_targets.json)
 fi
