@@ -25,6 +25,9 @@ bash sitl/launch_stack.sh        # หรือ make stack — ตั้ง --mi
 ถ้าสนามยังมีกล่องจากรอบก่อน (บัง marker) ปุ่ม 🚀 จะ**ปฏิเสธพร้อมเหตุผล** —
 กด **🧹 รีเซ็ตสนาม [SIM]** (~1 นาที, console ไม่ดับ) แล้วค่อยกด 🚀 ใหม่
 
+อยากเห็นภาพกล้องมองล่างระหว่าง test: `make camera-view` (หน้าต่างภาพสดจาก
+`/tmp/aavc_nadir.png` — สิ่งที่ detector เห็นจริง ๆ; SIM-only, จอ GCS ไม่มีแผงกล้อง)
+
 ## เครื่องจริง (G5+): ขั้นตอนตั้งระบบ
 
 โครงสร้าง: **orchestrator รันบน CM4** (companion บนโดรน) — โน้ตบุ๊ก GCS เป็นแค่จอ+ปุ่ม
@@ -35,18 +38,24 @@ bash sitl/launch_stack.sh        # หรือ make stack — ตั้ง --mi
    - `udpin://0.0.0.0:14540` → orchestrator (offboard, บน CM4 เอง)
    - `<ip โน้ตบุ๊ก>:14550` → GCS (telemetry)
 2. **ตั้ง ssh key** จากโน้ตบุ๊กเข้า CM4 (กดปุ่มแล้วต้องไม่ถามรหัส): `ssh-copy-id aavc@<cm4>`
-3. **เปิด console บนโน้ตบุ๊ก**:
+3. **เปิด console + status sync บนโน้ตบุ๊ก — คำสั่งเดียว**:
    ```bash
-   /usr/bin/python3 ~/Desktop/aavc-gcs/src/aavc_gcs.py \
-     --field gcs/kmutnb_field.yaml --captures captures \
-     --url udpin:0.0.0.0:14550 \
-     --mission-cmd "ssh aavc@<cm4> 'REAL=1 ~/mission/sitl/run_mission.sh {ids}'" \
-     --mission-label REAL
+   cm4/launch_gcs_real.sh aavc@<ip-cm4>
    ```
-   (ไม่ใส่ `--reset-cmd` → ปุ่ม 🧹 หายไปเอง; `REAL=1` ใน run_mission.sh
-   สลับไป `--connect udpin://0.0.0.0:14540` และตัด truth audit ให้แล้ว)
-4. **เปิด status sync** อีก terminal (จอ stepper/pad ✓ ต้องพึ่งตัวนี้ — ดู
-   "ลิงก์วิทยุหน้างาน" ด้านล่าง): `cm4/status_sync.sh aavc@<cm4>`
+   สคริปต์นี้ตั้งค่า GCS ให้ครบทุกตัว (จะได้ไม่ต้องพิมพ์เองหน้างาน) และเปิด
+   `status_sync` คู่กันอัตโนมัติ — Ctrl-C ปิดทั้งคู่ ค่าที่มันตั้งให้คือ:
+
+   | ค่า | ความหมาย |
+   |---|---|
+   | `--field gcs/kmutnb_field.yaml` | เส้น geofence/search/transit ของสนามบนแผนที่ |
+   | `--captures captures` | โฟลเดอร์ที่ status_sync ดึงผลจาก CM4 มาลง (จอ stepper/pad ✓) |
+   | `--url udpin:0.0.0.0:14550` | ช่องรับ telemetry — Nomad backpack / mavlink-router ยิงมาที่นี่ |
+   | `--mission-cmd "ssh … REAL=1 run_mission.sh {ids}"` | ปุ่ม 🚀 = ssh ไป stage mission บน CM4 (`{ids}` = pad ที่เลือก) |
+   | `--mission-label REAL` | ป้าย [REAL] บนปุ่ม |
+   | *(ไม่ใส่ `--reset-cmd`)* | ปุ่ม 🧹 (SIM-only) ซ่อนตัวเอง |
+
+   (`REAL=1` ใน run_mission.sh สลับ endpoint + ตัด truth audit + เปิด RC-GO
+   ให้เองครบ — อยากสั่งมือดูคำสั่งเต็มได้ในตัวสคริปต์)
 
 ## เครื่องจริง: ขั้นตอนสั่งบินหน้างาน (ลำดับจริงตอนซ้อม/แข่ง)
 
@@ -110,22 +119,6 @@ cm4/status_sync.sh aavc@<cm4>
 ดึงทุก 2 วิ ผ่าน ssh; หลุดระยะ = จอ stepper/pad ✓ ค้าง (console มี staleness gate 45 วิ
 เทาให้เอง) แล้วเด้งกลับมาสดทันทีที่โดรนกลับเข้าระยะ (เช่น ตอนลงจอดที่ L&R —
 ผล ✓ ครบทุก pad จะขึ้นตอนนั้น)
-
-## 📷 กล้องมองล่างบน console (2026-08-12)
-
-แผง "กล้องมองล่าง" บนหน้า console มีสองส่วน:
-
-- **ภาพสด**: frame ล่าสุดจากกล้อง nadir — SIM สดตลอด; เครื่องจริงสดเฉพาะช่วง
-  โดรนอยู่ในระยะ WiFi (`status_sync` ดึง `/tmp/aavc_nadir.png` จาก CM4 มาให้)
-  หลุดระยะแล้วแผงจะ**บอกอายุ frame ตรง ๆ** ("ค้าง xx วิ — โดรนนอกระยะ WiFi")
-  ไม่แสร้งว่าภาพยังสด — วิดีโอสดกลางสนามส่งผ่าน Nomad ไม่ได้ (ลิงก์แคบ
-  ระดับ telemetry เท่านั้น)
-- **ภาพหลักฐานการวางของ (proof photo)**: ทุกครั้งที่ปล่อยไข่ orchestrator
-  เก็บ frame กล้องมองล่าง ณ วินาที RELEASE เป็น `captures/release_pad<id>.png`
-  — โผล่เป็น thumbnail "📦 วางแล้ว pad n" ใต้ภาพสด (คลิกดูเต็ม) ใช้ตอบคำถาม
-  "วางตรง pad ไหม" ได้ทุก delivery; บนเครื่องจริงภาพชุดนี้ไหลกลับมาเอง
-  ตอนโดรนกลับเข้าระยะ WiFi (ขาลงจอด) และรูปเก่าถูกล้างทุกครั้งที่เริ่ม
-  mission ใหม่ (กันรูปรอบก่อนโผล่ใต้ ✓ รอบนี้)
 
 ## Nomad ELRS MAVLink mode (ทางที่เลือกใช้ — operator 2026-08-12)
 

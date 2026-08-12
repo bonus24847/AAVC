@@ -33,7 +33,6 @@ import json
 import math
 import os
 import re
-import shutil
 import threading
 import time
 from pathlib import Path
@@ -47,10 +46,6 @@ _R_EARTH_M = 6_378_137.0
 # payload capture: pad=None (an id-unverified touchdown release) deliberately
 # fails the \d+ and is not shown as a delivered pad.
 _RELEASE = re.compile(r"DELIVERY \d+ RELEASE pad=(?P<pad>\d+)")
-
-# The shared nadir frame (contract, CLAUDE.md §5) — copied per RELEASE into
-# captures/release_pad<id>.png as the operator's proof photo.
-_NADIR_FRAME = Path("/tmp/aavc_nadir.png")
 
 # MissionPhase.value -> the console's mission bar (its phaseIdx() does
 # SUBSTRING matching on [recon, deliver, done], so the label carries the raw
@@ -94,14 +89,7 @@ class GcsMissionStatus:
             pass
         # Startup write = the stale-pads fix: whatever mission_status.json a
         # previous run (or another project) left behind is replaced by an
-        # empty pads_mapped before the console's next 1 Hz poll. The release
-        # proof photos rotate with it — a stale release_pad*.png would show
-        # LAST run's drop under THIS run's green tick.
-        for old in self.path.parent.glob("release_pad*.png"):
-            try:
-                old.unlink()
-            except Exception:
-                pass
+        # empty pads_mapped before the console's next 1 Hz poll.
         self._write()
         logger.info(f"[gcs_status] live pad feed → {self.path}")
 
@@ -141,8 +129,7 @@ class GcsMissionStatus:
         self._write()
 
     def on_audit(self, entry: str) -> None:
-        """Audit-sink tee: mark a pad delivered on its DELIVERY … RELEASE line
-        (+ keep that instant's nadir frame as the per-delivery proof photo)."""
+        """Audit-sink tee: mark a pad delivered on its DELIVERY … RELEASE line."""
         m = _RELEASE.search(entry)
         if m is None:
             return
@@ -150,21 +137,7 @@ class GcsMissionStatus:
         with self._lock:
             if pad not in self._delivered:
                 self._delivered.append(pad)
-        self._snapshot_release(pad)
         self._write()
-
-    def _snapshot_release(self, pad: int) -> None:
-        """Copy the release-instant nadir frame → captures/release_pad<id>.png
-        — the operator's "did it place the box ON the pad?" photo (GCS camera
-        panel; cm4/status_sync.sh carries it home from the real bird when the
-        aircraft is back in WiFi range). Best-effort display aid: a missing
-        frame never disturbs the mission."""
-        try:
-            shutil.copyfile(_NADIR_FRAME,
-                            self.path.parent / f"release_pad{pad}.png")
-        except Exception:
-            logger.debug(f"[gcs_status] no nadir frame to snapshot for "
-                         f"pad={pad}")
 
     def tracker_pusher(self, tracker: Any) -> Callable[[Any], None]:
         """VisionWorker ``on_fix`` callback: mirror each newly CONFIRMED,

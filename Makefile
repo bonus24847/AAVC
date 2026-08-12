@@ -74,6 +74,11 @@ BRIDGE_PY := env PYTHONPATH=/usr/lib/python3/dist-packages .venv/bin/python
 camera-bridge:
 	$(BRIDGE_PY) sitl/gz_camera_bridge.py
 
+# Live nadir-camera window for SITL test sessions (auto-reloading viewer on
+# /tmp/aavc_nadir.png) — the operator watches what the detector actually sees.
+camera-view:
+	bash sitl/camera_view.sh
+
 # OPTIONAL: tails a mission run's audit.jsonl (SYSTEM python3, same reason as
 # camera-bridge above) and publishes gz Empty on /model/<model>/detach_payload_N
 # for each DELIVERY RELEASE, shedding that cargo box (Task 10) onto the pad.
