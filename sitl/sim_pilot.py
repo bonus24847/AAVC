@@ -3,17 +3,28 @@
 RC-GO (operator 2026-08-12): the web/ssh GO only STAGES a flight; the pilot
 ARMS via RC and flips to OFFBOARD to launch, and flips to POSCTL to take the
 aircraft back (orchestrator stands down, audit ``PILOT TAKEOVER``). In SITL
-there is no RC, so this script performs those exact actions over plain
-MAVLink on the SITL GCS link.
+there is no RC, so this script performs those actions over plain MAVLink.
 
-Bind note: default endpoint is ``udpin:0.0.0.0:14550`` — run it INSTEAD of
-the AAVC GCS console (one process per port), or point it elsewhere with
-``--url``. NOT used on the real bird: there the pilot's Nomad does this.
+Validated 2026-08-12 (three live SITL runs). Two lessons baked in:
+  * Default endpoint is ``udpout:127.0.0.1:18570`` — PX4's OWN port for the
+    GCS link — with commands blind-sent to sys 1. Binding udpin:14550 and
+    waiting for a heartbeat proved flaky mid-session (PX4 partner-locks the
+    stream), while blind-send worked every time; confirmation comes from the
+    ORCHESTRATOR's audit (``armed+OFFBOARD — launching`` / ``PILOT
+    TAKEOVER``), which is the ground truth anyway.
+  * PX4 needs a live "RC": POSCTL (arming AND the in-flight flip) requires a
+    fresh manual-control source, and the pinned NAV_DLL_ACT needs a GCS
+    heartbeat to keep the vehicle armable. The ``rc`` action provides both —
+    run it in the background for the WHOLE test (kill it afterwards to
+    exercise the RC-loss → RTL failsafe).
 
-Usage (venv python, PYTHONPATH scrubbed like every orchestrator entry point):
-    env -u PYTHONPATH .venv/bin/python sitl/sim_pilot.py go        # arm + OFFBOARD
-    env -u PYTHONPATH .venv/bin/python sitl/sim_pilot.py posctl    # pilot takeover
-    env -u PYTHONPATH .venv/bin/python sitl/sim_pilot.py arm|offboard
+Typical validation sequence (orchestrator already staged with --rc-go):
+    env -u PYTHONPATH .venv/bin/python sitl/sim_pilot.py rc &   # RC is ON
+    env -u PYTHONPATH .venv/bin/python sitl/sim_pilot.py go     # arm + OFFBOARD
+    ...mid-flight...
+    env -u PYTHONPATH .venv/bin/python sitl/sim_pilot.py posctl # takeover
+
+NOT used on the real bird — there the pilot's Nomad does all of this.
 """
 from __future__ import annotations
 
@@ -23,58 +34,78 @@ import time
 
 from pymavlink import mavutil
 
+# PX4 custom main modes (param2 of DO_SET_MODE with CUSTOM_MODE_ENABLED)
+_PX4_MODES = {"POSCTL": 3.0, "OFFBOARD": 6.0}
+_TARGET_SYS = 1
+
 
 def _connect(url: str) -> mavutil.mavfile:
-    m = mavutil.mavlink_connection(url)
-    print(f"[sim_pilot] waiting for heartbeat on {url} …")
-    m.wait_heartbeat(timeout=30)
-    if m.target_system == 0:
-        raise SystemExit("[sim_pilot] no heartbeat — is SITL up?")
-    print(f"[sim_pilot] vehicle: sys {m.target_system}")
+    m = mavutil.mavlink_connection(url, source_system=251)
+    print(f"[sim_pilot] link {url} → blind target sys {_TARGET_SYS}")
     return m
 
 
-def _ack(m: mavutil.mavfile, what: str) -> None:
-    ack = m.recv_match(type="COMMAND_ACK", blocking=True, timeout=5)
-    result = getattr(ack, "result", None)
-    print(f"[sim_pilot] {what}: ack={result if ack else 'TIMEOUT'}")
-    if not ack or result != 0:   # MAV_RESULT_ACCEPTED
-        raise SystemExit(1)
-
-
-def _arm(m: mavutil.mavfile) -> None:
+def _arm(m: mavutil.mavfile, arm: bool = True) -> None:
     m.mav.command_long_send(
-        m.target_system, m.target_component,
-        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0,
-        1, 0, 0, 0, 0, 0, 0)
-    _ack(m, "arm")
+        _TARGET_SYS, 1, mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0,
+        1.0 if arm else 0.0, 0, 0, 0, 0, 0, 0)
+    print(f"[sim_pilot] {'arm' if arm else 'disarm'} sent")
 
 
 def _mode(m: mavutil.mavfile, name: str) -> None:
-    mapping = m.mode_mapping()
-    if not mapping or name not in mapping:
-        raise SystemExit(f"[sim_pilot] mode {name} not in mapping "
-                         f"{sorted(mapping or {})}")
-    m.set_mode(mapping[name])
-    _ack(m, f"mode {name}")
+    m.mav.command_long_send(
+        _TARGET_SYS, 1, mavutil.mavlink.MAV_CMD_DO_SET_MODE, 0,
+        1.0, _PX4_MODES[name], 0.0, 0, 0, 0, 0)
+    print(f"[sim_pilot] mode {name} sent — confirm via the orchestrator "
+          "log/audit")
+
+
+def _sticks(m: mavutil.mavfile) -> None:
+    m.mav.manual_control_send(_TARGET_SYS, 0, 0, 500, 0, 0)  # neutral, mid-thr
+
+
+def _rc_stream(m: mavutil.mavfile, duration_s: float) -> None:
+    """Neutral sticks @10 Hz + GCS heartbeat @1 Hz — 'the RC is switched on'."""
+    print(f"[sim_pilot] RC stream for {duration_s:.0f}s (Ctrl-C to cut RC)")
+    t_end = time.monotonic() + duration_s
+    last_hb = 0.0
+    while time.monotonic() < t_end:
+        _sticks(m)
+        if time.monotonic() - last_hb >= 1.0:
+            m.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_GCS,
+                                 mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
+            last_hb = time.monotonic()
+        time.sleep(0.1)
+    print("[sim_pilot] RC stream ended — PX4 RC-loss failsafe takes it "
+          "from here")
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("action", choices=("arm", "offboard", "posctl", "go"))
-    p.add_argument("--url", default="udpin:0.0.0.0:14550")
+    p.add_argument("action",
+                   choices=("rc", "arm", "disarm", "offboard", "posctl", "go"))
+    p.add_argument("--url", default="udpout:127.0.0.1:18570")
     p.add_argument("--arm-to-offboard-s", type=float, default=2.0,
                    help="'go' only: pilot's pause between arming and the "
                         "OFFBOARD flip")
+    p.add_argument("--rc-s", type=float, default=600.0,
+                   help="'rc' only: how long the RC stays on")
     a = p.parse_args()
 
     m = _connect(a.url)
-    if a.action == "arm":
+    if a.action == "rc":
+        _rc_stream(m, a.rc_s)
+    elif a.action == "arm":
         _arm(m)
-    elif a.action == "offboard":
-        _mode(m, "OFFBOARD")
-    elif a.action == "posctl":
-        _mode(m, "POSCTL")
+    elif a.action == "disarm":
+        _arm(m, arm=False)
+    elif a.action in ("offboard", "posctl"):
+        # a burst of sticks first so the mode's manual-source check passes
+        # even if the background 'rc' stream just hiccuped
+        for _ in range(10):
+            _sticks(m)
+            time.sleep(0.1)
+        _mode(m, a.action.upper())
     else:  # go — the full RC-GO launch gesture
         _arm(m)
         time.sleep(a.arm_to_offboard_s)
