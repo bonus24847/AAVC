@@ -107,6 +107,12 @@ search:
                            # the 40 m cross-span; pad is a huge high-contrast
                            # blob (~160 px) at 4 m
   margin_m: 4.0            # search-area inset (pads sit >=4 m inside; GPS is coarse)
+                           # boundary note (peer report 2026-08-12): at 4.0 the
+                           # outermost sweep leg sits 5.93 m from the AIRSPACE
+                           # edge vs the watchdog's 5 m proximity warn — 0.9 m
+                           # slack. Clean in every validated run; if audits ever
+                           # show geofence_warn spam on windy days, raise to 5.0
+                           # (camera swath at 4 m alt still covers the pad zone).
   speed_mps: 3.0           # = MPC_XY_CRUISE (accuracy-over-speed retune). It is
                            # not a command — goto sends no speed, so PX4 flies
                            # MPC_XY_CRUISE regardless; this number only feeds the
