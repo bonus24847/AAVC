@@ -46,6 +46,7 @@ _R_EARTH_M = 6_378_137.0
 # payload capture: pad=None (an id-unverified touchdown release) deliberately
 # fails the \d+ and is not shown as a delivered pad.
 _RELEASE = re.compile(r"DELIVERY \d+ RELEASE pad=(?P<pad>\d+)")
+_TRANSIT = re.compile(r"(?P<what>TRANSIT_PASS|TRANSIT_MISS) (?P<pt>P\d)")
 
 # MissionPhase.value -> the console's mission bar (its phaseIdx() does
 # SUBSTRING matching on [recon, deliver, done], so the label carries the raw
@@ -74,7 +75,7 @@ class GcsMissionStatus:
     """Best-effort writer of the AAVC GCS console's mission_status.json."""
 
     def __init__(self, path: Path | str, origin_lat: float, origin_lon: float,
-                 assigned: list[int]) -> None:
+                 assigned: list[int], serve_cost_s: float = 80.0) -> None:
         self.path = Path(path)
         self._origin = (float(origin_lat), float(origin_lon))
         self._lock = threading.Lock()
@@ -83,6 +84,14 @@ class GcsMissionStatus:
         self._assigned = [int(i) for i in assigned]
         self._phase = "recon (preflight)"
         self._mission_time: float | None = None
+        # ── progress + events (operator request 2026-08-14: "แถบ % แบบ
+        # โปรแกรมโหลด") — display-aid numbers ONLY, never read by the mission ──
+        self._serve_cost_s = float(serve_cost_s)
+        self._progress = 0                 # 0..100 (monotonic within a flight)
+        self._progress_label = "เตรียมพร้อม"
+        self._eta_s: int | None = None
+        self._search_t0: float | None = None   # mission_time when search began
+        self._events: list[dict[str, Any]] = []  # rolling, newest last, max 10
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -103,6 +112,7 @@ class GcsMissionStatus:
     def pad_confirmed(self, marker_id: int, lat: float, lon: float) -> None:
         with self._lock:
             self._pads[str(int(marker_id))] = self._enu(lat, lon)
+        self._event(f"🎯 เจอ pad {int(marker_id)}!")
         self._write()
 
     def set_phase(self, phase: str) -> None:
@@ -110,34 +120,115 @@ class GcsMissionStatus:
             self._phase = str(phase)
         self._write()
 
-    def set_progress(self, raw_phase: str, mission_time_s: float) -> None:
+    def set_progress(self, raw_phase: str, mission_time_s: float, *,
+                     delivered: int | None = None,
+                     assigned: int | None = None) -> None:
         """1 Hz heartbeat from the orchestrator's REAL MissionPhase: drives the
-        console's mission stepper + ⏱ clock, and keeps ``updated`` fresh so
-        the console's 45 s staleness gate never hides a live mission between
-        sparse events (the original event-only writes did exactly that)."""
+        console's mission stepper + ⏱ clock + the milestone %-bar, and keeps
+        ``updated`` fresh so the console's 45 s staleness gate never hides a
+        live mission between sparse events."""
         step = _STEP_OF.get(str(raw_phase), "recon")
         with self._lock:
             self._phase = f"{step} ({raw_phase})"
             self._mission_time = float(mission_time_s)
+            self._update_progress(str(raw_phase), float(mission_time_s),
+                                  delivered, assigned)
         self._write()
+
+    def _update_progress(self, phase: str, t: float,
+                         delivered: int | None, assigned: int | None) -> None:
+        """Milestone %-model (display aid; the mission never reads it):
+        preflight 2 → takeoff 6 → transit 12 → search 20..55 (time creep,
+        ~0.4 %/s ≈ a full sweep of this field) → serve 55..90 (by deliveries)
+        → egress 92 → final land 97 → done 100. Monotonic within a flight —
+        only a PREFLIGHT hold (next flight) may reset it."""
+        n_d = len(self._delivered) if delivered is None else int(delivered)
+        n_a = len(self._assigned) if assigned is None else int(assigned)
+        n_a = max(n_a, 1)
+        serving = phase in ("localize", "drop", "track") or (
+            phase == "land" and n_d < n_a)
+        pending = [i for i in self._assigned if i not in self._delivered]
+        cur_pad = pending[0] if pending else None
+        eta = 0.0
+        if phase == "preflight":
+            pct, label = 2, "เตรียมพร้อม / รอปล่อย"
+            eta = 90 + n_a * self._serve_cost_s + 70
+            self._search_t0 = None
+        elif phase == "takeoff":
+            pct, label = 6, "กำลังขึ้นบิน"
+            eta = 90 + n_a * self._serve_cost_s + 70
+        elif phase == "transit_ingress":
+            pct, label = 12, "บินเข้าเส้นทาง P1→P3"
+            eta = 90 + (n_a - n_d) * self._serve_cost_s + 70
+        elif phase == "search":
+            if self._search_t0 is None:
+                self._search_t0 = t
+            pct = int(min(55.0, 20.0 + 0.4 * (t - self._search_t0)))
+            label = "กวาดหา pad"
+            eta = (55 - pct) / 0.4 + (n_a - n_d) * self._serve_cost_s + 70
+        elif serving:
+            base = 55.0 + 35.0 * (n_d / n_a)
+            pct = int(min(90.0, base + 0.5 * 35.0 / n_a))
+            label = (f"ส่งของ pad {cur_pad} ({n_d + 1}/{n_a})"
+                     if cur_pad is not None else f"ส่งของ ({n_d}/{n_a})")
+            eta = (n_a - n_d - 0.5) * self._serve_cost_s + 70
+        elif phase in ("transit_egress", "rth"):
+            pct, label = 92, "บินกลับ"
+            eta = 70
+        elif phase == "land":
+            pct, label = 97, "กลับมาลงจอด"
+            eta = 25
+        else:                                   # abort/unknown — hold position
+            pct, label = self._progress, self._progress_label
+            eta = self._eta_s or 0
+        if phase == "preflight":
+            self._progress = pct                # next-flight hold may reset
+        else:
+            self._progress = max(self._progress, pct)
+        self._progress_label = label
+        self._eta_s = int(max(0.0, round(eta / 10.0) * 10))
 
     def set_done(self, mission_time_s: float) -> None:
         """Terminal write — exactly "done" (see _STEP_OF note)."""
         with self._lock:
             self._phase = "done"
             self._mission_time = float(mission_time_s)
+            self._progress = 100
+            self._progress_label = "จบภารกิจ"
+            self._eta_s = 0
         self._write()
 
-    def on_audit(self, entry: str) -> None:
-        """Audit-sink tee: mark a pad delivered on its DELIVERY … RELEASE line."""
-        m = _RELEASE.search(entry)
-        if m is None:
-            return
-        pad = int(m.group("pad"))
+    def _event(self, text: str, warn: bool = False) -> None:
+        """Append to the rolling operator-event feed (console toasts)."""
         with self._lock:
-            if pad not in self._delivered:
-                self._delivered.append(pad)
-        self._write()
+            self._events.append({"t": round(time.time(), 1),
+                                 "text": text, "warn": warn})
+            del self._events[:-10]
+
+    def on_audit(self, entry: str) -> None:
+        """Audit-sink tee: delivered ticks + the operator-event feed."""
+        m = _RELEASE.search(entry)
+        if m is not None:
+            pad = int(m.group("pad"))
+            with self._lock:
+                if pad not in self._delivered:
+                    self._delivered.append(pad)
+            self._event(f"📦 วางแล้ว pad {pad}")
+            self._write()
+            return
+        mt = _TRANSIT.search(entry)
+        if mt is not None:
+            ok = mt.group("what") == "TRANSIT_PASS"
+            self._event(("✅ ผ่านจุด " if ok else "⚠️ พลาดจุด ") + mt.group("pt"),
+                        warn=not ok)
+            self._write()
+            return
+        if "PILOT TAKEOVER" in entry:
+            self._event("🛑 นักบินยึดเครื่องคืน — ระบบหยุดสั่งแล้ว", warn=True)
+            self._write()
+        elif "DELIVERY abort" in entry:
+            self._event("⚠️ ข้ามการส่งที่เหลือ (งบเวลา/แบตไม่พอ)", warn=True)
+            self._write()
 
     def tracker_pusher(self, tracker: Any) -> Callable[[Any], None]:
         """VisionWorker ``on_fix`` callback: mirror each newly CONFIRMED,
@@ -169,6 +260,10 @@ class GcsMissionStatus:
                     "assigned": list(self._assigned),
                     "delivered": list(self._delivered),
                     "pads_mapped": dict(self._pads),
+                    "progress": int(self._progress),
+                    "progress_label": self._progress_label,
+                    "eta_s": self._eta_s,
+                    "events": list(self._events),
                     "updated": time.time(),
                 }
                 if self._mission_time is not None:

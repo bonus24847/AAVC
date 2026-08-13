@@ -93,3 +93,41 @@ def test_progress_maps_real_phases_onto_the_console_stepper(tmp_path: Path) -> N
         assert doc["mission_time"] == 42.0
     feed.set_done(214.0)
     assert _read(p)["phase"] == "done"       # exact — the console clock-stop key
+
+
+def test_progress_bar_fields_track_the_mission(tmp_path: Path) -> None:
+    # Operator request 2026-08-14 ("แถบ % แบบโปรแกรมโหลด"): the writer
+    # publishes progress/progress_label/eta_s — milestone model, monotonic
+    # within a flight, 100 exactly at done.
+    p = tmp_path / "mission_status.json"
+    feed = GcsMissionStatus(p, _LAT0, _LON0, assigned=[3, 1], serve_cost_s=80)
+    feed.set_progress("takeoff", 5.0)
+    d1 = _read(p)
+    assert d1["progress"] == 6 and d1["eta_s"] > 0
+    feed.set_progress("search", 30.0)
+    feed.set_progress("search", 60.0)          # creep while sweeping
+    d2 = _read(p)
+    assert 20 <= d2["progress"] <= 55 and d2["progress_label"] == "กวาดหา pad"
+    feed.on_audit("t=90s DELIVERY 1 RELEASE pad=3 payload=0 lat=1 lon=2")
+    feed.set_progress("drop", 100.0, delivered=1, assigned=2)
+    d3 = _read(p)
+    assert d3["progress"] >= d2["progress"]    # monotonic
+    assert "pad 1" in d3["progress_label"]     # next undelivered pad named
+    feed.set_done(120.0)
+    d4 = _read(p)
+    assert d4["progress"] == 100 and d4["eta_s"] == 0
+
+
+def test_events_feed_for_console_toasts(tmp_path: Path) -> None:
+    p = tmp_path / "mission_status.json"
+    feed = GcsMissionStatus(p, _LAT0, _LON0, assigned=[3])
+    feed.pad_confirmed(3, _LAT0, _LON0)
+    feed.on_audit("t=50s TRANSIT_PASS P2 ingress flight=1 d=0.8m")
+    feed.on_audit("t=90s DELIVERY 1 RELEASE pad=3 payload=0 lat=1 lon=2")
+    feed.on_audit("t=95s PILOT TAKEOVER mode=POSCTL — orchestrator standing down")
+    ev = _read(p)["events"]
+    texts = [e["text"] for e in ev]
+    assert any("เจอ pad 3" in t for t in texts)
+    assert any("ผ่านจุด P2" in t for t in texts)
+    assert any("วางแล้ว pad 3" in t for t in texts)
+    assert ev[-1]["warn"] is True              # takeover flagged as warning

@@ -607,6 +607,7 @@ async def run(args: argparse.Namespace) -> int:
         origin_lat=float(cfg["site"]["center_lat"]),
         origin_lon=float(cfg["site"]["center_lon"]),
         assigned=assigned_ids,
+        serve_cost_s=float(sc.get("serve_cost_s", 80.0)),
     )
 
     def _audit_tee(entry: str) -> None:
@@ -880,8 +881,12 @@ async def run(args: argparse.Namespace) -> int:
         async def _gcs_progress_poll() -> None:
             while True:
                 try:
-                    gcs_feed.set_progress(state.phase.value,
-                                          state.time_elapsed_s())
+                    gcs_feed.set_progress(
+                        state.phase.value, state.time_elapsed_s(),
+                        delivered=len(state.delivered_marker_ids),
+                        assigned=len(state.assigned_id_queue
+                                     or state.flight_ids or []),
+                    )
                 except Exception:  # display aid — never disturb the mission
                     pass
                 await asyncio.sleep(1.0)
