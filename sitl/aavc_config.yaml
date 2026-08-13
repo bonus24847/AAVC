@@ -502,25 +502,28 @@ failsafes:
 # hover from the EFT E5 bench table becomes ~35.6 A. Airframe side of the same
 # change: sitl/models/eft_x6100_base/model.sdf (mass) and
 # sitl/px4_patches/22000_gz_eft_x6100 (MPC_THR_HOVER 0.48 -> 0.53).
+# ⚠ 2026-08-14 — PACK SWAP FINAL (user: "แบต 7500 ไม่พอ เปลี่ยนเป็น 17000 เลย"):
+# ONE Perpetual Wings Semi-Solid 6S 17000 mAh (22.2 V, 377 Wh, 10C) replaces
+# the 2x7500 parallel pair. Trigger: a realistic-drain sim flight at 8.36 kg
+# hit the 30% floor mid-egress on the 7500-class budget. Mass is ESTIMATED
+# until the pack arrives (+2.1 kg over no-pack → aircraft ~9.05 kg, flying
+# weight with 4 boxes ~9.41 kg): hover scales (9.41/8.22)^1.5 = 1.22x → the
+# 35.6 A seed becomes ~43 A (matches the sibling repo's guide-table read).
+# RE-DERIVE these seeds after the real pack is weighed. SITL model mass +
+# MPC_THR_HOVER intentionally NOT changed yet (validated baselines) — they
+# move together at the reweigh.
 battery:
-  capacity_mah: 15000       # 2 x DXF 6S 7500 mAh 140C, in parallel
-                            # ⚠ PENDING (real-bird data 2026-08-14): pack may
-                            # change to 1x Perpetual Wings semi-solid 17000 mAh
-                            # 6S — when the swap is FINAL, update this AND the
-                            # bench BAT1_CAPACITY to the pack actually loaded
-                            # (both must always follow the physical pack).
-  cells: 6                  # parallel — cell count is NOT doubled
-  # 35.6 A hover x 3.5 min (was 29 A x 3.5 min = 1700 at 7.17 kg).
+  capacity_mah: 17000       # 1 x Perpetual Wings Semi-Solid 6S 17000 mAh
+  cells: 6
+  # ~43 A hover x 3.5 min (ESTIMATED mass — see header note).
   # Used ONLY for flight 1; measurement replaces it from flight 2 onwards.
-  seed_sortie_mah: 2100
+  seed_sortie_mah: 2500
   # Marginal seed cost of each EXTRA delivery in the SAME flight: the ~110 s
-  # TimePolicy.serve_cost_s at that 35.6 A hover = 1.09 Ah (was 900 at 29 A).
-  # Previously left to the EnergyPolicy default; pinned here now that the
-  # aircraft it is derived from has changed.
-  seed_delivery_mah: 1100
-  # Scaled with the cost it guards (x1.23, rounded up from 150): the margin is
-  # slack against the flight-cost ESTIMATE being wrong, and the estimate grew.
-  margin_mah: 200
+  # TimePolicy.serve_cost_s at ~43 A = 1.31 Ah.
+  seed_delivery_mah: 1300
+  # Scaled with the cost it guards (x1.22 from 200): slack against the
+  # flight-cost ESTIMATE being wrong — and this estimate is pre-reweigh.
+  margin_mah: 250
 
 # ── SITL ONLY — PX4's battery simulator ──
 # Without this the simulated pack never drains (measured 2026-07-22: 100 % and
@@ -530,17 +533,21 @@ battery:
 # path from px4_tuning and must never be merged into it.
 sim_battery:
   SIM_BAT_ENABLE: 1
-  # Seconds full -> empty. 2026-07-25: capacity doubled (2 packs in parallel)
-  # while the heavier aircraft draws 1.23x, so 1500 x 2 / 1.23 = ~2450 s.
-  SIM_BAT_DRAIN: 2450.0     # ~41 min — comfortably past one 20-min window
+  # Seconds full -> empty at hover draw: 17000 mAh / ~43 A x 3600 = ~1420 s.
+  # (2026-08-14 pack swap; the sibling repo independently derived 1400 from
+  # the same guide table — kept in agreement.)
+  SIM_BAT_DRAIN: 1400.0     # ~23 min — one 20-min window with real margin
   SIM_BAT_MIN_PCT: 0.0      # the default 50 stops the drain half way
   # ── Pack + power module (2 x DXF 6S 7500 mAh 140C in PARALLEL, through a
   #    Holybro PM03D) ──
   # These are NOT pushed from here: BAT1_* are calibration values that belong to
   # the airframe, and writing a wrong divider/offset over MAVLink would corrupt a
   # good calibration. Set them ONCE in QGC → Power at G5 and leave them:
-  #   BAT1_N_CELLS  = 6       BAT1_CAPACITY = 15000  (mAh — BOTH packs)
-  #   BAT1_V_EMPTY  = 3.50    BAT1_V_CHARGED = 4.05  (V per cell)
+  #   BAT1_N_CELLS  = 6       BAT1_CAPACITY = 17000  (mAh — the ONE semi-solid
+  #                                                   pack actually loaded)
+  #   BAT1_V_EMPTY  = 3.50    BAT1_V_CHARGED = 4.15  (per Power-System-Guide;
+  #                           CONFIRM against the semi-solid pack's own spec
+  #                           sheet at the bench before trusting the % gauge)
   #   BAT1_SOURCE / the INA2xx enable come from the PM03D's own wiring guide.
   # As of 2026-07-22 the board still reports BAT1_* unset (SOURCE=-1, N_CELLS=0),
   # so battery percentage is meaningless until this is done — and the thresholds
