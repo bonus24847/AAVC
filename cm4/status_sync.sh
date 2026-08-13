@@ -21,22 +21,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 mkdir -p "$REPO_ROOT/captures"
 echo "[status-sync] $HOST:~/$DIR/captures/ -> $REPO_ROOT/captures/ every ${IVL}s (Ctrl-C to stop)"
-SSH_OPTS=(-o ConnectTimeout=3 -o BatchMode=yes)
 while true; do
-    # 1) PUSH the operator-drawn field (GCS map editor) up to the CM4 — the
-    #    aircraft must fly exactly what the console shows. When the operator
-    #    reverts (file deleted locally), delete it remotely too; doing this
-    #    BEFORE the pull stops the old remote copy resurrecting locally.
-    if [ -f "$REPO_ROOT/captures/field_override.json" ]; then
-        rsync -az --timeout=4 -e "ssh ${SSH_OPTS[*]}" \
-            "$REPO_ROOT/captures/field_override.json" \
-            "$HOST:$DIR/captures/" 2>/dev/null || true
-    else
-        ssh "${SSH_OPTS[@]}" "$HOST" \
-            "rm -f '$DIR/captures/field_override.json'" 2>/dev/null || true
-    fi
-    # 2) PULL the mission's live status home
-    rsync -az --timeout=4 -e "ssh ${SSH_OPTS[*]}" \
+    rsync -az --timeout=4 -e "ssh -o ConnectTimeout=3 -o BatchMode=yes" \
         "$HOST:$DIR/captures/" "$REPO_ROOT/captures/" 2>/dev/null || true
     sleep "$IVL"
 done

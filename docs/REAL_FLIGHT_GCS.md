@@ -1,37 +1,23 @@
 # สั่งบิน mission จาก AAVC GCS — SIM vs เครื่องจริง
 
-## console เดียว สั่งได้หลาย mission
+## เลือก template mission จาก dropdown (console เดียว 2 mission)
 
-`aavc_gcs.py` เป็นกลาง — สนาม (`--field`) + คำสั่ง mission (`--mission-cmd`)
-ถูกกำหนดตอนเปิด console การสลับ mission = เปิด console ผ่าน dispatcher:
+การ์ด 📋 Mission มี **dropdown เลือก template mission** (operator 2026-08-13 —
+แทนที่ field editor แบบวาดมือที่ถูกถอดออก): แต่ละ template ผูก แผนที่สนาม
+(field yaml) + โฟลเดอร์ผล + คำสั่งปุ่ม 🚀 ของ mission นั้นครบชุด — สลับแล้ว
+ทุกอย่างชี้ตาม ทันที (ล็อกระหว่างบิน):
 
-```bash
-~/Desktop/aavc-gcs/gcs_launch.sh kmutnb-sim               # สนามซ้อม มจพ. (SITL)
-~/Desktop/aavc-gcs/gcs_launch.sh kmutnb-real aavc@<cm4>   # สนามซ้อม มจพ. (เครื่องจริง)
-~/Desktop/aavc-gcs/gcs_launch.sh aavc-sim                 # repo แข่ง (mission_AAVC) —
-                                                          # รอ contract 3 ชิ้นจาก repo นั้น
-```
+- **KMUTNB สนามซ้อม (เพดาน 5 m)** — repo นี้
+- **AAVC สนามแข่ง (เพดาน 20 m)** — repo `mission_AAVC` (entry:
+  `scripts/run_mission.sh --ids {ids}`, RC-GO รองรับเหมือนกัน)
 
-ขั้นตอนต่อเที่ยวบิน**เหมือนกันทุก mission** — repo ไหนอยากให้ console สั่งได้
-ต้องมี: (1) entry แบบ `run_mission.sh` รับ `{ids}` (2) field yaml ของสนามมัน
-(3) ตัวเขียน `mission_status.json` ลง captures
+รายการ template อยู่ที่ `~/Desktop/aavc-gcs/missions.yaml`; ขั้นตอนต่อ
+เที่ยวบิน**เหมือนกันทุก mission** — repo ที่จะเข้าระบบต้องมี: (1) entry รับ
+`{ids}` (2) field yaml (3) ตัวเขียน `mission_status.json` ลง captures
 
-## 🗺 วาดสนามเองบนแผนที่ (field editor)
-
-ปุ่ม **🗺 วาดสนาม** บน console: เลือก layer (🟥 airspace / 🟨 พื้นที่สแกน /
-🟦 ทางเข้า P1→P3 / 🟩 จุด L&R) → คลิกวางจุดบนแผนที่ (ลากขยับได้ ↩ ลบจุด
-🗑 ล้าง layer) → **💾 บันทึกสนาม** = เขียน `captures/field_override.json`
-(schema v1 — format กลางที่เสนอให้ repo แข่งใช้ด้วย) จากนั้น:
-
-- `run_mission.sh` เห็นไฟล์นี้แล้วส่งให้ orchestrator บินตาม**สนามที่วาด**แทน
-  ค่าใน yaml — ไฟล์เพี้ยน = **ไม่บินเลย** (fail closed) ไม่มีการเดาเงียบ ๆ
-- แผนที่ console แสดงเส้นชุดที่วาด (tooltip ต่อท้าย "(วาดเอง)") = สิ่งที่
-  โดรนจะบินจริง; **♻️ ใช้สนามเดิม** ลบ override กลับไปใช้ yaml
-- เครื่องจริง: `status_sync` ดันไฟล์ขึ้น CM4 ให้เองทุก 2 วิ (และลบตามเมื่อ
-  กด ♻️) — **ต้องเปิด status_sync เสมอ** (launch_gcs_real.sh เปิดให้อยู่แล้ว)
-  และวาด+บันทึกให้เสร็จ**ก่อนกด 🚀** (ตอน mission ทำงาน ปุ่มวาดล็อก)
-- จุด L&R วาดได้เผื่อสนามแข่งจริง (พิกัดนิ่งตอน event briefing) —
-  **อย่าตั้ง L&R ใน SITL** เพราะโลกจำลองไม่ย้ายตาม (orchestrator จะเตือนใน log)
+**ปรับพิกัดสนามวันแข่ง (event briefing):** แก้ที่ **field yaml + config ของ
+template นั้น** — ไฟล์ template คือแหล่งความจริงเดียวของ geometry ไม่มีการ
+วาด/override หน้างาน (ตัดสินใจ operator: deterministic กว่า)
 
 ปุ่มบน GCS ชุดเดียวกันใช้ได้ทั้งสองโลก ต่างกันแค่ **คำสั่งที่ตั้งไว้ตอนเปิด console**
 (`--mission-cmd`) และป้ายบนปุ่มจะบอกเองว่า console นี้บินโลกไหน:
@@ -169,6 +155,10 @@ bench checklist ให้ครบก่อน ห้ามสลับโหม
 3. **RC เข้า**: PX4 ต้องเห็นช่อง RC ที่มากับ MAVLink (`RADIO_RC_CHANNELS`) —
    ดู radio bars ใน QGC / `listener input_rc` แล้ว **arm ด้วย RC ให้สำเร็จ**
    (โหมดนี้ไม่ใช้ CRSF driver — ข้อจำกัด `CONFIG_DRIVERS_RC_CRSF_RC` หายไป)
+   ⚠ เช็ก `COM_RC_IN_MODE` ด้วย (บทเรียนจาก repo แข่ง 2026-08-13: ค่า 4 =
+   stick disabled ทำให้ PX4 **เงียบเฉยต่อการสลับ POSCTL** — takeover ไม่ทำงาน
+   โดยไม่มี error ใด ๆ): ค่าที่ถูกต้องต้องยอมรับ RC/มี fallback ที่ตั้งใจ
+   แล้วทดสอบสลับ POSCTL จริงบน bench ให้เห็นโหมดเปลี่ยน
 4. **Failsafe**: ปิด Nomad ทั้งเครื่อง → PX4 ต้องประกาศ RC loss ในไม่กี่วินาที
    และ action เป็น RTL ตามที่ pin ไว้ — ข้อนี้ผ่านไม่ได้ = ไม่บินจริง
 5. **Telemetry ลงจอ**: โน้ตบุ๊กต่อ WiFi ของ backpack (ระยะแค่โต๊ะ operator ↔

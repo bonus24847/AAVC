@@ -51,15 +51,6 @@ if [ "${RC_GO:-0}" = "1" ]; then
     EXTRA+=(--rc-go)
 fi
 
-# Operator-drawn field geometry from the GCS map editor (2026-08-13): if the
-# console saved captures/field_override.json, fly THAT geometry — the
-# orchestrator validates it and ABORTS on a bad file (never a silent
-# fallback). Delete the file (GCS "ล้าง" button) to return to the yaml field.
-if [ -f "$REPO_ROOT/captures/field_override.json" ]; then
-    echo "[run_mission] field override active: captures/field_override.json"
-    EXTRA+=(--field-override "$REPO_ROOT/captures/field_override.json")
-fi
-
 echo "[run_mission] assigned ids: $IDS (${REAL:+REAL bird}${REAL:-SITL})${RC_GO:+ rc-go=$RC_GO}"
 exec env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" -m orchestrator.main \
     --config sitl/aavc_config.yaml --no-dashboard \
