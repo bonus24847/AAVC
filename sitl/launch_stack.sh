@@ -102,7 +102,6 @@ elif [ -f "$AAVC_GCS" ]; then
     /usr/bin/python3 "$AAVC_GCS" --field "$REPO_ROOT/gcs/kmutnb_field.yaml" \
         --captures "$REPO_ROOT/captures" --url udpin:0.0.0.0:14550 \
         --mission-cmd "'$REPO_ROOT/sitl/run_mission.sh' {ids}" \
-        --mission-label SIM \
         --reset-cmd "env KEEP_CONSOLE=1 GUI=${GUI:-0} bash '$REPO_ROOT/sitl/launch_stack.sh'" \
         --port "$GCS_PORT" >/tmp/aavc_gcs_console.log 2>&1 &
     echo "[stack] AAVC GCS console → http://127.0.0.1:${GCS_PORT}"
