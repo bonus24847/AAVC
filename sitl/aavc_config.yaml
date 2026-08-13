@@ -504,6 +504,11 @@ failsafes:
 # sitl/px4_patches/22000_gz_eft_x6100 (MPC_THR_HOVER 0.48 -> 0.53).
 battery:
   capacity_mah: 15000       # 2 x DXF 6S 7500 mAh 140C, in parallel
+                            # ⚠ PENDING (real-bird data 2026-08-14): pack may
+                            # change to 1x Perpetual Wings semi-solid 17000 mAh
+                            # 6S — when the swap is FINAL, update this AND the
+                            # bench BAT1_CAPACITY to the pack actually loaded
+                            # (both must always follow the physical pack).
   cells: 6                  # parallel — cell count is NOT doubled
   # 35.6 A hover x 3.5 min (was 29 A x 3.5 min = 1700 at 7.17 kg).
   # Used ONLY for flight 1; measurement replaces it from flight 2 onwards.
