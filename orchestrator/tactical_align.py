@@ -97,6 +97,7 @@ class AlignParams:
     max_lost_cycles: int = 8          # lost detections before climbing a rung
     search_radius_m: float = 4.0      # expanding-box search step if not acquired
     settle_after_land_s: float = 2.0  # pause after touchdown before the release
+    touchdown_timeout_s: float = 40.0  # wait for the PX4 land detector this long
     #                                   opens (gentle for the egg; also lets the
     #                                   airframe stop rocking on the pad)
     # "Touched down" when the RELATIVE altitude reads below this. Generous on
@@ -463,11 +464,28 @@ async def acquire_and_land_drop(
     logger.info(f"[align] sortie #{stop_index}: final err={last_err:.2f} m "
                 f"id_seen={id_seen} → LAND on pad {params.assigned_marker_id}")
     await commander.land(disarm=False)
+    # Touchdown = PX4's LAND DETECTOR (telemetry.landed_state ON_GROUND),
+    # NEVER an altitude threshold: the AGL estimate's ground level wanders
+    # up to ~1 m per arming, and the old `alt <= land_alt_threshold_m` gate
+    # fired while the vehicle was still SINKING ~1 m above the pad — the
+    # operator's 2026-08-13 screencast caught the box mid-air over pad 1
+    # (a real egg breaks; scoring wants "landed BEFORE releasing"). The
+    # threshold remains only as a short LAST-RESORT fallback for a vehicle
+    # whose landed-state stream never reports (audited anomaly).
     landed = await _wait_until(
-        state, lambda t: (not math.isnan(t.relative_alt_m)
-                          and t.relative_alt_m <= params.land_alt_threshold_m),
-        timeout_s=40.0,
+        state, lambda t: t.landed_state == "ON_GROUND",
+        timeout_s=params.touchdown_timeout_s,
     )
+    if not landed:
+        state.record_anomaly("landed_state_timeout_alt_fallback")
+        logger.warning(
+            f"[align] sortie #{stop_index}: landed_state never reported "
+            "ON_GROUND — falling back to the altitude threshold (audited)")
+        landed = await _wait_until(
+            state, lambda t: (not math.isnan(t.relative_alt_m)
+                              and t.relative_alt_m <= params.land_alt_threshold_m),
+            timeout_s=5.0,
+        )
     res.landed = landed
     await asyncio.sleep(params.settle_after_land_s)
 

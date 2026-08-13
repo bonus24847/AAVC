@@ -37,6 +37,13 @@ class CurrentTelemetry:
     is_connected: bool = False
     is_armed: bool = False
     flight_mode: str = "UNKNOWN"
+    # PX4's LAND DETECTOR verdict (MAVSDK telemetry.landed_state →
+    # EXTENDED_SYS_STATE): ON_GROUND / IN_AIR / TAKING_OFF / LANDING /
+    # UNKNOWN. The touchdown-gated release keys on THIS, never on an
+    # altitude threshold — the AGL estimate's ground level wanders ~1 m per
+    # arming (2026-08-13 screencast: box released mid-air at ~1 m because
+    # the old alt<=1.5 gate fired while still sinking).
+    landed_state: str = "UNKNOWN"
     lat: float = math.nan
     lon: float = math.nan
     alt_m: float = math.nan
@@ -111,6 +118,7 @@ class TelemetrySubscriber:
             loop.create_task(self._sub_battery()),
             loop.create_task(self._sub_armed()),
             loop.create_task(self._sub_flight_mode()),
+            loop.create_task(self._sub_landed_state()),
             loop.create_task(self._sub_gps_info()),
             loop.create_task(self._sub_vehicle_clock()),
             loop.create_task(self._sub_rc_status()),
@@ -227,6 +235,11 @@ class TelemetrySubscriber:
     async def _sub_flight_mode(self) -> None:
         async for mode in self.system.telemetry.flight_mode():
             self.state.flight_mode = mode.name
+            self._touch()
+
+    async def _sub_landed_state(self) -> None:
+        async for ls in self.system.telemetry.landed_state():
+            self.state.landed_state = ls.name
             self._touch()
 
     async def _sub_gps_info(self) -> None:

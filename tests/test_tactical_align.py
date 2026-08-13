@@ -91,6 +91,9 @@ class FakeCommander:
     async def land(self, *, disarm: bool = True) -> None:
         self.landed_calls.append(disarm)
         self.state.telemetry.relative_alt_m = 0.0
+        # the release gate keys on PX4's land detector, not altitude
+        # (2026-08-13 mid-air release fix) — a normal landing reports it
+        self.state.telemetry.landed_state = "ON_GROUND"
 
     async def drop_payload(self, payload_id: int = 0) -> None:
         self.released.append(payload_id)
@@ -270,3 +273,44 @@ def test_drop_once_is_idempotent_per_stop_index() -> None:
     assert asyncio.run(_drop_once(cmd, state, stop_index=0, payload_id=0,
                                   delivery_index=1, marker_id=3)) is False
     assert cmd.released == [0]
+
+
+class FakeCommanderNoLandDetect(FakeCommander):
+    """land() drops the altitude but the landed_state stream NEVER reports —
+    the vehicle that motivated the 2026-08-13 fix (alt<=threshold fired while
+    still sinking ~1 m above the pad; the box fell mid-air on camera)."""
+
+    async def land(self, *, disarm: bool = True) -> None:
+        self.landed_calls.append(disarm)
+        self.state.telemetry.relative_alt_m = 0.9   # below the 1.5 m threshold
+        # landed_state stays "UNKNOWN" — no detector verdict
+
+
+def test_release_gates_on_the_land_detector_not_altitude(monkeypatch) -> None:
+    # Without ON_GROUND the release may only happen via the audited
+    # last-resort alt fallback — never straight from the alt threshold.
+    global state_ref
+    state = state_ref = _state()
+    cmd = FakeCommanderNoLandDetect(state)
+    _patch_detector(monkeypatch, marker_id=3)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1,
+        params=_fast_params(touchdown_timeout_s=0.3)))
+
+    assert res.dropped and res.landed              # fallback still delivers…
+    assert any("landed_state_timeout_alt_fallback" in a
+               for a in state.anomalies)           # …but ALWAYS audited
+
+
+def test_release_fires_once_the_detector_reports_on_ground(monkeypatch) -> None:
+    global state_ref
+    state = state_ref = _state()
+    cmd = FakeCommander(state)                     # land() reports ON_GROUND
+    _patch_detector(monkeypatch, marker_id=3)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1, params=_fast_params()))
+
+    assert res.landed and res.dropped
+    assert not any("landed_state_timeout" in a for a in state.anomalies)
