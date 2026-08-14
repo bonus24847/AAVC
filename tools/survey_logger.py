@@ -44,7 +44,14 @@ _FIX = {0: "no-gps", 1: "no-fix", 2: "2D", 3: "3D", 4: "DGPS", 5: "RTK-float",
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--url", default="udpin:0.0.0.0:14550")
+    p.add_argument("--url", default="udpin:0.0.0.0:14550",
+                   help="MAVLink source. ON THE CM4 (recommended — nothing has "
+                        "to reach the laptop while you walk) point it at the "
+                        "FC serial, e.g. --url /dev/ttyAMA0 --baud 921600, or "
+                        "at a mavlink-router output. On the laptop the default "
+                        "GCS port works but only within radio/WiFi range.")
+    p.add_argument("--baud", type=int, default=921600,
+                   help="serial baud, used only when --url is a device path")
     p.add_argument("--out", default="captures/survey_track.jsonl")
     p.add_argument("--min-sats", type=int, default=8,
                    help="warn below this satellite count (default 8)")
@@ -53,7 +60,9 @@ def main() -> int:
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     print(f"[survey] linking to {a.url} …")
-    m = mavutil.mavlink_connection(a.url)
+    is_serial = a.url.startswith("/dev/") or a.url.startswith("serial:")
+    m = (mavutil.mavlink_connection(a.url, baud=a.baud) if is_serial
+         else mavutil.mavlink_connection(a.url))
     if m.wait_heartbeat(timeout=30) is None:
         print("[survey] no heartbeat — is the aircraft powered and linked?",
               file=sys.stderr)
