@@ -36,10 +36,17 @@ if [ -z "$HOST" ]; then
     exit 2
 fi
 
+# This laptop's CM4 key is NOT one of ssh's default names, so plain
+# `ssh drone@…` would prompt for a password (and the GCS 🚀 button would hang
+# at the field). Every CM4 path in this repo passes it explicitly.
+CM4_KEY="${CM4_KEY:-$HOME/.ssh/cm4_key}"
+SSH_ID=(); [ -f "$CM4_KEY" ] && SSH_ID=(-i "$CM4_KEY")
+
 echo "[deploy] checking ssh to $HOST …"
-if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$HOST" true; then
+if ! ssh "${SSH_ID[@]}" -o ConnectTimeout=5 -o BatchMode=yes "$HOST" true; then
     echo "[deploy] ERROR: cannot ssh to $HOST without a password." >&2
-    echo "         Run: ssh-copy-id $HOST   (the 🚀 button needs passwordless ssh too)" >&2
+    echo "         Run: ssh-copy-id ${SSH_ID[*]:+-i $CM4_KEY }$HOST" >&2
+    echo "         (the 🚀 button needs the same passwordless path)" >&2
     exit 1
 fi
 
@@ -62,6 +69,7 @@ SIM_EXCLUDES=(
 )
 [ "${SIM_TOO:-0}" = "1" ] && SIM_EXCLUDES=()
 rsync -az --delete --info=stats1 \
+    -e "ssh ${SSH_ID[*]}" \
     --exclude '.git/' \
     --exclude '.venv/' \
     --exclude 'runs/' \
@@ -81,7 +89,7 @@ if [ "$INSTALL" -eq 1 ]; then
     REMOTE_CMD=$(printf 'set -e; cd %q; python3 --version; [ -d .venv ] || python3 -m venv .venv; .venv/bin/pip install -q -U pip; .venv/bin/pip install -q -e .; mkdir -p runs captures; env -u PYTHONPATH .venv/bin/python -c %q' \
         "$DIR" \
         'import orchestrator, mission_brain, vision, mavlink_adapter; print("import-clean OK")')
-    ssh "$HOST" "$REMOTE_CMD"
+    ssh "${SSH_ID[@]}" "$HOST" "$REMOTE_CMD"
 fi
 
 cat <<EOF

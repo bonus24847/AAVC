@@ -31,9 +31,16 @@ DIR="${CM4_DIR:-mission}"
 
 [ -f "$GCS" ] || { echo "ERROR: console not found at $GCS (set AAVC_GCS=…)" >&2; exit 1; }
 
+# This laptop's CM4 key has a non-default name, so it must be named
+# explicitly — including INSIDE the mission-cmd the console spawns, or the
+# 🚀 button hits a password prompt and hangs with no visible error.
+CM4_KEY="${CM4_KEY:-$HOME/.ssh/cm4_key}"
+SSH_ID=(); SSH_ID_STR=""
+if [ -f "$CM4_KEY" ]; then SSH_ID=(-i "$CM4_KEY"); SSH_ID_STR="-i $CM4_KEY "; fi
+
 # The 🚀 button needs passwordless ssh — fail loudly NOW, not at GO time.
-if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$HOST" true; then
-    echo "ERROR: ssh $HOST still asks for a password — run: ssh-copy-id $HOST" >&2
+if ! ssh "${SSH_ID[@]}" -o ConnectTimeout=5 -o BatchMode=yes "$HOST" true; then
+    echo "ERROR: ssh $HOST still asks for a password — run: ssh-copy-id ${SSH_ID_STR}$HOST" >&2
     exit 1
 fi
 
@@ -46,6 +53,6 @@ trap 'kill "$SYNC_PID" 2>/dev/null' EXIT INT TERM
     --field "$REPO_ROOT/gcs/kmutnb_field.yaml" \
     --captures "$REPO_ROOT/captures" \
     --url "udpin:0.0.0.0:14550" \
-    --mission-cmd "ssh $HOST 'REAL=1 ~/$DIR/sitl/run_mission.sh {ids}'" \
+    --mission-cmd "ssh ${SSH_ID_STR}$HOST 'REAL=1 ~/$DIR/sitl/run_mission.sh {ids}'" \
     --mission-label REAL \
     --port "$PORT"

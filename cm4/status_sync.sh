@@ -21,8 +21,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 mkdir -p "$REPO_ROOT/captures"
 echo "[status-sync] $HOST:~/$DIR/captures/ -> $REPO_ROOT/captures/ every ${IVL}s (Ctrl-C to stop)"
+CM4_KEY="${CM4_KEY:-$HOME/.ssh/cm4_key}"   # non-default name — pass it on
+SSH_ID=""; [ -f "$CM4_KEY" ] && SSH_ID="-i $CM4_KEY "
 while true; do
-    rsync -az --timeout=4 -e "ssh -o ConnectTimeout=3 -o BatchMode=yes" \
+    rsync -az --timeout=4 \
+        -e "ssh ${SSH_ID}-o ConnectTimeout=3 -o BatchMode=yes" \
         "$HOST:$DIR/captures/" "$REPO_ROOT/captures/" 2>/dev/null || true
     sleep "$IVL"
 done
