@@ -259,7 +259,13 @@
         <pose>0 0.32 -0.283 0 0 0</pose>
         <geometry><box><size>0.60 0.03 0.03</size></box></geometry>
         <surface>
-          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <!-- 0xfd like the body (sibling-session report 2026-08-14): the
+               rails carried the DEFAULT 0xffff, so a shed 18 cm box standing
+               between the skids could catch a rail during climb-out and
+               lever the aircraft (visible lurch at pad drops). The real rack
+               is built not to snag; rails<->ground/pad still collide. -->
+          <contact><collide_bitmask>0xfd</collide_bitmask>
+            <ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
           <friction><ode/></friction>
         </surface>
       </collision>
@@ -267,7 +273,8 @@
         <pose>0 -0.32 -0.283 0 0 0</pose>
         <geometry><box><size>0.60 0.03 0.03</size></box></geometry>
         <surface>
-          <contact><ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
+          <contact><collide_bitmask>0xfd</collide_bitmask>
+            <ode><min_depth>0.001</min_depth><max_vel>0</max_vel></ode></contact>
           <friction><ode/></friction>
         </surface>
       </collision>

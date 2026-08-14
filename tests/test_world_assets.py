@@ -200,14 +200,21 @@ def test_cargo_and_airframe_collisions_are_mask_isolated() -> None:
         ".//collision/surface/contact/collide_bitmask") or "").strip()
     assert box_mask and int(box_mask, 16) == 0x02
 
+    # EVERY collision element of the airframe must be box-isolated, not just
+    # the body: the skid rails carried the DEFAULT 0xffff (found live
+    # 2026-08-14 — a shed 18 cm box standing between the skids caught a rail
+    # during climb-out and levered the aircraft at pad drops).
     base = ET.parse(_BASE_MODEL).getroot()
-    body = next(c for c in base.iter("collision")
-                if c.get("name") == "base_link_collision_body")
-    body_mask = (body.findtext(
-        "surface/contact/collide_bitmask") or "").strip()
-    assert body_mask and int(body_mask, 16) == 0xFD
-    assert int(box_mask, 16) & int(body_mask, 16) == 0, (
-        "box and airframe masks intersect — spawn-time ejection is back")
+    collisions = [c for c in base.iter("collision")
+                  if (c.get("name") or "").startswith("base_link_collision")]
+    assert len(collisions) >= 3          # body + both skid rails
+    for c in collisions:
+        mask = (c.findtext("surface/contact/collide_bitmask") or "").strip()
+        assert mask, f"{c.get('name')}: no collide_bitmask (defaults 0xffff " \
+                     "— a shed box can snag it)"
+        assert int(mask, 16) & int(box_mask, 16) == 0, (
+            f"{c.get('name')}: mask intersects the cargo boxes — "
+            "box-vs-airframe contact is back")
 
 
 def test_world_no_longer_preplaces_cargo_payloads() -> None:
