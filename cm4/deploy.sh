@@ -44,6 +44,23 @@ if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$HOST" true; then
 fi
 
 echo "[deploy] rsync → $HOST:~/$DIR"
+# The aircraft carries ONLY what it flies with (operator 2026-08-14: "แก้เลย"
+# — why ship gz models to a real drone?). Nothing on the CM4 ever opens a
+# .sdf/.world: the flight path reads sitl/aavc_config.yaml (mission values)
+# and runs sitl/run_mission.sh (the 🚀 entry) — both KEPT, since they live in
+# sitl/ next to the simulator-only assets. Dropping ~10 MB of gz models,
+# worlds, tests and the dashboard's web build keeps the on-aircraft tree to
+# the flight core + its docs, so what's on the drone is auditable at a glance.
+# SET_ME=1 SIM_TOO=1 ships everything (e.g. running SITL on a beefy companion).
+SIM_EXCLUDES=(
+    --exclude 'sitl/models/'      # gz meshes/SDF — simulator geometry only
+    --exclude 'sitl/worlds/'      # gz worlds
+    --exclude 'sitl/px4_patches/' # PX4 SITL airframe + diff
+    --exclude 'tests/'            # run them on the dev machine, not the drone
+    --exclude 'dashboard/web/'    # Svelte build; the CM4 flies headless
+    --exclude 'docs/evidence/'    # flight-log archives
+)
+[ "${SIM_TOO:-0}" = "1" ] && SIM_EXCLUDES=()
 rsync -az --delete --info=stats1 \
     --exclude '.git/' \
     --exclude '.venv/' \
@@ -56,6 +73,7 @@ rsync -az --delete --info=stats1 \
     --exclude '*.egg-info' \
     --exclude 'dashboard/web/node_modules/' \
     --exclude '*.pdf' \
+    "${SIM_EXCLUDES[@]}" \
     "$REPO_ROOT/" "$HOST:$DIR/"
 
 if [ "$INSTALL" -eq 1 ]; then
@@ -67,7 +85,8 @@ if [ "$INSTALL" -eq 1 ]; then
 fi
 
 cat <<EOF
-[deploy] done.
+[deploy] done — flight tree only (~3 MB: no gz models/worlds, tests or web
+         build; SIM_TOO=1 ships those too).
 
 Next, on the bench (props OFF — docs/REAL_FLIGHT_GCS.md + docs/HITL.md):
   # CM4-in-the-loop HITL (jMAVSim on the laptop owns the 6X USB):
