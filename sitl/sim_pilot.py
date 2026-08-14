@@ -6,12 +6,15 @@ aircraft back (orchestrator stands down, audit ``PILOT TAKEOVER``). In SITL
 there is no RC, so this script performs those actions over plain MAVLink.
 
 Validated 2026-08-12 (three live SITL runs). Two lessons baked in:
-  * Default endpoint is ``udpout:127.0.0.1:18570`` — PX4's OWN port for the
-    GCS link — with commands blind-sent to sys 1. Binding udpin:14550 and
-    waiting for a heartbeat proved flaky mid-session (PX4 partner-locks the
-    stream), while blind-send worked every time; confirmation comes from the
-    ORCHESTRATOR's audit (``armed+OFFBOARD — launching`` / ``PILOT
-    TAKEOVER``), which is the ground truth anyway.
+  * Default endpoint is ``udpout:127.0.0.1:14280`` — PX4's ONBOARD-PAYLOAD
+    mavlink instance — with commands blind-sent to sys 1. Confirmation comes
+    from the ORCHESTRATOR's audit (``armed+OFFBOARD — launching`` / ``PILOT
+    TAKEOVER``), which is the ground truth anyway. ⚠ Do NOT point this at
+    the GCS instance (18570): PX4 partner-locks onto sim_pilot's ephemeral
+    port and a real console on udpin:14550 goes PERMANENTLY silent until a
+    PX4 restart (sibling-session finding 2026-08-14, validated live — on
+    14280 the RC stream and a live console coexist cleanly). Binding
+    udpin:14550 + wait_heartbeat is equally flaky for the same reason.
   * PX4 needs a live "RC": POSCTL (arming AND the in-flight flip) requires a
     fresh manual-control source, and the pinned NAV_DLL_ACT needs a GCS
     heartbeat to keep the vehicle armable. The ``rc`` action provides both —
@@ -84,7 +87,10 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("action",
                    choices=("rc", "arm", "disarm", "offboard", "posctl", "go"))
-    p.add_argument("--url", default="udpout:127.0.0.1:18570")
+    p.add_argument("--url", default="udpout:127.0.0.1:14280",
+                   help="PX4 mavlink endpoint — keep the onboard-payload "
+                        "instance (14280); the GCS instance (18570) partner-"
+                        "locks and silences a live console on 14550")
     p.add_argument("--arm-to-offboard-s", type=float, default=2.0,
                    help="'go' only: pilot's pause between arming and the "
                         "OFFBOARD flip")
