@@ -160,10 +160,12 @@ def test_aircraft_includes_four_cargo_payloads_on_the_latch_plane() -> None:
     ]
 
     half_x, half_y, half_h = _payload_half_extents()
+    base_off = _base_frame_offset_z()
     net_moment = [0.0, 0.0]
     for inc in includes:
         pose = [float(v) for v in (inc.findtext("pose") or "").split()]
-        x, y, z = pose[0], pose[1], pose[2]
+        # include poses are MODEL-frame; latch semantics live in base_link
+        x, y, z = pose[0], pose[1], pose[2] - base_off
         yaw = pose[5] if len(pose) >= 6 else 0.0
         name = inc.findtext("name")
         net_moment[0] += x
@@ -260,19 +262,32 @@ def _payload_half_extents() -> tuple[float, float, float]:
     return size[0] / 2.0, size[1] / 2.0, size[2] / 2.0
 
 
+def _base_frame_offset_z() -> float:
+    """The merged eft_x6100_base root <pose> z (+0.35): gz CARRIES it through
+    a merge-include (frame bug found 2026-08-14 — the old assumption that it
+    was ignored put the camera/cargo 0.35 too low), so every top-level pose
+    in eft_x6100/model.sdf is MODEL-frame = base-frame + this offset."""
+    base = ET.parse(_BASE_MODEL).getroot()
+    model = base.find("model")
+    assert model is not None
+    pose = (model.findtext("pose") or "0 0 0").split()
+    return float(pose[2])
+
+
 def _belly_cargo_boxes() -> list[tuple[str, float, float, float, float, float]]:
     """Each belly box as (name, x, y, z_baselink, half_x, half_y) — an
     axis-aligned footprint in the base_link frame, yaw folded in.
 
-    Since the 2026-08-12 rework the boxes are NESTED includes of the aircraft
-    model, so their poses are already in the base_link frame — no world-frame
-    spawn-height conversion needed. A yawed box is reduced to its enclosing
-    AABB (hx|cos|+hy|sin|), which is conservative for any yaw.
+    The boxes are NESTED includes of the aircraft model (2026-08-12 rework)
+    authored in the MODEL frame — base_link frame = model z minus the merged
+    base root pose (see _base_frame_offset_z). A yawed box is reduced to its
+    enclosing AABB (hx|cos|+hy|sin|), which is conservative for any yaw.
     """
     root = ET.parse(_AIRCRAFT_MODEL).getroot()
     model = root.find("model")
     assert model is not None
     hx, hy = _payload_half_extents()[:2]
+    base_off = _base_frame_offset_z()
     boxes = []
     for inc in model.iter("include"):
         if (inc.findtext("uri") or "").strip() != "model://cargo_payload":
@@ -282,7 +297,7 @@ def _belly_cargo_boxes() -> list[tuple[str, float, float, float, float, float]]:
         c, s = abs(math.cos(yaw)), abs(math.sin(yaw))
         boxes.append((
             (inc.findtext("name") or "").strip(),
-            pose[0], pose[1], pose[2],
+            pose[0], pose[1], pose[2] - base_off,   # model → base_link frame
             hx * c + hy * s, hx * s + hy * c,
         ))
     assert len(boxes) == 4
@@ -306,6 +321,9 @@ def _nadir_camera() -> tuple[float, float, float]:
     assert model is not None
     link = next(ln for ln in model.findall("link") if ln.get("name") == "camera_link")
     x, y, z, roll, pitch, yaw = [float(v) for v in (link.findtext("pose") or "").split()]
+    # camera_link is a TOP-LEVEL link → its pose is MODEL-frame; convert to
+    # base_link frame like the cargo helper (merged base root pose +0.35)
+    z -= _base_frame_offset_z()
     assert (x, y, roll, yaw) == (0.0, 0.0, 0.0, 0.0), "nadir camera moved off-centre"
     assert abs(pitch - math.pi / 2) < 1e-3, "nadir camera no longer looks straight down"
     cam = link.find(".//sensor/camera")

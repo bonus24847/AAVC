@@ -55,11 +55,15 @@
 <sdf version="1.9">
   <model name="eft_x6100_base">
     <!-- Ignored on the live spawn path: PX4 spawns this model through a merged
-         <include>, which does NOT inherit the model's own pose. The height that
-         actually applies is PX4_GZ_MODEL_POSE in sitl/launch_sitl.sh — change it
-         THERE when the landing gear changes, or the aircraft spawns with its
-         skids inside the ground and arming flings it. Kept only so a standalone
-         `gz sim` include of this file lands right side up. -->
+         <include> — and (CORRECTED 2026-08-14, sibling-session finding,
+         verified with `gz sdf -p`) that merge DOES carry this pose: gz
+         creates a _merged__eft_x6100_base__model__ frame at +0.35 in the
+         eft_x6100 model frame and every link here rides on it. Any TOP-
+         LEVEL addition in eft_x6100/model.sdf must therefore author its z
+         in the MODEL frame = base-frame z + 0.35 (the old comment claimed
+         the pose was ignored, which is how the camera/cargo ended up 0.35
+         too low). PX4_GZ_MODEL_POSE in launch_sitl.sh positions the MODEL
+         origin at spawn on top of this. -->
     <pose>0 0 0.35 0 0 0</pose>
     <self_collide>false</self_collide>
     <static>false</static>

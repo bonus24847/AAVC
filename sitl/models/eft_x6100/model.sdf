@@ -32,14 +32,18 @@
   (the old 12 m/18 px booster regime is gone). It is the SOLE control-authority
   sensor.
   Mount height (KMUTNB spec 2026-08-11): the REAL aircraft carries the camera
-  and the rangefinder 0.25 m below the CG, so camera_link sits at z=-0.25 —
-  matching eft_x6100_base's lidar_sensor_link. This SUPERSEDES the old
-  "z=-0.02, do NOT lower it further" rule: a landed base_link sits ~0.298 m up,
-  so the lens parks at ~0.048 m AGL — still above the 0.02 m near-clip, but a
-  worst-case contact sink could dip it under the ground visual WHILE PARKED.
-  Harmless: vision is inactive in TAKEOFF/LAND phases, and in flight the view
-  is clear (the payload rack bottoms are level with the lens plane, nothing
-  extends below it — see the world file's belly-cargo derivation).
+  and the rangefinder 0.25 m below the CG.
+  ⚠ FRAME RULE (bug found by the sibling session 2026-08-14): the merge-
+  include of eft_x6100_base CARRIES its root <pose> 0 0 0.35 — gz creates a
+  _merged__..._model__ frame at +0.35 and base_link rides on it (verified
+  with `gz sdf -p`). Every TOP-LEVEL pose in THIS file is therefore in the
+  MODEL frame = base-frame z + 0.35: camera_link z 0.10 == base −0.25
+  (matching lidar_sensor_link, which is INSIDE base and needs no offset).
+  Authored as −0.25 the lens really sat 0.60 below CG — parked 7 cm under
+  ground, and ~9 % AGL error in every pad fix at the 4 m sweep. A landed
+  base_link sits ~0.298 m up → lens parks ~0.048 m AGL, above the 0.02 m
+  near-clip; in flight the view is clear (payload rack bottoms are level
+  with the lens plane, nothing extends below it).
 -->
 <sdf version='1.9'>
   <model name='eft_x6100'>
@@ -145,7 +149,11 @@
     </plugin>
 
     <link name="camera_link">
-      <pose>0 0 -0.25 0 1.5708 0</pose>
+      <!-- MODEL-frame z = base-frame −0.25 PLUS the merged base's +0.35 root
+           pose (frame bug found by the sibling session 2026-08-14: authored
+           as −0.25 this lens actually sat 0.60 below the CG — parked it was
+           7 cm underground, and every pad fix carried a ~9 % AGL error). -->
+      <pose>0 0 0.10 0 1.5708 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
         <mass>0.050</mass>
@@ -191,15 +199,22 @@
          step — no more pre-placing them in the world and hoping the spawn
          race holds (the old aavc_field.sdf approach).
 
-         MOUNT HEIGHT (user spec 2026-08-12): the latch point is the servo
-         rack at (±0.10, ±0.035, 0) — ON the CG plane — so each box hangs
-         with its TOP FACE at z_body 0: box centre z = -0.09 (0.18 tall, so
-         it spans -0.18..0). The box overlaps base_link_collision_body
-         (z -0.02..+0.06) by 2 cm, which is why cargo_payload masks its
-         collision to 0x02 and the body masks to 0xfd — box<->airframe never
-         contact, box<->ground/slab/pad still do. Box bottoms at -0.18 stay
-         ABOVE the sensor plane (camera + lidar lenses at z -0.25), so the
-         nadir cone and the lidar ray remain unobstructed.
+         MOUNT HEIGHT (user spec 2026-08-12; FRAME-FIXED 2026-08-14): the
+         latch point is the servo rack at (±0.10, ±0.035, base z 0) — ON the
+         CG plane — so each box hangs with its TOP FACE at base z 0: centre
+         at base −0.09 (0.18 tall, spans base −0.18..0), which in the MODEL
+         frame (base +0.35 via the merged root pose — see header) is
+         z = 0.26. Authored as −0.09 the boxes really hung 0.44 below CG —
+         bottoms 26 cm BELOW the skid plane, so the aircraft landed ON the
+         cargo stack and every release dropped it ~23 cm onto the gear (the
+         "lurch" the operators saw). The box overlaps
+         base_link_collision_body (base −0.02..+0.06) by 2 cm, which is why
+         cargo_payload masks its collision to 0x02 and the airframe masks
+         0xfd — box<->airframe never contact, box<->ground/slab/pad still
+         do. Box bottoms at base −0.18 stay ABOVE the sensor plane (camera +
+         lidar lenses at base −0.25), so the nadir cone and the lidar ray
+         remain unobstructed; parked they sit ~0.118 m AGL, clear of the
+         ground.
 
          Tier 1 (in flight, no extra code): each ~90 g box rides as dead
          weight through its joint constraint and loads the flight dynamics
@@ -215,22 +230,22 @@
     <include>
       <name>cargo_payload_0</name>
       <uri>model://cargo_payload</uri>
-      <pose>0.10 0.035 -0.09 0 0 0</pose>
+      <pose>0.10 0.035 0.26 0 0 0</pose>
     </include>
     <include>
       <name>cargo_payload_1</name>
       <uri>model://cargo_payload</uri>
-      <pose>-0.10 -0.035 -0.09 0 0 0</pose>
+      <pose>-0.10 -0.035 0.26 0 0 0</pose>
     </include>
     <include>
       <name>cargo_payload_2</name>
       <uri>model://cargo_payload</uri>
-      <pose>0.10 -0.035 -0.09 0 0 0</pose>
+      <pose>0.10 -0.035 0.26 0 0 0</pose>
     </include>
     <include>
       <name>cargo_payload_3</name>
       <uri>model://cargo_payload</uri>
-      <pose>-0.10 0.035 -0.09 0 0 0</pose>
+      <pose>-0.10 0.035 0.26 0 0 0</pose>
     </include>
     <plugin filename="gz-sim-detachable-joint-system"
             name="gz::sim::systems::DetachableJoint">
