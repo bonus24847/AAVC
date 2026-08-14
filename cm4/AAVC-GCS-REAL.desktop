@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AAVC GCS REAL
+Name[th]=AAVC GCS เครื่องจริง (โดรน)
+Comment=โหมดเครื่องจริง: ถาม IP ของ CM4 แล้วเปิด console ที่ปุ่ม 🚀 สั่งโดรนผ่าน ssh + ดึงสถานะอัตโนมัติ
+Exec=bash "/home/bonus-linux/Desktop/mission AAVC in kmutnb/cm4/launch_gcs_real_gui.sh"
+Icon=network-wireless
+Terminal=false
+Categories=Utility;Science;
+StartupNotify=true
