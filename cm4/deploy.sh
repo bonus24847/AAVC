@@ -23,12 +23,17 @@ DIR="${CM4_DIR:-mission}"
 
 HOST=""
 INSTALL=0
-for arg in "$@"; do
-    case "$arg" in
+while [ $# -gt 0 ]; do
+    case "$1" in
         --install) INSTALL=1 ;;
-        -*) echo "unknown flag: $arg" >&2; exit 2 ;;
-        *) HOST="$arg" ;;
+        # deploy ANY mission repo, not just this one (the GUI wizard uses this
+        # to put the competition repo on the drone as well)
+        --repo) shift; REPO_ROOT="$(cd "$1" && pwd)" ;;
+        --dir) shift; DIR="$1" ;;
+        -*) echo "unknown flag: $1" >&2; exit 2 ;;
+        *) HOST="$1" ;;
     esac
+    shift
 done
 if [ -z "$HOST" ]; then
     echo "usage: cm4/deploy.sh <user@cm4-host> [--install]" >&2
@@ -98,13 +103,10 @@ cat <<EOF
 
 Next, on the bench (props OFF — docs/REAL_FLIGHT_GCS.md + docs/HITL.md):
   # CM4-in-the-loop HITL (jMAVSim on the laptop owns the 6X USB):
-  ssh $HOST 'cd $DIR && SERIAL=/dev/ttyAMA0 bash cm4/launch_hitl.sh'
+  ssh ${SSH_ID[*]} $HOST 'cd $DIR && SERIAL=/dev/ttyAMA0 bash cm4/launch_hitl.sh'
   # real-camera bench stack (dashboard on loopback):
-  ssh $HOST 'cd $DIR && bash cm4/launch_flight.sh'
-  # GCS console on this laptop, REAL mode (no 🧹 button):
-  /usr/bin/python3 ~/Desktop/aavc-gcs/src/aavc_gcs.py \\
-    --field gcs/kmutnb_field.yaml --captures captures \\
-    --url udpin:0.0.0.0:14550 \\
-    --mission-cmd "ssh $HOST 'REAL=1 ~/$DIR/sitl/run_mission.sh {ids}'" \\
-    --mission-label REAL
+  ssh ${SSH_ID[*]} $HOST 'cd $DIR && bash cm4/launch_flight.sh'
+  # GCS console on this laptop: just double-click the desktop icon
+  #   "AAVC GCS เครื่องจริง" — it picks the mission, finds the CM4, deploys
+  #   if needed and starts console + status_sync (cm4/launch_gcs_real_gui.sh).
 EOF
