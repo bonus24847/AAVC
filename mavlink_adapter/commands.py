@@ -20,7 +20,7 @@ from mavsdk import System
 from mavsdk.action import ActionError
 from mavsdk.mission import MissionItem, MissionProgress
 from mavsdk.mission import MissionPlan as _MissionPlan
-from mavsdk.offboard import Attitude, AttitudeRate, VelocityBodyYawspeed
+from mavsdk.offboard import VelocityBodyYawspeed
 
 # MissionItem is re-exported so the executor can build mission items without
 # importing mavsdk directly. The Mission plugin's MissionItem is the right
@@ -567,10 +567,13 @@ class DroneCommander:
                 bad.append(f"{name}={got:g} (want {want:g})")
         return bad
 
-    # ── offboard primitives (pre-flight System-ID sweep; NOT the scored sortie) ──
-    # Thin wrappers over the MAVSDK offboard plugin used by orchestrator.sysid_sweep
-    # to inject a frequency-sweep excitation. Offboard streaming must be primed with
-    # a setpoint BEFORE start() and kept fed at ≥2 Hz, or PX4 rejects/exits offboard.
+    # ── offboard priming (RC-GO) ──
+    # The attitude/rate setpoint wrappers that lived here went out with
+    # orchestrator.sysid_sweep (2026-08-15): they existed only to inject a
+    # System-ID chirp, and the repo does not keep code with no caller. Only the
+    # priming setpoint survives, because RC-GO needs it for a different reason —
+    # PX4 will not let the PILOT select OFFBOARD unless a fresh offboard signal
+    # (>2 Hz) is ALREADY arriving.
 
     async def prime_offboard_hold(self) -> None:
         """Send ONE zero-velocity offboard setpoint — no mode change, no
@@ -581,29 +584,6 @@ class DroneCommander:
         web/companion never launches the aircraft."""
         await self.system.offboard.set_velocity_body(
             VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))
-
-    async def offboard_start(self) -> None:
-        await self.system.offboard.start()
-
-    async def offboard_stop(self) -> None:
-        await self.system.offboard.stop()
-
-    async def set_attitude(
-        self, roll_deg: float, pitch_deg: float, yaw_deg: float, thrust: float
-    ) -> None:
-        """Attitude-ANGLE setpoint (self-levelling keeps thrust mostly vertical
-        → altitude holds during an angle chirp)."""
-        await self.system.offboard.set_attitude(
-            Attitude(roll_deg, pitch_deg, yaw_deg, thrust)
-        )
-
-    async def set_attitude_rate(
-        self, roll_dps: float, pitch_dps: float, yaw_dps: float, thrust: float
-    ) -> None:
-        """Body angular-rate setpoint (deg/s) — the sharper high-frequency chirp."""
-        await self.system.offboard.set_attitude_rate(
-            AttitudeRate(roll_dps, pitch_dps, yaw_dps, thrust)
-        )
 
     async def run_mission(
         self,

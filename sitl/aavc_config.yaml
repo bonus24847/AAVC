@@ -106,13 +106,24 @@ search:
   overlap_frac: 0.4        # spacing = swath*(1-overlap) ≈ 5.7 m -> ~7 legs over
                            # the 40 m cross-span; pad is a huge high-contrast
                            # blob (~160 px) at 4 m
-  margin_m: 4.0            # search-area inset (pads sit >=4 m inside; GPS is coarse)
-                           # boundary note (peer report 2026-08-12): at 4.0 the
-                           # outermost sweep leg sits 5.93 m from the AIRSPACE
-                           # edge vs the watchdog's 5 m proximity warn — 0.9 m
-                           # slack. Clean in every validated run; if audits ever
-                           # show geofence_warn spam on windy days, raise to 5.0
-                           # (camera swath at 4 m alt still covers the pad zone).
+  margin_m: 5.0            # search-area inset (pads sit >=4 m inside; GPS is coarse)
+                           # RAISED 4.0 -> 5.0 on 2026-08-16, executing the
+                           # trigger the 2026-08-12 peer note wrote down: at 4.0
+                           # the outermost sweep leg sat 5.93 m from the AIRSPACE
+                           # edge against the watchdog's 5 m proximity warn —
+                           # 0.9 m of slack. The operator then reported that real
+                           # flights at this field kept tripping the geofence in
+                           # strong wind (they were sys-ID chirps, which excite
+                           # the aircraft deliberately, so this is corroboration
+                           # rather than a like-for-like sweep result). 5.0 buys
+                           # ~1.9 m of slack and costs no coverage: the camera
+                           # swath at 4 m alt (~9.5 m) still reaches 0.25 m past
+                           # the search boundary.
+                           # ⚠ The real cure is the FIELD SURVEY, not this knob.
+                           # The airspace polygon is only 60 x 44 m because it
+                           # came from the OLD brief; the expanded KMUTNB field
+                           # (L&R at the NW running track) should give far more
+                           # room, and these insets want re-deriving from it.
   speed_mps: 3.0           # = MPC_XY_CRUISE (accuracy-over-speed retune). It is
                            # not a command — goto sends no speed, so PX4 flies
                            # MPC_XY_CRUISE regardless; this number only feeds the
