@@ -3,10 +3,9 @@
   import { mission, loadStatic, refreshStatic } from './lib/stores.svelte';
   import { RealtimeClient } from './lib/ws.svelte';
   import type {
-    AnomalyEvent, AutotuneStatus, CommandEvent, CommandResultEvent, CommandSessionEvent,
+    AnomalyEvent, CommandEvent, CommandResultEvent, CommandSessionEvent,
     DetectedObjectEvent, DropPredictionEvent, HelloPayload,
-    PlanUpdate, PreflightReport, SysIdResult, SysIdStatus, TelemetryFrame,
-    TunerApplyResult, TunerDesign, VisionEvent,
+    PlanUpdate, PreflightReport, TelemetryFrame, VisionEvent,
   } from './lib/types';
 
   import MissionStatus from './widgets/MissionStatus.svelte';
@@ -19,35 +18,21 @@
   import LogStrip from './widgets/LogStrip.svelte';
   import KillSwitch from './widgets/KillSwitch.svelte';
   import PreflightChecklist from './widgets/PreflightChecklist.svelte';
-  import SystemIdTunerPanel from './widgets/SystemIdTunerPanel.svelte';
   import GazeboViewPanel from './widgets/GazeboViewPanel.svelte';
-  import TuningMonitorPanel from './widgets/TuningMonitorPanel.svelte';
 
   const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/realtime';
   const client = new RealtimeClient(wsUrl);
 
-  // Two SEPARATE programs share one bundle. The launcher's URL picks the view
-  //   ?mode=tuning  → System-ID + Autotune tool only (no mission)
-  //   ?mode=flight  → Flight Mission GCS only
-  // If the query is MISSING (e.g. a reused browser tab dropped it), fall back to
-  // the backend's own reported program (/api/health → app_mode) so the page can
-  // never land in the wrong view. `null` = still resolving (brief, localhost).
-  const urlMode = new URLSearchParams(location.search).get('mode');
-  let APP_MODE = $state<'flight' | 'tuning' | null>(
-    urlMode === 'tuning' ? 'tuning' : urlMode === 'flight' ? 'flight' : null,
-  );
+  // ONE program since 2026-08-15. This used to be two views sharing a bundle
+  // (?mode=tuning served the System-ID/Autotune tool); that module was removed
+  // — PX4's own autotune replaces it — so there is nothing to switch between
+  // and no resolving state to wait on.
+  const APP_MODE = 'flight';
 
-  // Mirror the resolved mode into the store (PreflightChecklist etc. read it).
-  $effect(() => { if (APP_MODE) mission.setActiveView(APP_MODE); });
+  // Mirror the view into the store (PreflightChecklist etc. read it).
+  mission.setActiveView(APP_MODE);
 
   onMount(() => {
-    // No explicit ?mode= in the URL → ask the backend which program it is.
-    if (APP_MODE === null) {
-      fetch('/api/health')
-        .then((r) => (r.ok ? r.json() : null))
-        .then((h) => { APP_MODE = h && h.app_mode === 'tuning' ? 'tuning' : 'flight'; })
-        .catch(() => { APP_MODE = 'flight'; });
-    }
     loadStatic();
     client.on('hello', (p) => { mission.applyHello(p as HelloPayload); refreshStatic(); });
     client.on('telemetry', (p) => mission.applyTelemetry(p as TelemetryFrame));
@@ -60,11 +45,6 @@
     client.on('command_result', (p) => mission.appendCommandResult(p as CommandResultEvent));
     client.on('preflight', (p) => mission.applyPreflight(p as PreflightReport));
     client.on('plan_update', (p) => mission.applyPlanUpdate(p as PlanUpdate));
-    client.on('sysid_status', (p) => mission.applySysIdStatus(p as SysIdStatus));
-    client.on('sysid_result', (p) => mission.applySysIdResult(p as SysIdResult));
-    client.on('tuner_design', (p) => mission.applyTunerDesign(p as TunerDesign));
-    client.on('tuner_apply', (p) => mission.applyTunerApply(p as TunerApplyResult));
-    client.on('autotune_status', (p) => mission.applyAutotuneStatus(p as AutotuneStatus));
     client.start();
   });
 </script>
@@ -86,11 +66,6 @@
     └──────────────────────────────────────────────────────────┘
 -->
 
-{#if APP_MODE === null}
-  <div class="h-full flex items-center justify-center text-sm" style="color: var(--color-aavc-ink-mute);">
-    connecting to backend…
-  </div>
-{:else}
 <div class="h-full flex flex-col gap-2.5 p-2.5">
 
   <!-- ============ HEADER ============ -->
@@ -101,14 +76,14 @@
     <div class="flex items-center gap-4 flex-wrap">
       <div class="flex items-center gap-2.5">
         <span style="display:inline-block;width:4px;height:20px;border-radius:2px;
-                     background:{APP_MODE === 'tuning' ? 'var(--color-aavc-info)' : 'var(--color-aavc-accent)'};
-                     box-shadow:0 0 10px color-mix(in srgb, {APP_MODE === 'tuning' ? 'var(--color-aavc-info)' : 'var(--color-aavc-accent)'} 60%, transparent);"></span>
+                     background:{'var(--color-aavc-accent)'};
+                     box-shadow:0 0 10px color-mix(in srgb, {'var(--color-aavc-accent)'} 60%, transparent);"></span>
         <div class="text-[19px] font-bold" style="letter-spacing:0.04em;color: var(--color-aavc-ink);">
-          AAVC<span style="color: var(--color-aavc-ink-dim);font-weight:500;">·{APP_MODE === 'tuning' ? 'TUNING' : 'GCS'}</span>
+          AAVC<span style="color: var(--color-aavc-ink-dim);font-weight:500;">·{'GCS'}</span>
         </div>
-        <span class="aavc-chip" style="border-color: {APP_MODE === 'tuning' ? 'var(--color-aavc-info)' : 'var(--color-aavc-accent)'};
-                     color: {APP_MODE === 'tuning' ? 'var(--color-aavc-info)' : 'var(--color-aavc-accent)'};">
-          {APP_MODE === 'tuning' ? 'System-ID + Autotune (no mission)' : 'Flight Mission'}
+        <span class="aavc-chip" style="border-color: {'var(--color-aavc-accent)'};
+                     color: {'var(--color-aavc-accent)'};">
+          Flight Mission
         </span>
       </div>
       <span class="aavc-chip {client.connected ? 'aavc-chip-nominal' : 'aavc-chip-critical'}">
@@ -124,7 +99,6 @@
     </div>
   </header>
 
-  {#if APP_MODE === 'flight'}
     <!-- ============ MISSION STATUS STRIP ============ -->
     <MissionStatus />
 
@@ -158,29 +132,10 @@
         <LogStrip />
       </div>
     </div>
-  {:else}
-    <!-- ============ TUNING PROGRAM (System-ID + Autotune) ============
-         5-step wizard on the left; a persistent RIGHT RAIL (Gazebo spectator
-         view over a compact flight monitor) so the operator can WATCH the drone
-         take off, chirp-sweep and land across all five steps — the wizard panel
-         owns the step state, the rail lives outside it so it never unmounts. -->
-    <div class="flex-1 min-h-0 grid gap-2" style="grid-template-columns: minmax(0,1fr) 400px;">
-      <div class="min-h-0">
-        <SystemIdTunerPanel />
-      </div>
-      <div class="min-h-0 grid gap-2" style="grid-template-rows: minmax(0,3fr) minmax(0,2fr);">
-        <div class="min-h-0"><GazeboViewPanel /></div>
-        <div class="min-h-0"><TuningMonitorPanel /></div>
-      </div>
-    </div>
-  {/if}
 
   <!-- ============ COMMAND BAR (both modes — arm session + RTL/LAND/KILL safety) ============ -->
   <CommandBar />
 </div>
 
-{#if APP_MODE === 'flight'}
   <!-- Pre-flight readiness + slide-to-start — flight mission only. -->
   <PreflightChecklist />
-{/if}
-{/if}

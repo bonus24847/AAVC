@@ -2,7 +2,7 @@
   // Third-person SPECTATOR view of the drone in Gazebo, for the Tuning right
   // rail. A fixed ground camera (sitl/models/spectator_cam) watches the launch
   // pad / sys-ID hover column, so the operator can WATCH the drone take off,
-  // chirp-sweep and land while running System-ID / Autotune — the onboard
+  // fly the mission from outside the aircraft — the onboard
   // the nadir cam only ever shows the ground.
   //
   //   SPECTATOR → /api/camera/spectator.png (mirror of /tmp/aavc_spectator.png)

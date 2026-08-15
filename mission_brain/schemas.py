@@ -69,7 +69,7 @@ class Airframe(str, Enum):
 #: The aircraft AAVC actually flies. Changed 2026-07-22 from QUADCOPTER when the
 #: airframe became the EFT X6100 hexacopter (PX4 airframe 6001 on the real 6X,
 #: 22000_gz_eft_x6100 in SITL). Everything vehicle-shaped — plan stamping, the
-#: tuning plant model, the gains filename — resolves through active_airframe()
+#: the SITL model name — resolves through active_airframe()
 #: rather than hardcoding a member, so a future swap is one env var or one edit.
 DEFAULT_AIRFRAME = Airframe.HEXACOPTER
 
@@ -79,9 +79,8 @@ def active_airframe() -> Airframe:
 
     An unknown value falls back to the default rather than raising — a typo in
     an env var must not take down a mission that is otherwise ready to fly — but
-    it is LOUD about it. This value selects which tuned gains get pushed to the
-    flight controller (``runs/sysid/<airframe>_gains.json``), so a silently
-    ignored override is a silently mismatched inner loop.
+    it is LOUD about it: the value picks the vehicle every plan is stamped
+    with, so a silently ignored override is a silently wrong airframe.
     """
     raw = os.getenv("AAVC_AIRFRAME", "").strip().lower()
     if not raw:

@@ -222,7 +222,6 @@ class WsEnvelope(BaseModel):
         "drop_prediction", "hello",
         "detected_object", "command_session", "command_result",
         "preflight", "plan_update",
-        "sysid_status", "sysid_result", "tuner_design", "tuner_apply", "autotune_status",
         "ping",
     ]
     payload: dict[str, Any]

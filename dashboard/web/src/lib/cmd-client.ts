@@ -87,29 +87,7 @@ export const cmdPreflightGo = (
   post('/api/cmd/preflight/go',
        { payload_confirmed, assigned_marker_id, force, operator_note });
 
-// ── System-ID + Autotune (pre-flight tuning module) ──
-export const tunerDesign = (
-  physical: Record<string, unknown>, spec: Record<string, unknown>, use_calibration: boolean,
-) => post('/api/cmd/tuner/design', { physical, spec, use_calibration });
 
-export const tunerApply = (gains: { param: string; value: number }[], operator_note = '') =>
-  post('/api/cmd/tuner/apply', { gains, operator_note });
 
-export const sysidRun = (axes: string[], mode: string, operator_note = '') =>
-  post('/api/cmd/sysid/run', { axes, mode, operator_note });
-
-export const autotuneStart = (operator_note = '') =>
-  post('/api/cmd/autotune/start', { operator_note });
-
-export const autotuneAbort = (operator_note = '') =>
-  post('/api/cmd/autotune/abort', { operator_note });
 
 // Live FC gains snapshot (GET).
-export async function tunerParams(): Promise<{ params: { param: string; value: number | null }[] } | null> {
-  try {
-    const resp = await fetch('/api/cmd/tuner/params');
-    return resp.ok ? await resp.json() : null;
-  } catch {
-    return null;
-  }
-}

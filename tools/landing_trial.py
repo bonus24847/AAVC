@@ -1,4 +1,4 @@
-"""Landing-precision bench (SITL-only tuning aid, NOT the scored mission).
+"""Landing-precision bench (SITL-only calibration aid, NOT the scored mission).
 
 Repeats the real terminal controller — ``acquire_and_land_drop`` (align rungs,
 id-verified LAND gate, touchdown-gated release) — N times against one truth
@@ -44,7 +44,6 @@ from mission_brain.schemas import Coordinate  # noqa: E402
 from mission_brain.search_pattern import build_search_pattern  # noqa: E402
 from orchestrator.state import OrchestratorMode, OrchestratorState  # noqa: E402
 from orchestrator.tactical_align import AlignParams, acquire_and_land_drop  # noqa: E402
-from tuning.gains_io import load_gains  # noqa: E402
 from vision.projection import configure_cameras  # noqa: E402
 
 
@@ -115,21 +114,17 @@ async def run_trial(args: argparse.Namespace) -> int:
             break
         await asyncio.sleep(0.5)
 
-    # Fly the SAME vehicle the scored mission flies: config px4_tuning (outer
-    # loop) + the sysid/autotune inner-loop gains the mission auto-applies —
-    # THEN the --set A/B knob on top. Without the sysid gains the bench measured
-    # a different inner loop than the mission, so the scatter didn't transfer.
+    # Fly the SAME vehicle the scored mission flies: config px4_tuning, THEN the
+    # --set A/B knob on top. (It used to also merge sysid inner-loop gains; that
+    # module was removed 2026-08-15 — PX4's own autotune owns the inner loop
+    # now, and whatever it wrote is already on the FC.)
     overrides: dict[str, float] = dict(cfg.get("px4_tuning") or DEFAULT_PX4_TUNING)
-    tuned = load_gains()
-    if tuned:
-        overrides.update(tuned)
-        logger.info(f"[trial] merged {len(tuned)} sysid inner-loop gains")
     for kv in args.set or []:
         k, v = kv.split("=", 1)
         overrides[k.strip()] = float(v)
     n_set = await commander.apply_param_overrides(overrides)
     logger.info(f"[trial] applied {n_set} params "
-                f"({', '.join(args.set) if args.set else 'config px4_tuning + sysid'})")
+                f"({', '.join(args.set) if args.set else 'config px4_tuning'})")
 
     rng = random.Random(args.seed)
     errs: list[float] = []

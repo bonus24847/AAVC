@@ -67,6 +67,16 @@
     <pose>0 0 0.35 0 0 0</pose>
     <self_collide>false</self_collide>
     <static>false</static>
+    <!-- WIND (added 2026-08-15). gz's WindEffects plugin only pushes links that
+         OPT IN with enable_wind — it is off by default. Both worlds have carried
+         the plugin (and aavc_config.yaml a wind_sitl block) since the field was
+         built, so everything LOOKED like wind was modelled, but no link ever
+         asked for it: every validated flight to date, G4/G4' included, flew in
+         perfectly still air. KMITL is exposed and windy, which makes still-air
+         results the wrong thing to trust. Set here on the airframe root so it
+         reaches base_link; the cargo boxes stay out of it (a 90 g box on a
+         breaking joint gains nothing from wind drag but can jitter the solver). -->
+    <enable_wind>true</enable_wind>
     <link name="base_link">
       <inertial>
         <mass>7.881</mass>

@@ -97,8 +97,16 @@
         </noise>
       </vertical>
     </plugin>
+    <!-- Base wind vector, ENU m/s. Derived from aavc_config.yaml wind_sitl
+         (4 m/s FROM 225 deg = the Bangkok SW monsoon, i.e. blowing TOWARD the
+         north-east): 4*sin(45)=2.83 east, 4*cos(45)=2.83 north. It used to read
+         "3 0 0" — 3 m/s due east — which matched nothing and, since no link had
+         enable_wind, pushed nothing either. The plugin above adds the gusting
+         (+/-50% sine + gaussian noise), so peaks land near the configured
+         7 m/s. Keep this in step with wind_sitl by hand: no code reads that
+         block, it is the written intent. -->
     <wind>
-      <linear_velocity>3 0 0</linear_velocity>
+      <linear_velocity>2.83 2.83 0</linear_velocity>
     </wind>
 
     <!-- Sun -->

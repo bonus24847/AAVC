@@ -44,7 +44,6 @@ from mission_brain.live_plan import render_live_plan
 from mission_brain.profile import load_profile
 from mission_brain.schemas import Coordinate, MissionPhase
 from mission_brain.search_pattern import build_search_pattern
-from tuning.gains_io import load_gains
 from vision.detectors.aruco import VALID_MARKER_IDS
 from vision.projection import configure_cameras
 
@@ -657,7 +656,7 @@ async def run(args: argparse.Namespace) -> int:
         try:
             from dashboard.integration import start_dashboard
             dash = await start_dashboard(
-                state, commander, host=args.host, port=args.port, app_mode=args.mode
+                state, commander, host=args.host, port=args.port
             )
             logger.info(f"[main] dashboard up at http://{args.host}:{args.port}")
         except Exception as e:
@@ -689,98 +688,50 @@ async def run(args: argparse.Namespace) -> int:
                     f"{profile.transit_alt_m:.0f} m")
 
         # ── FC-level failsafes (independent of the companion) ──
-        # ONLY for the scored mission. A System-ID/Autotune sweep (tuning mode) is
-        # a GCS-less OFFBOARD excitation flight: the datalink-loss RTL (PX4 sees no
-        # QGC heartbeat → Returns), RC-loss RTL, and geofence-breach RTL would each
-        # yank the drone out of OFFBOARD mid-chirp and force-land it (verified in
-        # SITL: the sweep climbed to 15 m, then a failsafe force-landed it and the
-        # chirp aborted at the 6 m floor). Disable them for tuning — the
-        # SafetyWatchdog still covers battery / datalink / GPS / telemetry-stale.
-        # Set 0 EXPLICITLY (not just "skip"): a prior mission run may have left
-        # these enabled on the FC, and SITL params persist until reboot.
-        if args.mode != "tuning":
-            if geofence and len(geofence) >= 3:
-                try:
-                    await commander.upload_geofence(geofence)
-                    await commander.set_geofence_action_rtl()
-                except Exception as e:
-                    state.record_anomaly(f"geofence setup failed: {e}")
+        # Always ON now. They used to be switched OFF for the System-ID sweep,
+        # which was the only flight this stack ever made that wanted them off;
+        # that module was removed 2026-08-15 (PX4's own autotune replaces it),
+        # and with it the only reason this code could ever disarm a failsafe.
+        if geofence and len(geofence) >= 3:
             try:
-                await commander.set_datalink_loss_rtl(profile.datalink_loss_threshold_s)
+                await commander.upload_geofence(geofence)
+                await commander.set_geofence_action_rtl()
             except Exception as e:
-                state.record_anomaly(f"datalink-loss RTL setup failed: {e}")
-            # RC-loss RTL (S4) — never pinned before; the real bird rode on the
-            # FC/QGC default. COM_RCL_EXCEPT=4 (inside set_rc_loss_rtl) exempts
-            # Offboard/Mission so a no-RC SITL/autonomous run isn't RTL'd.
+                state.record_anomaly(f"geofence setup failed: {e}")
+        try:
+            await commander.set_datalink_loss_rtl(profile.datalink_loss_threshold_s)
+        except Exception as e:
+            state.record_anomaly(f"datalink-loss RTL setup failed: {e}")
+        # RC-loss RTL (S4) — never pinned before; the real bird rode on the
+        # FC/QGC default. COM_RCL_EXCEPT=4 (inside set_rc_loss_rtl) exempts
+        # Offboard/Mission so a no-RC SITL/autonomous run isn't RTL'd.
+        try:
+            await commander.set_rc_loss_rtl()
+        except Exception as e:
+            state.record_anomaly(f"RC-loss RTL setup failed: {e}")
+        # FC-level battery failsafe (S4) — the authoritative backstop below
+        # the companion watchdog's 30%/20% RTH/LAND.
+        fs = cfg.get("failsafes", {}) or {}
+        try:
+            await commander.set_battery_failsafe(
+                low=bat_low_thr,
+                crit=float(fs.get("bat_crit_thr", 0.15)),
+                emergen=float(fs.get("bat_emergen_thr", 0.07)),
+                action=int(fs.get("low_bat_act", 3)),
+            )
+        except Exception as e:
+            state.record_anomaly(f"battery failsafe setup failed: {e}")
+        # Stabilized-nadir camera gimbal (PX4 mount driver) — best-effort:
+        # SITL's PX4 lacks the module (params warn + skip); the real 6X is
+        # configured here so the servo holds the camera straight down.
+        gc = cfg.get("gimbal", {}) or {}
+        if gc.get("enabled", False) and gc.get("params"):
             try:
-                await commander.set_rc_loss_rtl()
+                await commander.set_gimbal_mount(gc["params"])
             except Exception as e:
-                state.record_anomaly(f"RC-loss RTL setup failed: {e}")
-            # FC-level battery failsafe (S4) — the authoritative backstop below
-            # the companion watchdog's 30%/20% RTH/LAND.
-            fs = cfg.get("failsafes", {}) or {}
-            try:
-                await commander.set_battery_failsafe(
-                    low=bat_low_thr,
-                    crit=float(fs.get("bat_crit_thr", 0.15)),
-                    emergen=float(fs.get("bat_emergen_thr", 0.07)),
-                    action=int(fs.get("low_bat_act", 3)),
-                )
-            except Exception as e:
-                state.record_anomaly(f"battery failsafe setup failed: {e}")
-            # Stabilized-nadir camera gimbal (PX4 mount driver) — best-effort:
-            # SITL's PX4 lacks the module (params warn + skip); the real 6X is
-            # configured here so the servo holds the camera straight down.
-            gc = cfg.get("gimbal", {}) or {}
-            if gc.get("enabled", False) and gc.get("params"):
-                try:
-                    await commander.set_gimbal_mount(gc["params"])
-                except Exception as e:
-                    state.record_anomaly(f"gimbal mount setup failed: {e}")
-        else:
-            # TUNING mode flies frequency sweeps, which the geofence/datalink
-            # failsafes would abort — so this used to switch them off with no
-            # gate at all. On the real aircraft that is the safety pilot losing
-            # RC-loss RTL, datalink RTL and the geofence action during the most
-            # aggressive manoeuvre the airframe ever performs. Ask the autopilot
-            # what it is (endpoints lie — see _detect_simulator) and refuse on
-            # anything that is not provably a simulator.
-            sim = await _detect_simulator(commander)
-            if sim is True:
-                for _fs in ("NAV_DLL_ACT", "NAV_RCL_ACT", "GF_ACTION"):
-                    try:
-                        await commander.set_param_int(_fs, 0)
-                    except Exception as e:
-                        state.record_anomaly(f"tuning: disable {_fs} failed: {e}")
-            else:
-                why = ("a REAL flight controller" if sim is False
-                       else "an autopilot that did not answer (link down?)")
-                logger.warning(
-                    f"[main] tuning mode on {why} — KEEPING the failsafes "
-                    "(NAV_DLL_ACT/NAV_RCL_ACT/GF_ACTION) armed. A sweep that "
-                    "trips one is a sweep the safety pilot can still recover; "
-                    "flying it with them off is not. Disable them by hand in "
-                    "QGC if that is genuinely what you want.")
-                state.record_anomaly(
-                    f"tuning mode: failsafes left ON ({why})")
-
+                state.record_anomaly(f"gimbal mount setup failed: {e}")
         # ── flight tuning (applied once before takeoff) ──
-        # (1) Inner-loop rate/attitude gains from the pre-flight System-ID +
-        # Autotune module (runs/sysid/<airframe>_gains.json), if a tuning session
-        # saved any — so the mission flies with the tuned gains automatically.
-        tuned = load_gains()
-        if tuned:
-            try:
-                n = await commander.apply_param_overrides(tuned)
-                logger.info(f"[main] applied {n} tuned gains from the System-ID/Autotune module")
-                if n < len(tuned):
-                    state.record_anomaly(
-                        f"tuned gains: only {n}/{len(tuned)} applied — the "
-                        "aircraft is flying a MIX of tuned and stock inner-loop "
-                        "gains (see the log for which)")
-            except Exception as e:
-                state.record_anomaly(f"tuned gains apply failed: {e}")
-        # (2) Outer-loop limits (anti-flip tilt, yaw-rate, speed unlock, tighter
+        # Outer-loop limits (anti-flip tilt, yaw-rate, speed unlock, tighter
         # waypoint acceptance). Config `px4_tuning:`, else the reviewed defaults.
         energy_policy = _build_energy_policy(cfg, bat_low_thr, state.eggs_aboard)
         state.energy_capacity_mah = energy_policy.capacity_mah
@@ -857,31 +808,8 @@ async def run(args: argparse.Namespace) -> int:
             home_lat=home.lat, home_lon=home.lon,
             on_rth=lambda: state.record_audit("watchdog: RTH triggered"),
             on_abort=lambda: state.record_audit("watchdog: ABORT triggered"),
-            # In TUNING mode the tool flies the drone itself (chirp sweeps /
-            # autotune) with no mission window, so the geofence + time-budget RTH
-            # would abort every sweep. Battery / datalink / GPS / telemetry-stale
-            # safety stays active either way.
-            enforce_mission_limits=(args.mode != "tuning"),
         )
         await watchdog.start()
-
-        # ── TUNING mode: System-ID + Autotune ONLY — a separate program from the
-        # flight mission. No vision, no pre-flight gate, no mission ever runs; the
-        # drone stays idle until the operator drives a chirp sweep / autotune from
-        # the Tuning UI. The watchdog stays up for core safety (battery / datalink /
-        # GPS / telemetry-stale) but with mission limits OFF (no geofence/time RTH). ──
-        if args.mode == "tuning":
-            logger.info("[main] TUNING mode — serving System-ID/Autotune; the mission will NOT run")
-            try:
-                await asyncio.Event().wait()      # idle until interrupted (launcher teardown)
-            finally:
-                for label, stop in (("watchdog", watchdog.stop),
-                                    ("raw_telem", raw_telem.stop), ("telem", telem.stop)):
-                    try:
-                        await stop()
-                    except Exception:
-                        logger.exception(f"[main] {label}.stop() failed")
-            return 0
 
         # ── vision worker → target tracker (+ dashboard feed) ──
         vc = cfg.get("vision", {}) or {}
@@ -1163,9 +1091,6 @@ def main() -> None:
     p.add_argument("--profile",
                    default=os.environ.get("AAVC_PROFILE", "kmutnb_skyfield"))
     p.add_argument("--no-dashboard", action="store_true")
-    p.add_argument("--mode", choices=("mission", "tuning"), default="mission",
-                   help="mission = fly the delivery sorties (default); "
-                        "tuning = System-ID/Autotune only, no mission (separate program)")
     p.add_argument("--rc-go", action="store_true",
                    help="the PILOT launches: after the GO stages the flight, "
                         "hold + stream offboard setpoints and release only "

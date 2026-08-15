@@ -159,23 +159,6 @@ class RealtimeBroadcaster:
         already-serialised MissionPlan dict; ``pointer`` is the live command index."""
         self._push_event("plan_update", {"plan": plan, "command_pointer": pointer})
 
-    # System-ID + Autotune (pre-flight tuning module). All dict payloads built by
-    # dashboard/tuner.py from tuning.* dataclasses — pushed through the generic fan-out.
-    def push_sysid_status(self, payload: dict[str, Any]) -> None:
-        self._push_event("sysid_status", payload)
-
-    def push_sysid_result(self, payload: dict[str, Any]) -> None:
-        self._push_event("sysid_result", payload)
-
-    def push_tuner_design(self, payload: dict[str, Any]) -> None:
-        self._push_event("tuner_design", payload)
-
-    def push_tuner_apply(self, payload: dict[str, Any]) -> None:
-        self._push_event("tuner_apply", payload)
-
-    def push_autotune_status(self, payload: dict[str, Any]) -> None:
-        self._push_event("autotune_status", payload)
-
     def record_detected_objects(self, events: list[DetectedObjectEvent]) -> None:
         """Push one or more DetectedObjectEvent into the ring + broadcast.
 
@@ -322,7 +305,6 @@ class RealtimeBroadcaster:
             "drop_prediction", "hello",
             "detected_object", "command_session", "command_result",
             "preflight", "plan_update",
-            "sysid_status", "sysid_result", "tuner_design", "tuner_apply", "autotune_status",
             "ping",
         ],
         payload: dict[str, Any],

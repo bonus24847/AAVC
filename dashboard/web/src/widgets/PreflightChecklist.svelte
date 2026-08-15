@@ -252,9 +252,6 @@
              onpointerdown={onDown} onpointermove={onMove} onpointerup={onUp}>▸</div>
       </div>
 
-      <button class="aavc-pf-tuning" onclick={() => mission.setActiveView('tuning')}>
-        จะทำ System-ID / Autotune ก่อน → ไปแท็บ Tuning (โดรนยังไม่บิน mission)
-      </button>
     </div>
   </div>
 {/if}
@@ -412,10 +409,4 @@
     cursor: grab; touch-action: none;
   }
   .aavc-slide-track.disabled .aavc-slide-handle { cursor: not-allowed; background: var(--color-aavc-ink-mute); }
-  .aavc-pf-tuning {
-    width: 100%; margin-top: 8px; padding: 6px;
-    background: none; border: none; cursor: pointer;
-    font-size: 11px; color: var(--color-aavc-info); text-decoration: underline;
-  }
-  .aavc-pf-tuning:hover { filter: brightness(1.2); }
 </style>

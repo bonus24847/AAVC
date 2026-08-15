@@ -2,14 +2,14 @@
 //
 // Trimmed to the competition GCS: telemetry, the mission plan, static
 // site config, the command/anomaly/vision/drop/detected-object logs, and
-// the dashboard command session. Wizard / tuner / SDF-params / autotune /
+// the dashboard command session. Wizard / SDF-params /
 // agent-advisor state was removed with their widgets.
 
 import type {
-  AavcConfig, AnomalyEvent, AutotuneStatus, CommandEvent, CommandResultEvent,
+  AavcConfig, AnomalyEvent, CommandEvent, CommandResultEvent,
   CommandSessionEvent, DetectedObjectEvent, DropPredictionEvent,
-  HelloPayload, MissionPlan, PlanUpdate, PreflightReport, SysIdResult, SysIdStatus,
-  TelemetryFrame, TunerApplyResult, TunerDesign, VisionEvent,
+  HelloPayload, MissionPlan, PlanUpdate, PreflightReport,
+  TelemetryFrame, VisionEvent,
 } from './types';
 
 import { CAM_H, CAM_W, NADIR_FOV_RAD, latLonToEnu } from './field';
@@ -58,13 +58,9 @@ class MissionStore {
   // Pre-flight readiness board — non-null while the mission holds for GO.
   preflight = $state<PreflightReport | null>(null);
 
-  // ── System-ID + Autotune module (pre-flight tuning view) ──
+  // Single view since the tuning module was removed (2026-08-15); kept so the
+  // widgets that read it need no change.
   activeView = $state<ActiveView>('flight');
-  sysidStatus = $state<SysIdStatus | null>(null);
-  sysidResult = $state<SysIdResult | null>(null);
-  tunerDesign = $state<TunerDesign | null>(null);
-  tunerApply = $state<TunerApplyResult | null>(null);
-  autotune = $state<AutotuneStatus>({ state: 'idle', axis: '', progress_pct: 0, detail: '' });
 
   // Geofence — separate store from config so the operator can read (and a
   // future API could edit) it without writing back to aavc_config.yaml.
@@ -190,11 +186,6 @@ class MissionStore {
   }
 
   setActiveView(v: ActiveView): void { this.activeView = v; }
-  applySysIdStatus(s: SysIdStatus): void { this.sysidStatus = s; }
-  applySysIdResult(s: SysIdResult): void { this.sysidResult = s; }
-  applyTunerDesign(d: TunerDesign): void { this.tunerDesign = d; }
-  applyTunerApply(a: TunerApplyResult): void { this.tunerApply = a; }
-  applyAutotuneStatus(a: AutotuneStatus): void { this.autotune = a; }
 
   setPlan(p: MissionPlan): void { this.plan = p; }
 

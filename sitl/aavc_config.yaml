@@ -317,12 +317,20 @@ connection:
   # PX4 (e.g. `mavlink start -u 18571 -o 14551` via pxh) and set 14551 here.
   raw_telemetry_port: 0
 
-# Wind model for SITL (Bangkok SW monsoon; a rooftop pitch is fully exposed,
-# so keep the same breeze the KMITL tuning was validated against)
+# Wind model for SITL (Bangkok SW monsoon; a rooftop pitch is fully exposed, and
+# so is KMITL). ⚠ NOT READ BY ANY CODE — this block is the written intent; the
+# numbers that actually blow live in the WORLD file
+# (sitl/worlds/kmutnb_skyfield.sdf: <wind><linear_velocity> for the base vector,
+# the WindEffects plugin for gusting). Keep the two in step by hand.
+# ⚠ And wind only reaches the aircraft because the airframe model opts in with
+# <enable_wind> (added 2026-08-15). Before that, this block and the plugin both
+# existed while every flight — G4/G4' included — was actually flown in still
+# air: the plugin pushes only links that ask for it.
 wind_sitl:
   base_speed_mps: 4
   gust_amplitude_mps: 3
-  direction_deg: 225   # from the south-west
+  direction_deg: 225   # FROM the south-west -> blows toward NE
+                       # -> world vector (4*sin45, 4*cos45) = (2.83, 2.83) ENU
 
 # Outer-loop flight tuning applied once before takeoff (orchestrator.main →
 # commander.apply_param_overrides). Operator intent: fly stably (less overshoot),

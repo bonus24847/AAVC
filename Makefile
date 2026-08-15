@@ -35,12 +35,12 @@ help:
 
 # For a byte-reproducible competition build (the AAVC site bans internet, so the
 # venv is built once beforehand), pin every transitive dep to requirements.lock:
-#   .venv/bin/pip install -e ".[dev,tuning]" -c requirements.lock
+#   .venv/bin/pip install -e ".[dev]" -c requirements.lock
 # `make lock` regenerates that file from the current venv.
 install:
 	python3.12 -m venv .venv
 	.venv/bin/pip install --upgrade pip
-	.venv/bin/pip install -e ".[dev,tuning]"
+	.venv/bin/pip install -e ".[dev]"
 
 lock:
 	.venv/bin/pip freeze --exclude-editable > requirements.lock
@@ -158,7 +158,7 @@ test:
 
 lint:
 	$(PY) -m ruff check .
-	$(PY) -m mypy mission_brain orchestrator mavlink_adapter vision dashboard tuning
+	$(PY) -m mypy mission_brain orchestrator mavlink_adapter vision dashboard
 
 clean:
 	rm -rf __pycache__ .pytest_cache .mypy_cache .ruff_cache *.egg-info

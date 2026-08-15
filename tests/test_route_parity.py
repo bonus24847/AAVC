@@ -12,7 +12,6 @@ from pathlib import Path
 
 from dashboard.commands import CommandSession, make_command_router
 from dashboard.realtime import RealtimeBroadcaster
-from dashboard.tuner import make_tuner_router
 from mavlink_adapter.telemetry import CurrentTelemetry
 from mission_brain.live_plan import render_live_plan
 from mission_brain.profile import COMPETITION
@@ -38,10 +37,8 @@ def _backend_post_paths() -> set[str]:
     )
     bc = RealtimeBroadcaster(state)
     session = CommandSession()
-    routers = [
-        make_command_router(state, object(), bc, session),
-        make_tuner_router(state, object(), bc, session),
-    ]
+    # One router since the tuning module was removed (2026-08-15).
+    routers = [make_command_router(state, object(), bc, session)]
     paths: set[str] = set()
     for router in routers:
         for route in router.routes:

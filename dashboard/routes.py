@@ -204,10 +204,6 @@ def make_router(
             state=state, commander=commander, broadcaster=broadcaster,
             session=command_session,
         ))
-        # System-ID + Autotune module (pre-flight tuning aid) — shares the same
-        # arm-gated CommandSession so /tuner/* + /sysid/* + /autotune/* honour it.
-        from .tuner import make_tuner_router
-        r.include_router(make_tuner_router(state, commander, broadcaster, command_session))
 
     @r.websocket("/ws/realtime")
     async def ws_realtime(ws: WebSocket) -> None:

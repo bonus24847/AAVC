@@ -40,13 +40,6 @@ dev = [
     "ruff",
     "mypy",
 ]
-# Pre-flight System-ID + Autotune module (SITL/bench tuning aid, NOT the scored
-# sortie). pyulog reads the PX4 ULog — the open-loop torque→rate plant the FRF
-# identifies is not exposed over MAVSDK telemetry, only in the log. The FRF math
-# itself is numpy-only; this is just the log reader.
-tuning = [
-    "pyulog",
-]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -66,11 +59,8 @@ select = ["E", "F", "I", "W"]
 [tool.ruff.lint.per-file-ignores]
 # Verbatim ports of the model-based design from ../aavc-2026 — the long lines are
 # mathematical derivation strings + pydantic Field descriptions; kept as-is so
-# the modules re-sync cleanly against the reference. (The numpy-only tuning.sysid
+# the modules re-sync cleanly against the reference. (The numpy-only
 # and our own routers/tests still hold the 100-col line limit.)
-"tuning/schemas.py" = ["E501"]
-"tuning/synthesis.py" = ["E501"]
-"tuning/engine.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
