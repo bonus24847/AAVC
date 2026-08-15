@@ -650,13 +650,12 @@ sim_battery:
   # become the whole measurement. They are THREE separate questions, and
   # answering one does not answer the others:
   #
-  #   BAT1_V_DIV      ✅ VERIFIED (operator, offboard flights): pack voltage read
-  #                   with a multimeter matched what the AAVC GCS displayed live.
-  #                   That is the right kind of evidence — an independent
-  #                   instrument against the system's own number — and it closes
-  #                   the divider. ⚠ ONLY if that measurement was taken on the
-  #                   CURRENT wiring: V_DIV is a property of the module, so if it
-  #                   was read through the PM03D it has to be repeated.
+  #   BAT1_V_DIV      ✅ CLOSED (operator, 2026-08-16): pack voltage read with a
+  #                   multimeter matched what the AAVC GCS displayed live, and
+  #                   the reading was taken AFTER the converter swap — i.e. on
+  #                   THIS wiring, so it is not inherited from the PM03D (the
+  #                   divider is a property of the module). Right kind of
+  #                   evidence, right hardware: do not re-open it.
   #   BAT1_N_CELLS  = 6
   #   BAT1_V_EMPTY  = 3.50     BAT1_V_CHARGED = 4.15
   #                   ❌ NOT verified by the above. A correct VOLTAGE and a
