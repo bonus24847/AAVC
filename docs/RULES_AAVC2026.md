@@ -52,7 +52,7 @@ not deleted, so the original source stays visible.
 |---|---|---|
 | §3/§5: **"Up to four (4) pads"** placed on the field | **SIX** pads are physically placed, ids 1–6 — the whole of `DICT_4X4_50` ids 1–6; "four" was always how many get **assigned**, not how many are **placed** | `sitl.n_pads: 6`, `search.max_pads: 6` (`sitl/spawn_targets.py` places all 6); the 2 unassigned ids are permanent distractors the id-verified LAND gate must keep rejecting for the whole mission |
 | (the same "four", read as an assignment count) | **FOUR** pads assigned per team, out of the six placed — unchanged in substance, now stated explicitly alongside the six | `mission.max_deliveries: 4`, `mission.assigned_marker_ids` / `state.assigned_id_queue` (the 4-of-6 mission queue, GCS queue editor or `--assigned-ids`) |
-| §3: "a new payload–pad pair is assigned per **flight**", read (V1.1/V1.3 digest below) as one egg per sortie | **All four assigned eggs are carried in ONE flight** (one arm→disarm cycle); a flight now serves up to `eggs_aboard` pads, each its own **DELIVERY** | `mission.eggs_aboard: 4`, `connection.drop_payload_count: 4` (`payload_id` 0–3 → servo channel AUX 9/10/11/12); loop shape `orchestrator/mission.py::run_delivery_mission` (`for flight: for delivery`) |
+| §3: "a new payload–pad pair is assigned per **flight**", read (V1.1/V1.3 digest below) as one egg per sortie | **All four assigned eggs are carried in ONE flight** (one arm→disarm cycle); a flight now serves up to `eggs_aboard` pads, each its own **DELIVERY** | `mission.eggs_aboard: 4`, `connection.drop_payload_count: 4` (`payload_id` 0–3 → actuator set / AUX 4/1/2/3 via `drop_servo_channels`, docs/SERVO_AUX_MAPPING.md); loop shape `orchestrator/mission.py::run_delivery_mission` (`for flight: for delivery`) |
 | §8: scoring matrix scored **"per sortie, accumulated"** | Scoring is **per DELIVERY**: each pad served — not each flight — earns its own transit/identification/landing/cargo points, independent of how many other pads share its flight | Audit grammar `DELIVERY k START\|END\|RELEASE` (`k` numbered 1-based across the WHOLE mission, one block per pad); `tools/verify_flight.py` scores every delivered `DELIVERY` on its own evidence |
 
 `eggs_aboard=1` is the one-integer rollback to the pre-briefing
@@ -174,7 +174,8 @@ GO / `--assigned-ids`.
   technique except the minimum operating altitude.
 
 → software: `connection.drop_payload_count=4` — four INDEPENDENT release
-mechanisms (`payload_id` 0–3 → servo channel AUX 9/10/11/12,
+mechanisms (`payload_id` 0–3 → actuator set / AUX **4/1/2/3** as wired,
+`connection.drop_servo_channels` →
 `mavlink_adapter/commands.py::DroneCommander.drop_payload`); each DELIVERY
 releases exactly one `payload_id`, at most one per touchdown — never
 simultaneous.

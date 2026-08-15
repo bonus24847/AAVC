@@ -227,25 +227,37 @@
          the flight core's own DELIVERY k RELEASE payload=N audit line (or
          the gz servo topics in servo mode), so the SITL drop needs no
          change to the flight core. -->
+    <!-- CORNER ASSIGNMENT (re-permuted 2026-08-15 to the as-wired rack):
+         cargo_payload_N is the box on the latch driven by ACTUATOR SET N+1,
+         i.e. AUX pin N+1 (SIM_GZ_SV_FUNC(N+1) -> servo_N -> this box) — so
+         each box sits at the corner that AUX pin physically serves on the
+         real bird: AUX1 rear-right, AUX2 front-right, AUX3 rear-left, AUX4
+         front-left (docs/SERVO_AUX_MAPPING.md). Box index is therefore NOT
+         payload_id: the mission's delivery order 0..3 maps through
+         connection.drop_servo_channels = [4, 1, 2, 3], so payload 0 sheds
+         box 3 (front-left) — which is what payload_detach_bridge reproduces
+         on the audit path from its own channel-map flag. The four poses are
+         the same four corners as before the permutation, so mass and inertia
+         are unchanged. -->
     <include>
       <name>cargo_payload_0</name>
-      <uri>model://cargo_payload</uri>
-      <pose>0.10 0.035 0.26 0 0 0</pose>
-    </include>
-    <include>
-      <name>cargo_payload_1</name>
       <uri>model://cargo_payload</uri>
       <pose>-0.10 -0.035 0.26 0 0 0</pose>
     </include>
     <include>
-      <name>cargo_payload_2</name>
+      <name>cargo_payload_1</name>
       <uri>model://cargo_payload</uri>
       <pose>0.10 -0.035 0.26 0 0 0</pose>
     </include>
     <include>
-      <name>cargo_payload_3</name>
+      <name>cargo_payload_2</name>
       <uri>model://cargo_payload</uri>
       <pose>-0.10 0.035 0.26 0 0 0</pose>
+    </include>
+    <include>
+      <name>cargo_payload_3</name>
+      <uri>model://cargo_payload</uri>
+      <pose>0.10 0.035 0.26 0 0 0</pose>
     </include>
     <plugin filename="gz-sim-detachable-joint-system"
             name="gz::sim::systems::DetachableJoint">

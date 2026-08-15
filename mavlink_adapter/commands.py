@@ -44,6 +44,15 @@ class ConnectionConfig:
     # that no code path ever honoured). payload_id 0..3 -> actuator set 1..4;
     # SITL maps them to gz via SIM_GZ_SV_FUNC1..4 (airframe 22000).
     drop_servo_channel: int = 1
+    # EXPLICIT payload_id -> actuator-set index map, overriding the
+    # drop_servo_channel + payload_id progression above; () keeps the
+    # progression. Needed whenever the rack is not WIRED in delivery order —
+    # KMUTNB 2026-08-15: the four latches came back from the bench on
+    # AUX 4/1/2/3 for the front-left / rear-right / front-right / rear-left
+    # corners, and the mission's release order must stay diagonal (CG), so
+    # payload_id 0..3 -> (4, 1, 2, 3). PWM_AUX_FUNCn stays 300+n (pin ==
+    # actuator set); only this map moves. See docs/SERVO_AUX_MAPPING.md.
+    drop_servo_channels: tuple[int, ...] = ()
     drop_servo_pwm_release: int = 1900
     drop_servo_pwm_hold: int = 1100
     drop_payload_count: int = 1   # cargo release channels onboard — bounds payload_id to
@@ -60,6 +69,42 @@ class ConnectionConfig:
     # that reaches the FC (e.g. "udpout:127.0.0.1:14550"). The primary drop path is
     # set_actuator over the normal link, which works on hardware; this is the backstop.
     drop_fallback_endpoint: str = "udpout:127.0.0.1:18570"
+
+    def __post_init__(self) -> None:
+        # YAML hands this over as a list; normalise to the frozen dataclass's
+        # own tuple so equality/hashing keep working whoever built the config.
+        chans = tuple(int(c) for c in self.drop_servo_channels)
+        object.__setattr__(self, "drop_servo_channels", chans)
+        if not chans:
+            return
+        if len(chans) < self.drop_payload_count:
+            raise ValueError(
+                f"drop_servo_channels {chans} covers {len(chans)} payloads but "
+                f"drop_payload_count is {self.drop_payload_count} — every egg "
+                "slot needs its own latch channel")
+        if any(not 1 <= c <= 6 for c in chans):
+            raise ValueError(
+                f"drop_servo_channels {chans} out of range — MAV_CMD_DO_SET_ACTUATOR "
+                "addresses actuator sets 1..6 (param1..6 with param7=0)")
+        if len(set(chans)) != len(chans):
+            raise ValueError(
+                f"drop_servo_channels {chans} repeats a channel — two eggs sharing "
+                "one latch is not an independent release mechanism (rules §7)")
+
+    def actuator_index(self, payload_id: int) -> int:
+        """Actuator-set index driving ``payload_id``'s latch.
+
+        That index IS the real AUX pin number (``PWM_AUX_FUNCn = 300+n``, i.e.
+        "Peripheral via Actuator Set n") and, in SITL, ``SIM_GZ_SV_FUNCn`` ->
+        gz topic ``servo_<n-1>``. ``drop_servo_channels`` maps it explicitly
+        when the rack is not wired in delivery order; otherwise it is the
+        historical ``drop_servo_channel + payload_id`` progression.
+        Bounds-checking of ``payload_id`` belongs to the caller
+        (``drop_payload``), which refuses ids outside ``drop_payload_count``.
+        """
+        if self.drop_servo_channels:
+            return self.drop_servo_channels[payload_id]
+        return self.drop_servo_channel + payload_id
 
 
 # Outer-loop flight tuning applied once at mission start (orchestrator.main).
@@ -718,13 +763,15 @@ class DroneCommander:
                 f"[0, {self.config.drop_payload_count}) — refusing to address an "
                 "unconfigured servo channel"
             )
-        ch = self.config.drop_servo_channel + payload_id
-        logger.info(f"[mavlink] drop payload {payload_id} (actuator set {ch})")
+        ch = self.config.actuator_index(payload_id)
+        logger.info(
+            f"[mavlink] drop payload {payload_id} (actuator set {ch} = AUX {ch})")
         # Primary path: MAVSDK action.set_actuator(index, value) — which is
         # MAV_CMD_DO_SET_ACTUATOR on the wire, the ONLY release command PX4
         # implements (FunctionActuatorSet; there is no DO_SET_SERVO handler).
-        # index must be 1..6 (param7=0 addressing) — guaranteed by
-        # drop_servo_channel=1 + the payload_id bounds check above.
+        # index must be 1..6 (param7=0 addressing) — guaranteed by the
+        # payload_id bounds check above plus ConnectionConfig.__post_init__,
+        # which range-checks every explicit drop_servo_channels entry.
         # The PWM is mapped to the bipolar [-1, 1] convention via _pwm_to_norm
         # (1900->+0.8 release, 1100->-0.8 hold); the hold re-latch keeps the
         # mechanism closed for the next resupply.

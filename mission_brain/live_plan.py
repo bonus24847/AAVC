@@ -54,9 +54,10 @@ class ServedStop:
     lat: float
     lon: float
     name: str = ""
-    # Per-FLIGHT release-mechanism index (0..eggs_aboard-1) → servo channel
-    # drop_servo_channel + payload_id. Distinct from stop_index, which is the
-    # mission-global ledger key. Defaults to 0 (single-egg flights).
+    # Per-FLIGHT release-mechanism index (0..eggs_aboard-1) → actuator set /
+    # AUX pin via ConnectionConfig.actuator_index (as-wired map [4,1,2,3]).
+    # Distinct from stop_index, which is the mission-global ledger key.
+    # Defaults to 0 (single-egg flights).
     payload_id: int = 0
 
 

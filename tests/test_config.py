@@ -9,6 +9,8 @@ guard.
 
 from __future__ import annotations
 
+import pytest
+
 from mavlink_adapter.commands import ConnectionConfig
 from mission_brain.profile import COMPETITION
 from orchestrator.constants import (
@@ -64,6 +66,48 @@ def test_egg_release_servo_config_is_locked() -> None:
     assert c.drop_servo_pwm_release == 1900
     assert c.drop_servo_pwm_hold == 1100
     assert c.drop_payload_count == 1             # one release mechanism → payload_id 0
+    # Empty map = the historical base+offset progression; the shipped config
+    # (below) supplies the real rack's as-wired order.
+    assert c.drop_servo_channels == ()
+    assert c.actuator_index(0) == 1
+
+
+def test_shipped_drop_servo_channels_match_the_as_wired_rack() -> None:
+    """AS-WIRED 2026-08-15 (docs/SERVO_AUX_MAPPING.md): the four egg latches
+    are on AUX 4 / 1 / 2 / 3 for the front-left / rear-right / front-right /
+    rear-left corners, and the mission releases in that DIAGONAL order so the
+    CG moment stays ~zero full, after two eggs, and empty. The map lives in
+    config, not in code — but a silent edit of it releases the wrong egg on
+    the right pad, which nothing else in the suite would notice."""
+    from pathlib import Path
+
+    import yaml
+
+    cfg = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "sitl" / "aavc_config.yaml").read_text())
+    conn = cfg["connection"]
+    assert conn["drop_servo_channels"] == [4, 1, 2, 3]
+    assert conn["drop_payload_count"] == 4
+    c = ConnectionConfig(drop_payload_count=4,
+                         drop_servo_channels=tuple(conn["drop_servo_channels"]))
+    assert [c.actuator_index(p) for p in range(4)] == [4, 1, 2, 3]
+
+
+def test_drop_servo_channels_reject_an_unflyable_map() -> None:
+    """The map addresses MAV_CMD_DO_SET_ACTUATOR sets 1..6 and must give every
+    egg its own latch (rules §7: independent release mechanisms). All three
+    ways of getting it wrong fail at config-build time — on the ground — not
+    at the release, 1 m over a pad with an egg aboard."""
+    with pytest.raises(ValueError, match="out of range"):
+        ConnectionConfig(drop_payload_count=4, drop_servo_channels=(4, 1, 2, 7))
+    with pytest.raises(ValueError, match="repeats a channel"):
+        ConnectionConfig(drop_payload_count=4, drop_servo_channels=(4, 1, 2, 1))
+    with pytest.raises(ValueError, match="every egg slot needs its own"):
+        ConnectionConfig(drop_payload_count=4, drop_servo_channels=(4, 1, 2))
+    # A YAML list is normalised to the frozen dataclass's tuple.
+    assert ConnectionConfig(drop_payload_count=4,
+                            drop_servo_channels=[4, 1, 2, 3]).drop_servo_channels \
+        == (4, 1, 2, 3)
 
 
 def test_gimbal_config_block_is_locked() -> None:

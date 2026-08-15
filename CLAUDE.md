@@ -27,8 +27,8 @@ flight: takeoff at the Launch & Recovery site → **mandatory transit
 P1→P2→P3 at 20 m** (scored per point, both directions) → search the **search
 area** (10–20 m band; the assigned ids are entered by the operator at each
 GO) → for each assigned id in turn: **land ON the pad** → **release that
-delivery's egg after touchdown** (`payload_id` 0..3 → servo **AUX
-9/10/11/12**) → egress transit → land at L&R → **disarm** → resupply → next
+delivery's egg after touchdown** (`payload_id` 0..3 → latch servo on
+**AUX 4/1/2/3** as wired) → egress transit → land at L&R → **disarm** → resupply → next
 flight (≤4 flights inside the **20-minute operation window** — the briefing
 default needs only ONE; per-minute penalty after). Ceiling **20 m AGL**;
 below **10 m only** for the delivery descent over the pad.
@@ -68,10 +68,17 @@ single sortie" is history, not current design.)
   carries up to `mission.eggs_aboard` eggs (briefing default **4**: all four
   assigned pads in ONE flight; `eggs_aboard=1` is the original
   one-egg-per-flight rollback, still regression-tested). The physical
-  release is now `payload_id` 0..eggs_aboard-1 (no longer always 0) → servo
-  channel `drop_servo_channel + payload_id` = **AUX 9/10/11/12**
-  (`drop_payload_count=4`; a single AUX-9 servo was the `eggs_aboard=1`
-  case). The mission-global `stop_index` (`= delivery_index - 1`) — **not**
+  release is now `payload_id` 0..eggs_aboard-1 (no longer always 0) →
+  `MAV_CMD_DO_SET_ACTUATOR` actuator set = AUX pin (`PWM_AUX_FUNCn = 300+n`;
+  PX4 has NO `DO_SET_SERVO` handler — the old "AUX 9/10/11/12" plan addressed
+  a command that was never implemented). The rack is **wired AUX 4/1/2/3** for
+  front-left / rear-right / front-right / rear-left (as-wired 2026-08-15), and
+  the mission releases in that diagonal order, so
+  `connection.drop_servo_channels: [4, 1, 2, 3]` maps `payload_id` → channel
+  (`ConnectionConfig.actuator_index`; empty list = the old
+  `drop_servo_channel + payload_id` progression). `drop_payload_count=4`;
+  a single latch was the `eggs_aboard=1` case. Table + QGC bench sheet:
+  `docs/SERVO_AUX_MAPPING.md`. The mission-global `stop_index` (`= delivery_index - 1`) — **not**
   the flight/sortie index — keys the release idempotence ledger
   (`state.dropped_stops`), so two deliveries inside the same flight can
   never collide. A **per-delivery abort gate** (time + battery —
@@ -207,7 +214,8 @@ orchestrator/    main.py (per-sortie gate factory, --assigned-ids), mission.py
                  energy_policy.py (pack budget: usable mAh, per-sortie cost,
                  GO refusal + swap detection)
 mavlink_adapter/ commands.py (DroneCommander/MAVSDK; drop_payload_count
-                 defaults to 1, config drives it to 4 -> AUX 9-12,
+                 defaults to 1, config drives it to 4 -> AUX 4/1/2/3 via
+                 drop_servo_channels/actuator_index,
                  RTL_RETURN_ALT=20, RC-loss/battery failsafe pins), telemetry.py,
                  raw_subscriber.py (ESC/servo/consumed-mAh for the dashboard)
 vision/          detectors/aruco.py (find_landing_pads + PadHit + render_pad_bgr)
@@ -387,7 +395,7 @@ make lint           # ruff + mypy
 | G1 SITL bare | PX4 + Gazebo load the KMITL field, manual takeoff/land |
 | G2 pads spawn | `make spawn-targets` places 6 ArUco pads (ids 1-6, varied yaw — 4 get committee-assigned per team, 2 stay permanent distractors); camera bridge feeds frames |
 | G3 detect | `find_landing_pads` decodes a SITL pad id at sweep altitude; projections sane |
-| G4 SITL mission | `make run --assigned-ids …`: FLIGHT(s) ⊃ DELIVERIES — transit both ways per flight, land-ON each assigned pad, release after touchdown (`payload_id` 0..eggs_aboard-1, AUX 9-12), land+disarm at L&R, window < 20 min; `tools/verify_flight.py` PASSES. All evidence below **predates the 2026-07-24 briefing** and validated the then-current one-egg-per-flight model (`eggs_aboard=1` — behaviourally the SAME loop today, per the regression pin `test_delivery_mission.py::test_eggs_aboard_1_is_one_delivery_per_flight`): **PASSED on the hexacopter 2026-07-22** on the model rebuilt from `Power-System-Guide-1.pdf` (1.000 m wheelbase, 7.17 kg, 18" props, 37.65 N/motor): 4/4 delivered id-correct, release 0.13-0.25 m from truth, transit 8/8 in order, 14.8 min, 19 checks / 0 warnings — `docs/evidence/G4_hexacopter_corrected-model_2026-07-22.txt`. Re-run with the sysid gains: 19/0, releases 0.11-0.27 m, 882 s (`G4_hexacopter_tuned-gains_2026-07-22.txt`). Three runs — guessed geometry, corrected geometry, corrected+tuned — all pass and agree within scatter. ✅ **G4′ CLOSED 2026-07-25**: the briefing default (`eggs_aboard=4` — ONE flight, four deliveries, 6-pad field) **PASSED 14 checks / 0 warnings** on the 2-pack aircraft (AUW 8.22 kg): 4/4 delivered id-correct, releases **0.15–0.21 m** from truth, transit 6/6 in order, max altitude 19.69 m, landed 2.6 m from L&R, **457 s of the 1200 s window** — `docs/evidence/G4prime_multiegg_2packs_2026-07-25.txt`. That run was also the first on the flight clock and the progress-based leg guard (§8). ⚠ It ran at host RTF **0.95** (headless), so it confirms no regression but does NOT re-create the ~0.20 RTF that caused the 2026-07-25 `sweep_leg_timeout_wp0` — that condition is covered by unit tests, not by this flight. |
+| G4 SITL mission | `make run --assigned-ids …`: FLIGHT(s) ⊃ DELIVERIES — transit both ways per flight, land-ON each assigned pad, release after touchdown (`payload_id` 0..eggs_aboard-1 → AUX 4/1/2/3), land+disarm at L&R, window < 20 min; `tools/verify_flight.py` PASSES. All evidence below **predates the 2026-07-24 briefing** and validated the then-current one-egg-per-flight model (`eggs_aboard=1` — behaviourally the SAME loop today, per the regression pin `test_delivery_mission.py::test_eggs_aboard_1_is_one_delivery_per_flight`): **PASSED on the hexacopter 2026-07-22** on the model rebuilt from `Power-System-Guide-1.pdf` (1.000 m wheelbase, 7.17 kg, 18" props, 37.65 N/motor): 4/4 delivered id-correct, release 0.13-0.25 m from truth, transit 8/8 in order, 14.8 min, 19 checks / 0 warnings — `docs/evidence/G4_hexacopter_corrected-model_2026-07-22.txt`. Re-run with the sysid gains: 19/0, releases 0.11-0.27 m, 882 s (`G4_hexacopter_tuned-gains_2026-07-22.txt`). Three runs — guessed geometry, corrected geometry, corrected+tuned — all pass and agree within scatter. ✅ **G4′ CLOSED 2026-07-25**: the briefing default (`eggs_aboard=4` — ONE flight, four deliveries, 6-pad field) **PASSED 14 checks / 0 warnings** on the 2-pack aircraft (AUW 8.22 kg): 4/4 delivered id-correct, releases **0.15–0.21 m** from truth, transit 6/6 in order, max altitude 19.69 m, landed 2.6 m from L&R, **457 s of the 1200 s window** — `docs/evidence/G4prime_multiegg_2packs_2026-07-25.txt`. That run was also the first on the flight clock and the progress-based leg guard (§8). ⚠ It ran at host RTF **0.95** (headless), so it confirms no regression but does NOT re-create the ~0.20 RTF that caused the 2026-07-25 `sweep_leg_timeout_wp0` — that condition is covered by unit tests, not by this flight. |
 | G5 HW bench | 6X + CM4 bench: **6-motor** map, PM03D power calibration (`BAT1_N_CELLS=6`, `BAT1_CAPACITY=7500`), TFmini-S port + `listener distance_sensor`, egg-release servo on an AUX output verified (props off) |
 | G6 HW tethered | Stable hover, bench release, decode lock on a PRINTED 1×1 m pad |
 | G7 HW free flight | Full multi-sortie mission outdoors at the practice field |

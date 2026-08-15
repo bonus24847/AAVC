@@ -546,7 +546,8 @@ async def _drop_once(
     """Release exactly once for ``stop_index`` (guards the shared drop lock).
 
     ``payload_id`` selects the release mechanism for THIS flight (0..N-1 →
-    servo channel drop_servo_channel + payload_id); ``stop_index`` (the id's
+    actuator set / AUX pin via ConnectionConfig.actuator_index — the rack is
+    NOT wired in delivery order, see docs/SERVO_AUX_MAPPING.md); ``stop_index`` (the id's
     position in the mission queue) keys the idempotence ledger so a retried
     serve can't double-open the same hold. ``delivery_index`` is the 1-based
     delivery number across the mission, for the audit line only."""

@@ -52,9 +52,13 @@ transit_waypoints:
 # sitl/payload_detach_bridge.py --servo turns each release into the visible
 # cargo drop.
 payload_servos:
-  # LOCKED 2026-08-12: actuator-set index == the REAL AUX pin the servo plugs
-  # into (AUX1..4 -> Set 1..4 -> payload_id 0..3; PWM_AUX_FUNCn = 300+n).
-  # Servos not fitted yet — wire them to match. See docs/SERVO_AUX_MAPPING.md.
-  outputs: [1, 2, 3, 4]   # actuator-set index = AUX pin (payload_id 0..3)
+  # actuator-set index == the REAL AUX pin the servo plugs into (PWM_AUX_FUNCn
+  # = 300+n) — so button N drives AUX N. AS-WIRED 2026-08-15, "top" = nose end:
+  #   AUX 1 = rear-right | AUX 2 = front-right | AUX 3 = rear-left | AUX 4 = front-left
+  # NOTE the buttons are per-PIN, NOT per-egg: the mission's delivery order
+  # 0..3 maps through connection.drop_servo_channels = [4, 1, 2, 3]
+  # (sitl/aavc_config.yaml), i.e. the FIRST egg released is AUX 4. Full table:
+  # docs/SERVO_AUX_MAPPING.md.
+  outputs: [1, 2, 3, 4]   # actuator-set index = AUX pin (one button per latch)
   released_us: 1900       # -> +0.8: opens the latch (drops the payload)
   held_us: 1100           # -> -0.8: holds it shut (reset, ready to reload)

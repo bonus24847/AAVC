@@ -12,9 +12,17 @@ runs/<mission_id>/audit.jsonl (orchestrator/tactical_align.py):
 This bridge tails audit.jsonl FROM EOF (a re-used/appended audit file must
 not replay stale releases — this repo's audit file genuinely appends across
 runs; see AuditLog.record in orchestrator/audit.py) and, on each NEW RELEASE
-line, publishes Empty on `/model/<model>/detach_payload_<payload_id>` exactly
-once per payload index. The flight core needs no change — it never imports or
-knows about this file.
+line, publishes Empty on `/model/<model>/detach_payload_<box>` exactly once
+per box. The flight core needs no change — it never imports or knows about
+this file.
+
+`<box>` is the payload_id only when the release rack is WIRED in delivery
+order. KMUTNB's is not (as-wired 2026-08-15: AUX 4/1/2/3 for front-left /
+rear-right / front-right / rear-left), so pass `--channels 4,1,2,3` — the
+same list as `connection.drop_servo_channels` in sitl/aavc_config.yaml — and
+the bridge sheds the box the real AUX latch would have opened
+(`box_for_payload`). SERVO MODE needs no such flag: it watches the gz servo
+topics, which are already per-AUX.
 
 SERVO MODE (`--servo`, KMUTNB 2026-08-11): watches the REAL command path.
 The airframe (sitl/px4_patches/22000_gz_eft_x6100) now maps the four
@@ -25,8 +33,9 @@ AAVC GCS "ปล่อย servo" buttons. PX4's GZMixingInterfaceServo publishes
 channel as gz.msgs.Double (servo ANGLE, radians) on
 `/model/<model>/servo_<n>`; hold = -0.63 rad (output 100), release = +0.63
 rad (output 900) with the airframe's default ±45° angle map. This mode
-subscribes to servo_0..3 and sheds payload n the first time its angle
-crosses +0.5 rad — so a GCS button press physically drops the box, same
+subscribes to servo_0..3 and sheds box n (the latch on AUX n+1) the first
+time its angle crosses +0.5 rad — so a GCS button press physically drops the
+box wired to that pin, same
 wire semantics as the real aircraft's latch servo. (The old header note
 that "no servo output is published into gz" described the pre-KMUTNB
 airframe and is obsolete.)
@@ -60,7 +69,7 @@ import re
 import sys
 import threading
 import time
-from collections.abc import Container, Iterable, Iterator
+from collections.abc import Container, Iterable, Iterator, Sequence
 from pathlib import Path
 
 # The discriminator is the literal RELEASE keyword between the delivery index
@@ -153,33 +162,57 @@ def _iter_new_releases(
                 yield release
 
 
+def box_for_payload(payload: int, channels: Sequence[int]) -> int:
+    """Cargo-box index for a ``payload_id``.
+
+    ``channels`` is the mission's ``connection.drop_servo_channels`` — the
+    payload_id -> actuator-set index map (== AUX pin; KMUTNB's as-wired rack
+    is ``[4, 1, 2, 3]``). SIM_GZ_SV_FUNCn carries actuator set n onto gz topic
+    ``servo_<n-1>``, and ``cargo_payload_<n-1>`` is the box on that latch, so
+    the box index is simply ``channels[payload] - 1``. An empty ``channels``
+    (or a payload_id past its end) keeps the historical identity mapping,
+    which is what the base-index ``drop_servo_channel + payload_id`` wiring
+    produces. Pure — no gz import — so it is unit-testable without a simulator.
+    """
+    if 0 <= payload < len(channels):
+        return channels[payload] - 1
+    return payload
+
+
 def _dedupe(
     releases: Iterable[tuple[int, int]],
-    known_payloads: Container[int],
+    known_boxes: Container[int],
     fired: set[int],
-) -> Iterator[tuple[int, int]]:
-    """Filter ``releases`` down to the FIRST sighting of each payload index
-    that has a matching publisher — the bridge's idempotence guard, so a
-    duplicated or replayed RELEASE line can never shed the same cargo box
-    twice. Pure — no gz import — so this guarantee is unit-testable without
-    a simulator; ``_run`` supplies the real gz publishers (``pubs``) as
-    ``known_payloads`` and starts ``fired`` empty. ``fired`` is mutated in
-    place (mirroring ``_run``'s own bookkeeping) so a caller can inspect it
-    once iteration ends.
+    *,
+    channels: Sequence[int] = (),
+) -> Iterator[tuple[int, int, int]]:
+    """Filter ``releases`` down to the FIRST sighting of each cargo BOX that
+    has a matching publisher — the bridge's idempotence guard, so a duplicated
+    or replayed RELEASE line can never shed the same cargo box twice. Yields
+    ``(delivery_k, payload_id, box)``; the guard is keyed on ``box`` (via
+    ``box_for_payload``), which is what actually gets published and what the
+    servo path sees, so audit and servo triggers de-dupe against each other
+    even when the rack is not wired in delivery order. Pure — no gz import —
+    so this guarantee is unit-testable without a simulator; ``_run`` supplies
+    the real gz publishers (``pubs``) as ``known_boxes`` and starts ``fired``
+    empty. ``fired`` is mutated in place (mirroring ``_run``'s own
+    bookkeeping) so a caller can inspect it once iteration ends.
     """
     for delivery_k, payload in releases:
-        if payload in fired:
+        box = box_for_payload(payload, channels)
+        if box in fired:
             continue
-        if payload not in known_payloads:
+        if box not in known_boxes:
             print(f"[detach] DELIVERY {delivery_k} RELEASE payload={payload} "
-                  "has no matching cargo_payload model — ignoring", flush=True)
+                  f"(box {box}) has no matching cargo_payload model — ignoring",
+                  flush=True)
             continue
-        fired.add(payload)
-        yield delivery_k, payload
+        fired.add(box)
+        yield delivery_k, payload, box
 
 
 def _run(audit: Path | None, model: str, poll_s: float, *,
-         servo: bool = False) -> int:
+         servo: bool = False, channels: Sequence[int] = ()) -> int:
     try:
         from gz.msgs10.empty_pb2 import Empty
         from gz.transport13 import Node
@@ -191,20 +224,45 @@ def _run(audit: Path | None, model: str, poll_s: float, *,
     node = Node()
     pubs = {i: node.advertise(f"/model/{model}/detach_payload_{i}", Empty)
             for i in range(_N_PAYLOADS)}
+    # A publisher whose advertise never reached gz-transport DISCOVERY sends
+    # into the void — publish() still returns True — so the shed line below
+    # would claim a drop that never happened. Seen live 2026-08-15: the host's
+    # multicast discovery was down when the bridge started ("Exception sending
+    # a multicast message: Network is unreachable"), the SUBSCRIBE side kept
+    # working, and the bridge logged `shed box 3` for a box that never moved
+    # while the whole flight looked nominal. has_connections() is the honest
+    # test (valid() only says the local advertise succeeded): the
+    # DetachableJoint plugin subscribes to each of these topics at model spawn,
+    # so a live sim MUST show a connection. Give discovery a moment first.
+    time.sleep(1.0)
+    for i, pub in sorted(pubs.items()):
+        if not pub.has_connections():
+            print(f"[detach] WARNING: no subscriber discovered on "
+                  f"/model/{model}/detach_payload_{i} — a release will be "
+                  "LOGGED but NO BOX WILL FALL. Restart this bridge (and check "
+                  f"`gz topic -i -t /model/{model}/detach_payload_{i}` lists a "
+                  "Publisher).", flush=True)
     fired: set[int] = set()
     fired_lock = threading.Lock()
 
-    def _shed(payload: int, why: str) -> None:
+    def _shed(box: int, why: str) -> None:
         """Idempotent shed shared by both trigger sources (thread-safe: servo
-        callbacks fire on gz-transport's own threads)."""
+        callbacks fire on gz-transport's own threads). ``box`` is the cargo-box
+        index — actuator set / AUX pin minus 1 — NOT the payload_id, which only
+        coincides when the rack is wired in delivery order (see
+        ``box_for_payload``)."""
         with fired_lock:
-            if payload in fired:
+            if box in fired:
                 return
-            fired.add(payload)
+            fired.add(box)
             n_shed = len(fired)
-        pubs[payload].publish(Empty())
-        print(f"[detach] {why}: shed payload {payload} "
-              f"(detach_payload_{payload}, {n_shed}/{_N_PAYLOADS} shed)", flush=True)
+        pub = pubs[box]
+        connected = pub.has_connections()
+        pub.publish(Empty())
+        print(f"[detach] {why}: shed box {box} "
+              f"(detach_payload_{box}, {n_shed}/{_N_PAYLOADS} shed)"
+              + ("" if connected else "  ⚠ NO SUBSCRIBER — box did NOT fall"),
+              flush=True)
 
     if servo:
         from gz.msgs10.double_pb2 import Double
@@ -231,14 +289,16 @@ def _run(audit: Path | None, model: str, poll_s: float, *,
                           f"(release at >= {_RELEASE_ANGLE_RAD} rad)", flush=True)
 
     if audit is not None:
+        chan_note = (f", payload->AUX {list(channels)}" if channels
+                     else ", payload==box")
         print(f"[detach] bridging {audit} → model={model} "
-              f"(payloads 0..{_N_PAYLOADS - 1})", flush=True)
+              f"(payloads 0..{_N_PAYLOADS - 1}{chan_note})", flush=True)
         # _dedupe gets its own bookkeeping set: the CROSS-SOURCE guard (audit
         # + servo racing on the same release event) is _shed's lock-guarded
         # `fired`, the single publish authority for both trigger paths.
-        for delivery_k, payload in _dedupe(
-                _iter_new_releases(audit, poll_s), pubs, set()):
-            _shed(payload, f"DELIVERY {delivery_k}")
+        for delivery_k, payload, box in _dedupe(
+                _iter_new_releases(audit, poll_s), pubs, set(), channels=channels):
+            _shed(box, f"DELIVERY {delivery_k} payload {payload}")
     elif servo:
         # Servo-only mode: callbacks do all the work; park the main thread.
         while True:
@@ -261,11 +321,29 @@ def main() -> int:
                      help="gz model name carrying the payloads (default: eft_x6100)")
     ap.add_argument("--poll-s", type=float, default=0.2,
                      help="audit-file poll interval in seconds (default: 0.2)")
+    ap.add_argument("--channels", default="",
+                     help="payload_id -> actuator-set index (== AUX pin) map, "
+                          "comma-separated in delivery order — mirror "
+                          "connection.drop_servo_channels from "
+                          "sitl/aavc_config.yaml (KMUTNB rack: 4,1,2,3). "
+                          "Empty = payload_id addresses its own box, which is "
+                          "only true for a rack wired in delivery order. "
+                          "AUDIT MODE ONLY: --servo watches the actual gz "
+                          "servo topics, which are already per-AUX.")
     args = ap.parse_args()
     if args.audit is None and not args.servo:
         ap.error("nothing to do: pass an audit file, --servo, or both")
     try:
-        return _run(args.audit, args.model, args.poll_s, servo=args.servo)
+        channels = tuple(int(c) for c in args.channels.replace(",", " ").split())
+    except ValueError:
+        ap.error(f"--channels must be comma-separated integers, got {args.channels!r}")
+    if channels and (len(set(channels)) != len(channels)
+                     or any(not 1 <= c <= _N_PAYLOADS for c in channels)):
+        ap.error(f"--channels {list(channels)} must be distinct indices in "
+                 f"1..{_N_PAYLOADS} — one cargo box per AUX latch")
+    try:
+        return _run(args.audit, args.model, args.poll_s, servo=args.servo,
+                    channels=channels)
     except KeyboardInterrupt:
         print("[detach] stopped", flush=True)
         return 0

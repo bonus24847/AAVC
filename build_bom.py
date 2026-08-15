@@ -163,14 +163,15 @@ item("Vision", "กล้อง NADIR (ตัวเดียว)", "Meige OV9281
 item("Vision", "Gimbal servo + mount (stabilized nadir)", "servo metal-gear แกน pitch "
      "+ เคสกล้องกันสั่น", "", 1, 300, 900, "ซื้อ",
      "PX4 mount driver (MNT_*) กดกล้องดิ่งตลอด; VERIFY-AT-G5: ทิศ/ช่วง servo, "
-     "PWM, ไม่ชน servo ปล่อยไข่ AUX 9-12 (4 ช่อง) (กล้อง oblique เดิม = ตัดออก)")
+     "PWM, ไม่ชน servo ปล่อยไข่ AUX 1-4 (4 ช่อง) (กล้อง oblique เดิม = ตัดออก)")
 
 # ---- E. EGG RELEASE (briefing 2026-07-24: 4 ฟอง/เที่ยว, ห้าม winch) ---------
 cat_header("E. Egg release (briefing 2026-07-24 — ไข่ 4 ฟอง/เที่ยว, "
            "ปล่อยหลังแตะพื้นเท่านั้น)")
 item("Drop", "Servo metal-gear (ประตูช่องไข่)", "MG90S", "", 4, 120, 200, "ซื้อ",
      "4 ตัว = 4 กลไกปล่อย INDEPENDENT (กติกา §7 ห้ามปล่อยพร้อมกัน) — "
-     "payload_id 0..3 → AUX 9/10/11/12 บน 6X (drop_servo_channel=9, "
+     "payload_id 0..3 → AUX 4/1/2/3 บน 6X (as-wired 2026-08-15: หน้าซ้าย/"
+     "ท้ายขวา/หน้าขวา/ท้ายซ้าย — drop_servo_channels=[4,1,2,3], "
      "drop_payload_count=4); +สำรอง 2 ตัวก็ดี. ⚠ rail AUX ของ 6X ไม่จ่ายไฟเอง "
      "ต้องป้อน 5V เข้า servo rail (MG90S 4 ตัว peak ~1A/ตัว)")
 item("Drop", "Egg cradle / enclosed bay x4 (กันสั่น)", "พิมพ์ 3D + โฟม/สปริงนุ่ม",

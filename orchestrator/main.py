@@ -142,6 +142,10 @@ def _build_connection(cc: dict[str, Any], connect_override: str | None) -> Conne
                 "drop_servo_pwm_hold", "drop_payload_count"):
         if key in cc:
             kw[key] = int(cc[key])
+    # payload_id -> actuator-set index (== AUX pin) when the rack is not wired
+    # in delivery order; ConnectionConfig validates range/uniqueness/coverage.
+    if "drop_servo_channels" in cc:
+        kw["drop_servo_channels"] = tuple(int(c) for c in cc["drop_servo_channels"])
     if "drop_fallback_endpoint" in cc:
         kw["drop_fallback_endpoint"] = str(cc["drop_fallback_endpoint"])
     for key in ("connect_timeout_s", "arming_timeout_s"):

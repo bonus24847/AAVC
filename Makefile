@@ -86,15 +86,21 @@ camera-view:
 # bridge only adds the visible drop + mass-shed. RUN=runs/<id>/audit.jsonl
 # (required — the mission's own run directory), e.g.
 #   make payload-bridge RUN=runs/aavc_delivery_mission/audit.jsonl
+# CHANNELS mirrors connection.drop_servo_channels in sitl/aavc_config.yaml (the
+# as-wired payload_id -> AUX map) so the audit path sheds the box the real latch
+# would open; tests/test_payload_detach_bridge.py fails if the two drift apart.
+CHANNELS ?= 4,1,2,3
 payload-bridge:
-	$(BRIDGE_PY) sitl/payload_detach_bridge.py $(RUN) --model eft_x6100
+	$(BRIDGE_PY) sitl/payload_detach_bridge.py $(RUN) --model eft_x6100 \
+		--channels $(CHANNELS)
 
 # Servo-path variant (KMUTNB): watches /model/eft_x6100[_0]/servo_0..3 — the
 # gz side of MAV_CMD_DO_SET_ACTUATOR (orchestrator drop_payload AND the AAVC
 # GCS "ปล่อย servo" buttons) — and sheds the matching cargo box. Combine with
 # the audit tail in one process: RUN=runs/<id>/audit.jsonl make payload-bridge-servo
 payload-bridge-servo:
-	$(BRIDGE_PY) sitl/payload_detach_bridge.py $(RUN) --servo --model eft_x6100
+	$(BRIDGE_PY) sitl/payload_detach_bridge.py $(RUN) --servo --model eft_x6100 \
+		--channels $(CHANNELS)
 
 # AAVC GCS console (~/Desktop/aavc-gcs) against this repo's field file: live
 # telemetry map (leaflet) + geofence/search/transit overlay + the manual

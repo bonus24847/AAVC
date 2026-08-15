@@ -58,6 +58,8 @@ def _connection_from_cfg(cc: dict) -> ConnectionConfig:
               "drop_servo_pwm_hold", "drop_payload_count"):
         if k in cc:
             kw[k] = int(cc[k])
+    if "drop_servo_channels" in cc:      # payload_id -> actuator set (== AUX pin)
+        kw["drop_servo_channels"] = tuple(int(c) for c in cc["drop_servo_channels"])
     if "drop_fallback_endpoint" in cc:
         kw["drop_fallback_endpoint"] = str(cc["drop_fallback_endpoint"])
     for k in ("connect_timeout_s", "arming_timeout_s"):

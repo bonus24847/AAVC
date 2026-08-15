@@ -34,7 +34,7 @@ critical path to winning.** Event ≈ late August → ~7 weeks.
 
 | Requirement | Source | BOM consequence |
 |---|---|---|
-| Land-ON a 1×1 m pad, release after touchdown | rules V1.3 | egg-release servo (AUX 9, PWM 1900/1100 per config), gentle `MPC_LAND_SPEED=0.3` → tall gear + cradle absorb touchdown |
+| Land-ON a 1×1 m pad, release after touchdown | rules V1.3 | egg-release servos (AUX 4/1/2/3 as wired, PWM 1900/1100 per config), gentle `MPC_LAND_SPEED=0.3` → tall gear + cradle absorb touchdown |
 | Decode 400 mm ArUco at 12 m sweep | vision/detectors | nadir camera ≥1280 px wide at the SITL FOV class (§5 math) |
 | 4 sorties ≤ 20 min on ONE battery | operator call 2026-07-07 | ~130–144 Wh 6S pack; ~21 min endurance at mission-avg power (sizing doc §Propulsion) |
 | T/W ~3:1 at 2.15 kg → burst ~150 A | operator call 2026-07-07 | **LiPo 75–100C (not Li-ion)**, XT90, 10 AWG, hall-effect current sensing |
@@ -86,7 +86,7 @@ Prices = THB estimate bands, confirm at order.
 | # | Item | Spec | Qty | Est. THB | Prio |
 |---|---|---|---|---|---|
 | C1 | Nadir camera | **Meige OV9281** USB UVC — **mono, global shutter, 1280×720, ≤120 fps** (operator-selected 2026-07-15; lens HFOV unstated on the listing → MEASURE at G6, config ships a 99.7° UNMEASURED placeholder) | 1 | (operator-sourced — price TBD) | **P0** |
-| C2 | Gimbal pitch servo + mount | Single-axis stabilized-nadir mount (PX4 mount driver, `gimbal:` config block); metal-gear servo on an AUX channel + vibration-isolated camera cage. **VERIFY at G5:** travel/direction (nose-down ⇒ servo compensates), PWM band, no collision with the egg-release servo (AUX 9) | 1 | 300–900 (servo + print) | **P0** (G5 bench gate) |
+| C2 | Gimbal pitch servo + mount | Single-axis stabilized-nadir mount (PX4 mount driver, `gimbal:` config block); metal-gear servo on an AUX channel + vibration-isolated camera cage. **VERIFY at G5:** travel/direction (nose-down ⇒ servo compensates), PWM band, no collision with the egg-release servos (AUX 1–4) | 1 | 300–900 (servo + print) | **P0** (G5 bench gate) |
 
 (C3 oblique cue cam + C4 dual-mounts: **retired** — the oblique role is gone;
 the white-pad cue lives in the nadir frame. The ±5°-mount-error ≈ 0.9 m per
@@ -156,7 +156,7 @@ covers the 16–18 min mission + reserve. Peak (all-motor 3:1) ~150–160 A → 
 1. **Before ordering motors/ESC/pack:** eCalc + manufacturer thrust tables for the
    exact combo — confirm ~1.5–1.6 kg/motor, hover throttle, temps, loaded pack
    voltage above the PX4 low-voltage failsafe under the 150 A burst.
-2. **G5 bench (props off):** motor map, egg-servo release→hold on AUX 9, camera
+2. **G5 bench (props off):** motor map, egg-servo release→hold on each of AUX 1–4 (delivery order 4,1,2,3), camera
    frames fresh, ARK Flow CAN enumeration + `SENS_FLOW_ROT` check, printed-pad
    decode.
 3. **Endurance test:** ≥18 min at mission-representative power + 20% reserve on the

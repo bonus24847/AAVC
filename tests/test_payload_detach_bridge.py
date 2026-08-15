@@ -21,7 +21,13 @@ import threading
 import time
 from pathlib import Path
 
-from sitl.payload_detach_bridge import _dedupe, _iter_new_releases, _run, parse_release
+from sitl.payload_detach_bridge import (
+    _dedupe,
+    _iter_new_releases,
+    _run,
+    box_for_payload,
+    parse_release,
+)
 
 
 def test_parse_release_extracts_delivery_and_payload() -> None:
@@ -193,9 +199,11 @@ def test_dedupe_publishes_each_payload_once() -> None:
     releases = [(1, 2), (2, 2), (3, 0)]   # payload 2 "released" twice
     fired: set[int] = set()
 
-    out = list(_dedupe(releases, known_payloads={0, 1, 2, 3}, fired=fired))
+    out = list(_dedupe(releases, known_boxes={0, 1, 2, 3}, fired=fired))
 
-    assert out == [(1, 2), (3, 0)]
+    # No channel map → payload index IS the box index (a rack wired in
+    # delivery order); yields (delivery_k, payload, box).
+    assert out == [(1, 2, 2), (3, 0, 0)]
     assert fired == {0, 2}
 
 
@@ -205,8 +213,55 @@ def test_dedupe_ignores_a_payload_with_no_publisher(capsys) -> None:
     FLIGHT n CONFIG WARN guard) is skipped, loudly, never raised."""
     fired: set[int] = set()
 
-    out = list(_dedupe([(1, 9)], known_payloads={0, 1, 2, 3}, fired=fired))
+    out = list(_dedupe([(1, 9)], known_boxes={0, 1, 2, 3}, fired=fired))
 
     assert out == []
     assert fired == set()
     assert "no matching cargo_payload model" in capsys.readouterr().out
+
+
+# ── the as-wired payload_id -> AUX map (2026-08-15) ──────────────────────────
+
+
+def test_box_for_payload_follows_the_channel_map() -> None:
+    """KMUTNB's rack is NOT wired in delivery order: payload 0..3 sit on AUX
+    4/1/2/3 (front-left, rear-right, front-right, rear-left). The gz cargo box
+    is indexed by AUX pin - 1 (SIM_GZ_SV_FUNCn -> servo_<n-1> ->
+    cargo_payload_<n-1>), so the FIRST egg released sheds box 3, not box 0.
+    Getting this wrong drops a visibly wrong corner in SITL while the real
+    aircraft drops the right one — i.e. it silently breaks sim fidelity."""
+    chans = (4, 1, 2, 3)
+    assert [box_for_payload(p, chans) for p in range(4)] == [3, 0, 1, 2]
+    # No map (or a payload past its end) = the historical identity mapping.
+    assert [box_for_payload(p, ()) for p in range(4)] == [0, 1, 2, 3]
+    assert box_for_payload(9, chans) == 9
+
+
+def test_dedupe_maps_payloads_through_the_channel_map() -> None:
+    """The idempotence guard keys on the BOX, not the payload — so the audit
+    path and the servo path (which sees per-AUX topics) de-dupe against each
+    other even on the as-wired rack."""
+    fired: set[int] = set()
+
+    out = list(_dedupe([(1, 0), (2, 1), (3, 0)], known_boxes={0, 1, 2, 3},
+                       fired=fired, channels=(4, 1, 2, 3)))
+
+    assert out == [(1, 0, 3), (2, 1, 0)]      # payload 0 -> box 3, payload 1 -> box 0
+    assert fired == {0, 3}
+
+
+def test_makefile_channel_map_matches_the_shipped_config() -> None:
+    """The bridge's audit path gets the map from the command line (Makefile
+    CHANNELS), the flight core gets it from sitl/aavc_config.yaml. Two copies
+    of one wiring fact — pin them together so a rewire updates both."""
+    import re as _re
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
+    cfg = yaml.safe_load((root / "sitl" / "aavc_config.yaml").read_text())
+    m = _re.search(r"^CHANNELS \?= *(\S+)", (root / "Makefile").read_text(),
+                   _re.MULTILINE)
+    assert m, "Makefile lost its CHANNELS default"
+    assert [int(c) for c in m.group(1).split(",")] == \
+        cfg["connection"]["drop_servo_channels"]

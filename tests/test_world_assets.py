@@ -189,6 +189,38 @@ def test_aircraft_includes_four_cargo_payloads_on_the_latch_plane() -> None:
         f"belly cargo is off-centre as a set: sum(x,y) = {net_moment}")
 
 
+def test_each_cargo_box_sits_at_its_own_aux_pin_corner() -> None:
+    """cargo_payload_N is the box on ACTUATOR SET N+1 — PX4 carries that set
+    to gz through SIM_GZ_SV_FUNC(N+1) -> topic servo_N, which is exactly what
+    payload_detach_bridge --servo sheds. So box N must sit at the corner AUX
+    pin N+1 physically serves on the real rack (as-wired 2026-08-15,
+    docs/SERVO_AUX_MAPPING.md); otherwise a GCS button press drops a visibly
+    different corner in SITL than it does on the aircraft. Body frame: +x
+    nose, +y left.
+    """
+    corner_of_aux = {
+        1: (-0.10, -0.035),      # rear-right
+        2: (0.10, -0.035),       # front-right
+        3: (-0.10, 0.035),       # rear-left
+        4: (0.10, 0.035),        # front-left
+    }
+    root = ET.parse(_AIRCRAFT_MODEL).getroot()
+    model = root.find("model")
+    assert model is not None
+    poses = {
+        (inc.findtext("name") or "").strip():
+            [float(v) for v in (inc.findtext("pose") or "").split()]
+        for inc in model.iter("include")
+        if (inc.findtext("uri") or "").strip() == "model://cargo_payload"
+    }
+    for box in range(4):
+        aux = box + 1
+        x, y = poses[f"cargo_payload_{box}"][:2]
+        assert (round(x, 6), round(y, 6)) == corner_of_aux[aux], (
+            f"cargo_payload_{box} is at ({x}, {y}) but AUX {aux} drives "
+            f"{corner_of_aux[aux]}")
+
+
 def test_cargo_and_airframe_collisions_are_mask_isolated() -> None:
     """Top face at the CG plane deliberately overlaps
     base_link_collision_body (z_body -0.02..+0.06) by 2 cm — without contact

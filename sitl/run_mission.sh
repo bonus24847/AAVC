@@ -39,7 +39,10 @@ else
     # The detach bridge's log is truncated at every stack (re)start, so any
     # "shed" line in it means THIS field already has boxes down. Refuse with
     # a clear message — the console surfaces this line in the browser.
-    if grep -q 'shed payload' /tmp/aavc_detach.log 2>/dev/null; then
+    # (2026-08-15: the bridge's line reads "shed box <n>" since the release
+    # rack stopped being wired in delivery order — box index != payload_id.
+    # The old wording is kept in the pattern so a stale log still trips it.)
+    if grep -qE 'shed (box|payload)' /tmp/aavc_detach.log 2>/dev/null; then
         echo "❌ สนามยังมีกล่องจากรอบก่อนวางบัง marker อยู่ — กดปุ่ม 🧹 รีเซ็ตสนาม ก่อนบินใหม่" >&2
         exit 1
     fi

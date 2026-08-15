@@ -89,7 +89,7 @@ Goal: validate the orchestrator ↔ real-FC seam + the actuators, motors **off t
       false` to keep transmit-only).
 - [ ] **Camera gimbal (stabilized nadir):** confirm the flashed PX4 fw includes the
       gimbal/mount module; map the servo's AUX output to **"Gimbal Pitch"** in QGC
-      Actuators (must NOT collide with the egg servo on AUX 9); verify the config
+      Actuators (must NOT collide with the four egg servos on AUX 1–4); verify the config
       `gimbal:` MNT_* candidates against the 6X's v1.17 docs (every value is marked
       VERIFY-AT-G5); pitch the airframe by hand (props OFF) — the servo must
       COMPENSATE so the camera stays pointing straight down (right direction, full

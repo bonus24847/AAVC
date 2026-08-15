@@ -19,6 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from mavlink_adapter.commands import ConnectionConfig
 from mavlink_adapter.telemetry import CurrentTelemetry
 from mission_brain.flights import budgeted_flights_for, chunk_flights
 from mission_brain.live_plan import render_live_plan
@@ -1434,6 +1435,12 @@ def test_an_ordinary_discharge_is_not_mistaken_for_a_swap(monkeypatch) -> None:
 
 # ── M3: payload_id must reach the right servo channel end to end ──
 #
+# AS-WIRED 2026-08-15: the four latches are on AUX 4/1/2/3 (front-left,
+# rear-right, front-right, rear-left) and the release order stays diagonal, so
+# payload_id 0..3 -> actuator set 4/1/2/3 via connection.drop_servo_channels.
+# Mirrors sitl/aavc_config.yaml; docs/SERVO_AUX_MAPPING.md holds the table.
+_AS_WIRED_CHANNELS = (4, 1, 2, 3)
+#
 # Every OTHER test in this file replaces acquire_and_land_drop with a fake
 # (_fake_serve or an ad-hoc stand-in), so none of them ever reach the real
 # orchestrator.tactical_align._drop_once -> commander.drop_payload call. A
@@ -1451,7 +1458,8 @@ class DropRecordingCommander(RecordingCommander):
     other fixture in this file bypasses that call entirely.
 
     M6 (review 2026-07-24): mirrors DroneCommander.drop_payload's real bounds
-    check + channel derivation (mavlink_adapter/commands.py:694-700) instead
+    check and resolves the channel through the REAL
+    ``ConnectionConfig.actuator_index`` (mavlink_adapter/commands.py) instead
     of just recording payload_id, and carries a real ``.config`` — without
     one, mission.py's pre-takeoff channel-count WARN and its per-delivery
     ``slot >= _n_channels`` guard both read ``_n_channels`` as None and are
@@ -1460,10 +1468,14 @@ class DropRecordingCommander(RecordingCommander):
     misconfigured for a 4-egg flight."""
 
     def __init__(self, state: OrchestratorState, *,
-                drop_payload_count: int = 4, drop_servo_channel: int = 9) -> None:
+                drop_payload_count: int = 4,
+                drop_servo_channels: tuple[int, ...] = _AS_WIRED_CHANNELS) -> None:
         super().__init__(state)
-        self.config = SimpleNamespace(drop_payload_count=drop_payload_count,
-                                      drop_servo_channel=drop_servo_channel)
+        # The REAL ConnectionConfig (not a SimpleNamespace) so the channel a
+        # payload_id resolves to is the one the flight code would actually
+        # command — including the as-wired drop_servo_channels map.
+        self.config = ConnectionConfig(drop_payload_count=drop_payload_count,
+                                       drop_servo_channels=drop_servo_channels)
         self.released: list[int] = []
         self.channels: list[int] = []
 
@@ -1474,7 +1486,7 @@ class DropRecordingCommander(RecordingCommander):
                 f"[0, {self.config.drop_payload_count}) — refusing to address "
                 "an unconfigured servo channel")
         self.released.append(payload_id)
-        self.channels.append(self.config.drop_servo_channel + payload_id)
+        self.channels.append(self.config.actuator_index(payload_id))
 
 
 def _patch_camera_decodes_whatever_is_assigned(monkeypatch) -> None:
@@ -1509,9 +1521,9 @@ def test_real_align_delivers_payload_ids_in_order_across_a_flight(monkeypatch) -
     """M3: the real loop -> acquire_and_land_drop -> commander.drop_payload
     path, exercised for all four deliveries of an eggs_aboard=4 flight.
     Asserts the commander receives payload_id 0, 1, 2, 3 in order — and
-    (M6, review 2026-07-24) the CHANNELS those ids derive to
-    (drop_servo_channel + payload_id), so a wrong offset/count would be
-    caught here rather than passing identically for any drop_payload_count."""
+    (M6, review 2026-07-24) the CHANNELS those ids resolve to through the real
+    ConnectionConfig, so a wrong map/offset/count would be caught here rather
+    than passing identically for any drop_payload_count."""
     global state_ref
     state = state_ref = _state()
     tracker = TargetTracker()
@@ -1526,7 +1538,9 @@ def test_real_align_delivers_payload_ids_in_order_across_a_flight(monkeypatch) -
         align=_FAST_ALIGN))
 
     assert cmd.released == [0, 1, 2, 3], cmd.released
-    assert cmd.channels == [9, 10, 11, 12], cmd.channels
+    # As-wired rack: front-left, rear-right, front-right, rear-left (AUX pins
+    # 4, 1, 2, 3) — the diagonal release order on the real airframe.
+    assert cmd.channels == [4, 1, 2, 3], cmd.channels
     assert state.dropped_stops == {0, 1, 2, 3}
     # Unlike _fake_serve (every other test in this file), the REAL align
     # routine itself calls commander.land(disarm=False) for each pad landing
@@ -1577,8 +1591,9 @@ def test_last_flight_gets_a_disarm_confirming_telem_sample_before_end(
 
 def test_real_align_delivers_payload_ids_in_order_across_two_flights(
         monkeypatch) -> None:
-    """eggs_aboard=1 twin of the above: each of two flights reloads channel 0
-    (behaviourally identical to the pre-FLIGHT-⊃-DELIVERY, one-egg mission)."""
+    """eggs_aboard=1 twin of the above: each of two flights reloads payload
+    slot 0 — the front-left latch, AUX 4 on the as-wired rack (behaviourally
+    identical to the pre-FLIGHT-⊃-DELIVERY, one-egg mission)."""
     global state_ref
     state = state_ref = _state()
     tracker = TargetTracker()
@@ -1593,6 +1608,7 @@ def test_real_align_delivers_payload_ids_in_order_across_two_flights(
         align=_FAST_ALIGN))
 
     assert cmd.released == [0, 0]                     # each flight reloads → 0
+    assert cmd.channels == [4, 4]                     # slot 0 == AUX 4 both flights
     # stop_index is the delivery's ordinal ACROSS THE MISSION (not reset per
     # flight — see mission.py's own stop_index comment), so two flights of
     # one delivery each still key the ledger 0, 1.
