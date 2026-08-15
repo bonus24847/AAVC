@@ -55,6 +55,30 @@ if [ "${RC_GO:-0}" = "1" ]; then
 fi
 
 echo "[run_mission] assigned ids: $IDS (${REAL:+REAL bird}${REAL:-SITL})${RC_GO:+ rc-go=$RC_GO}"
-exec env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" -m orchestrator.main \
+
+if [ "${REAL:-0}" = "1" ]; then
+    exec env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" -m orchestrator.main \
+        --config sitl/aavc_config.yaml --no-dashboard \
+        --assigned-ids "$IDS" "${EXTRA[@]}"
+fi
+
+# SITL: do NOT exec — the shed boxes only exist inside the running simulator,
+# so where each egg actually landed has to be read BEFORE anything tears gz
+# down. Kill gz first and the evidence is gone with it; the only way back is
+# to fly the whole mission again (the parallel session lost a ~40-minute round
+# exactly this way, 2026-08-16). Saved next to the audit so it survives the
+# teardown that follows.
+set +e
+env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" -m orchestrator.main \
     --config sitl/aavc_config.yaml --no-dashboard \
     --assigned-ids "$IDS" "${EXTRA[@]}"
+rc=$?
+set -e
+
+RUN_DIR="$(ls -dt "$REPO_ROOT"/runs/*/ 2>/dev/null | head -1)"
+if [ -n "$RUN_DIR" ] && pgrep -f 'gz [s]im' >/dev/null; then
+    echo "[run_mission] reading where the eggs landed (gz still up)…"
+    env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/tools/box_truth.py" \
+        2>&1 | tee "${RUN_DIR}box_truth.txt" | tail -n 6
+fi
+exit "$rc"
