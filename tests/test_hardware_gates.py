@@ -123,13 +123,36 @@ def test_small_pins_still_caught_at_the_old_precision() -> None:
 
 
 @pytest.mark.parametrize("pin", ["EKF2_HGT_REF", "EKF2_RNG_A_HMAX"])
-def test_height_aiding_pins_are_watched_and_shipped(pin: str) -> None:
-    """These decide where the aircraft thinks the ground is during the land-ON
-    descent, and a wrong value shows up only as a worse touchdown."""
-    assert pin in _ENVELOPE_PINS
+def test_height_aiding_params_are_shipped(pin: str) -> None:
+    """Both decide where the aircraft thinks the ground is during the land-ON
+    descent, and a wrong value shows up only as a worse touchdown — so both are
+    pinned rather than left at whatever the board happens to hold."""
     assert pin in DEFAULT_PX4_TUNING
     cfg = yaml.safe_load(_CONFIG.read_text(encoding="utf-8"))
     assert pin in (cfg.get("px4_tuning") or {})
+
+
+def test_only_live_params_may_gate_the_flight() -> None:
+    """A reboot_required parameter must NEVER sit in the read-back gate.
+
+    PX4 stores such a value immediately — so the read-back reports PASS — while
+    the module keeps running on the OLD value until the next boot. A gate that
+    can only ever say "held" is worse than no gate, because it gets believed.
+    EKF2_HGT_REF is reboot_required (ekf2/module.yaml); EKF2_RNG_A_HMAX is not.
+    """
+    assert "EKF2_RNG_A_HMAX" in _ENVELOPE_PINS      # applies live
+    assert "EKF2_HGT_REF" not in _ENVELOPE_PINS     # reboot_required
+    # …and the honest place for it is the bench sweep, which reports
+    # reboot-required keys as their own class instead of as drift.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "param_audit", Path(__file__).resolve().parents[1] / "tools/param_audit.py")
+    assert spec and spec.loader
+    audit = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(audit)
+    assert "EKF2_HGT_REF" in audit._REBOOT_REQUIRED
+    assert "MAV_1_FORWARD" in audit._REBOOT_REQUIRED
 
 
 def test_range_aid_ceiling_clears_every_descent_rung() -> None:

@@ -238,13 +238,19 @@ _ENVELOPE_PINS = (
     "RTL_RETURN_ALT",     # default 60 m vs the 20 m ceiling — busts it on any RTL
     "MPC_Z_V_AUTO_DN",    # default 1.5 m/s vs 0.4 validated onto the pad
     "COM_DISARM_LAND",    # default 2 s auto-disarms ON the pad mid-sortie
-    # Height aiding: which source the EKF trusts for altitude, and the ceiling
-    # under which the rangefinder is allowed to join. Both decide where the
-    # aircraft thinks the ground is during the land-ON descent — the phase the
-    # whole score rests on — and neither shows up as an error if it is wrong,
-    # only as a worse touchdown.
-    "EKF2_HGT_REF",
+    # The ceiling under which the rangefinder is allowed to join the height
+    # estimate: it decides where the aircraft thinks the ground is during the
+    # land-ON descent, and a wrong value shows up only as a worse touchdown.
+    # Applies live, so reading it back means something.
     "EKF2_RNG_A_HMAX",
+    # ⚠ EKF2_HGT_REF is deliberately NOT here even though it matters just as
+    # much. It is reboot_required: PX4 stores a new value immediately — so this
+    # read-back would say PASS — while the estimator keeps running on the OLD
+    # reference until the next boot. A gate that can only report success is
+    # worse than no gate, because it is believed. It is pinned in px4_tuning
+    # (so the value survives) and checked where the answer is honest: at the
+    # bench, by tools/param_audit.py, which reports reboot-required keys
+    # separately for exactly this reason.
 )
 
 

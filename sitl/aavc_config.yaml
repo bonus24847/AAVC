@@ -457,7 +457,11 @@ px4_tuning:
   # cargo box or a person under the beam would move "down". The rangefinder
   # still pins the last few metres through conditional aiding above. Pinned so
   # a param reset or a well-meant edit is caught by verify_envelope_pins.
-  # ⚠ reboot_required — a change applies from the next boot.
+  # ⚠ reboot_required — a change applies from the NEXT boot, and PX4 stores
+  # the new value immediately, so a read-back says "held" while the estimator
+  # still runs on the old reference. That is why this key is deliberately NOT
+  # in verify_envelope_pins (a gate that can only report success gets
+  # believed); tools/param_audit.py checks it at the bench instead.
   EKF2_HGT_REF: 1           # GPS is the height reference (PX4 default; pinned)
   # ── STATUS BEACON PATH (cm4/status_beacon.py) ──
   # MAV_1 = TELEM2 = the CM4's link. Forwarding lets the CM4's broadcast
