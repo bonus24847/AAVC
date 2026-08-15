@@ -56,6 +56,17 @@ fi
 
 echo "[run_mission] assigned ids: $IDS (${REAL:+REAL bird}${REAL:-SITL})${RC_GO:+ rc-go=$RC_GO}"
 
+# Announce simulated wind. It is set at RUNTIME (sitl/set_wind.sh), so it leaves
+# no trace in the world file, the audit or the ULog — a flight in 10 m/s reads
+# exactly like a calm one afterwards, and its numbers get compared against calm
+# baselines by someone who has no way to know. Say it loudly instead.
+WIND_STATE=/tmp/aavc_wind_state
+if [ "${REAL:-0}" != "1" ] && [ -f "$WIND_STATE" ]; then
+    read -r W_SPEED W_DIR < "$WIND_STATE"
+    echo "🌬  WIND IS ON: ${W_SPEED} m/s from ${W_DIR}deg — this flight is NOT a"
+    echo "   still-air baseline. 'bash sitl/set_wind.sh off' first if you wanted one."
+fi
+
 if [ "${REAL:-0}" = "1" ]; then
     exec env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" -m orchestrator.main \
         --config sitl/aavc_config.yaml --no-dashboard \
@@ -80,5 +91,12 @@ if [ -n "$RUN_DIR" ] && pgrep -f 'gz [s]im' >/dev/null; then
     echo "[run_mission] reading where the eggs landed (gz still up)…"
     env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/tools/box_truth.py" \
         2>&1 | tee "${RUN_DIR}box_truth.txt" | tail -n 6
+    # Stamp the air the numbers were measured in, next to the numbers.
+    if [ -f "$WIND_STATE" ]; then
+        read -r W_SPEED W_DIR < "$WIND_STATE"
+        echo "wind: ${W_SPEED} m/s from ${W_DIR} deg" >> "${RUN_DIR}box_truth.txt"
+    else
+        echo "wind: still air" >> "${RUN_DIR}box_truth.txt"
+    fi
 fi
 exit "$rc"

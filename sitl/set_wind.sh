@@ -53,10 +53,20 @@ then
     exit 1
 fi
 
+# Leave a breadcrumb the NEXT run can read. Wind set here is runtime-only, so
+# nothing in the world file records it and a mission flown afterwards looks
+# identical to a calm one in every log it writes — the parallel session lost a
+# set of numbers exactly this way (their harness left <wind> at 10 m/s and the
+# following flights silently flew in it). run_mission.sh reads this file and
+# says so out loud; launch_stack.sh deletes it, because a fresh world IS calm.
+STATE_FILE=/tmp/aavc_wind_state
 if [ "$SPEED" = "0" ]; then
+    rm -f "$STATE_FILE"
     echo "[wind] still air (world $WORLD)"
 else
+    echo "${SPEED} ${DIR}" > "$STATE_FILE"
     echo "[wind] ${SPEED} m/s from ${DIR}deg -> ENU (${EAST}, ${NORTH}) on world $WORLD"
     echo "[wind] gusting comes from the world's WindEffects plugin (sine + noise);"
     echo "[wind] the airframe feels it only because model.sdf sets <enable_wind>."
+    echo "[wind] recorded in $STATE_FILE — the next mission will announce it."
 fi

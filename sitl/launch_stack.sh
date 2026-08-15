@@ -110,6 +110,11 @@ fi
 
 stack_stop
 
+# A fresh world starts calm (kmutnb_skyfield.sdf ships <linear_velocity>0 0 0),
+# so any wind breadcrumb from a previous session is now false. Clearing it here
+# is the whole point: the restore is a SCRIPT's job, not somebody's memory.
+rm -f /tmp/aavc_wind_state
+
 # 1) SITL (+ optional viewer). tail keeps stdin open — a TTY-less PX4 pxh
 #    console otherwise spins at 100% CPU spraying prompts into the log.
 echo "[stack] starting PX4 SITL + Gazebo (GUI=${GUI:-0})…"

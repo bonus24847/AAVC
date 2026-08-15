@@ -119,9 +119,26 @@ async def run_trial(args: argparse.Namespace) -> int:
     # module was removed 2026-08-15 — PX4's own autotune owns the inner loop
     # now, and whatever it wrote is already on the FC.)
     overrides: dict[str, float] = dict(cfg.get("px4_tuning") or DEFAULT_PX4_TUNING)
+    ab_keys: list[str] = []
     for kv in args.set or []:
         k, v = kv.split("=", 1)
         overrides[k.strip()] = float(v)
+        ab_keys.append(k.strip())
+    # Remember what --set is about to overwrite, so the finally can put it back.
+    # A/B knobs that are never restored are how a tuning experiment silently
+    # becomes everyone's baseline: SITL PERSISTS params in parameters.bson, so a
+    # value left behind here rides through restarts into the next scored run and
+    # its evidence file, with nothing in the audit to say it happened. (The
+    # config px4_tuning half is deliberately NOT restored — that IS what the
+    # mission applies at every launch.) Credit: the parallel session hit the same
+    # shape with a gz <wind> its harness never reset.
+    baseline: dict[str, float] = {}
+    for k in ab_keys:
+        try:
+            baseline[k] = await commander.get_param_float(k)
+        except Exception as e:
+            logger.warning(f"[trial] cannot read {k} to restore later ({e}) — "
+                           "it will be LEFT at the experimental value")
     n_set = await commander.apply_param_overrides(overrides)
     logger.info(f"[trial] applied {n_set} params "
                 f"({', '.join(args.set) if args.set else 'config px4_tuning'})")
@@ -167,6 +184,17 @@ async def run_trial(args: argparse.Namespace) -> int:
             await commander.land()
         except BaseException:  # noqa: BLE001 — parking must not block teardown
             pass
+        # Put the A/B knobs back BEFORE the link closes. Restoring is not
+        # best-effort-and-forget: if it fails, the operator has to know the FC is
+        # still carrying the experiment, because nothing downstream would show it.
+        for k, v in baseline.items():
+            try:
+                await commander.apply_param_overrides({k: v})
+                logger.info(f"[trial] restored {k}={v:g}")
+            except BaseException as e:  # noqa: BLE001
+                logger.error(f"[trial] ⚠ FAILED to restore {k} to {v:g} ({e}) — "
+                             "the FC is still on the experimental value; set it "
+                             "back by hand before any scored run")
         try:
             await telem.stop()
         except BaseException:  # noqa: BLE001
