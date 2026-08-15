@@ -122,14 +122,27 @@ IFS=$'\x1f' read -r M_NAME M_LABEL M_REPO M_DIR M_ENTRY M_FIELD M_CAPT M_RESET <
 # ไม่ต้องมีเส้นทางที่สองให้แตกต่างกันเงียบ ๆ
 if [ "$MODE" != "real" ]; then
     [ -n "$M_RESET" ] || die "mission '$M_NAME' ไม่มี reset_cmd — เปิดตัวจำลองเองไม่ได้"
-    ( eval "$M_RESET" ) >>"$LOG" 2>&1 &
+    # ⚠ KEEP_CONSOLE=1 -> 0. reset_cmd คือคำสั่งของปุ่ม 🧹 ซึ่งถูกสั่งจาก "ในหน้าเว็บ
+    # ที่เปิดอยู่แล้ว" ⇒ มันตั้ง KEEP_CONSOLE=1 แปลว่า "ยกสนามใหม่ แต่อย่าฆ่า/อย่า
+    # เปิด console" (ไม่งั้นจะตัดหน้าเว็บของคนกดเอง) พอเอามาเปิดเย็นแบบนี้ ความหมาย
+    # นั้นกลายเป็น "ไม่ต้องเปิด console เลย" ⇒ สแตกขึ้นครบแต่ไม่มีอะไรฟังพอร์ต
+    # และเบราว์เซอร์ขึ้น "unable to connect" (เจอจริง 2026-08-16)
+    SIM_CMD="${M_RESET//KEEP_CONSOLE=1/KEEP_CONSOLE=0}"
+    ( eval "$SIM_CMD" ) >>"$LOG" 2>&1 &
     msg "กำลังเปิดสนามจำลองของ <b>$M_LABEL</b>…\n\nใช้เวลาราวครึ่งนาที \
 แล้วหน้าเว็บจะเปิดเอง\n\nlog: $LOG"
-    for _ in $(seq 1 60); do
-        curl -sf "http://127.0.0.1:$PORT/" >/dev/null 2>&1 && break
+    # launch_stack ถอยไป 8020 เองถ้า 8000 ไม่ว่าง ⇒ อย่าเดาพอร์ตเดียว
+    SIM_URL=""
+    for _ in $(seq 1 90); do
+        for p in "$PORT" 8020; do
+            if curl -sf -m 1 "http://127.0.0.1:$p/" >/dev/null 2>&1; then
+                SIM_URL="http://127.0.0.1:$p/"; break 2
+            fi
+        done
         sleep 1
     done
-    xdg-open "http://127.0.0.1:$PORT/" >/dev/null 2>&1 &
+    [ -n "$SIM_URL" ] || die "สนามจำลองขึ้นแล้วแต่ไม่พบหน้าเว็บบนพอร์ต $PORT/8020\n\nดู log: $LOG"
+    xdg-open "$SIM_URL" >/dev/null 2>&1 &
     exit 0
 fi
 
