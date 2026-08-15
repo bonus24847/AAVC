@@ -36,7 +36,44 @@ PY="$REPO_ROOT/.venv/bin/python"
 BRIDGE_PY=(env PYTHONPATH=/usr/lib/python3/dist-packages "$PY")
 AAVC_GCS="${AAVC_GCS:-$HOME/Desktop/aavc-gcs/src/aavc_gcs.py}"
 
+# Is somebody ELSE's SITL running on this machine? (2026-08-15: this script
+# pkill'd `gz sim` and px4 by pattern, with no idea who owned them, and killed a
+# parallel session's simulator mid-flight. The two projects share this laptop,
+# these ports and this PX4 build, so "kill everything that matches" is a booby
+# trap that goes off every time both are working.) A gz world outside THIS repo
+# is the tell: ours always comes from $REPO_ROOT/sitl/worlds.
+foreign_sitl() {
+    # gz is easy: the world PATH is right there in the command line.
+    pgrep -af "gz sim" 2>/dev/null \
+        | grep -v "pgrep" \
+        | grep -oE "/[^ ]*\.sdf" \
+        | grep -v "^${REPO_ROOT}/" || true
+    # PX4 is NOT: both projects run the same binary out of the same shared
+    # worktree, so the command lines are byte-identical and no pattern can tell
+    # them apart (the parallel session hit this from the other side — their
+    # launcher pkill'd that path and took ours down 8+ times today). Its
+    # ENVIRONMENT can: launch_sitl.sh exports PX4_GZ_WORLD, so anything not
+    # flying our world belongs to somebody else. Credit: mission_AAVC session.
+    local pid world
+    for pid in $(pgrep -f "px4_sitl_default/bin/px4" 2>/dev/null); do
+        world="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
+                 | sed -n 's/^PX4_GZ_WORLD=//p' | head -1)"
+        [ -n "$world" ] && [ "$world" != "kmutnb_skyfield" ] \
+            && echo "px4 pid $pid flying world '$world'"
+    done
+    return 0
+}
+
 stack_stop() {
+    local foreign
+    foreign="$(foreign_sitl | head -3)"
+    if [ -n "$foreign" ] && [ "${FORCE_KILL:-0}" != "1" ]; then
+        echo "[stack] REFUSING to stop: a simulator from another project is running" >&2
+        echo "$foreign" | sed 's/^/[stack]   /' >&2
+        echo "[stack] killing it would take down someone else's flight mid-air." >&2
+        echo "[stack] Coordinate first; FORCE_KILL=1 overrides if you are sure." >&2
+        exit 3
+    fi
     echo "[stack] stopping everything…"
     pkill -9 -f 'gz [s]im'                    2>/dev/null
     pkill -9 -f 'px4_sitl_default/bin/px[4]'  2>/dev/null

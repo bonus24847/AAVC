@@ -1061,8 +1061,17 @@ class DroneCommander:
     # ----- internal helpers -----
 
     async def _wait_until_altitude_reached(
-        self, target_m: float, tolerance_m: float = 1.0, timeout_s: float = 60.0
+        self, target_m: float, tolerance_m: float | None = None,
+        timeout_s: float = 60.0,
     ) -> bool:
+        # tolerance_m=None -> scale with the target. The old fixed 1.0 m was
+        # sized for the 20 m KMITL profile (5% of the climb); on the KMUTNB 5 m
+        # profile the whole climb-out is 3.0 m, so 1.0 m declared "at altitude"
+        # a THIRD of the way short. The aircraft then began the transit legs at
+        # ~2.0 m and finished the climb en route, which works in still air and
+        # does not in wind: measured 2026-08-15, egress sat flat at 2.4 m
+        # against a 3.5 m command for the whole leg at 10 m/s. Floored at 0.4 m
+        # so a hover that settles a few centimetres low still counts.
         """Block until the vehicle climbs within tolerance of target_m. Returns
         True if reached, False on timeout. We return a status (not raise) so the
         command path can't hang — but the caller MUST act on False: arm_and_takeoff
@@ -1078,6 +1087,8 @@ class DroneCommander:
         climb-out forever (observed 2026-06-13: sim froze ~3 s after the first
         drop, this wait never returned). wait_for fires on the wall clock
         regardless, so a stalled stream now surfaces as a clean failure."""
+        if tolerance_m is None:
+            tolerance_m = min(1.0, max(0.4, 0.15 * abs(target_m)))
         last_alt = float("nan")
 
         async def _watch() -> bool:

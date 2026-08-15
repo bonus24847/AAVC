@@ -949,6 +949,20 @@ async def run_delivery_mission(
                 await commander.arm_and_takeoff(climb_alt)
             else:
                 await commander.goto(t.lat, t.lon, climb_alt)
+            # FINISH the climb before translating (2026-08-15). The comment
+            # above — "the egress transit gotos finish the climb" — held only in
+            # still air. In the wind actually measured at both fields (8-12 m/s)
+            # the aircraft stops climbing the moment it starts translating: the
+            # egress sat flat at 2.4 m against a 3.5 m command for the entire
+            # leg, so the SCORED transit corridor was never entered on the way
+            # home. Climbing is cheap while stationary and nearly free in time
+            # (the legs here are ~5 s each); doing it first costs a few seconds
+            # and keeps the corridor. Non-fatal by design: on timeout the flight
+            # proceeds from wherever it is rather than stranding an egg.
+            if not await _wait_climb(climb_alt, timeout_s=15.0):
+                state.record_anomaly(
+                    f"flight {flight}: egress climb to {climb_alt:.1f} m not "
+                    "confirmed — flying the corridor from below it")
             await _fly_transit(flight, egress=True)
             if not _running():
                 break
