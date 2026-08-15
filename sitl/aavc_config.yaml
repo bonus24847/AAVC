@@ -327,10 +327,15 @@ connection:
 # existed while every flight — G4/G4' included — was actually flown in still
 # air: the plugin pushes only links that ask for it.
 wind_sitl:
-  base_speed_mps: 4
-  gust_amplitude_mps: 3
+  # MEASURED-BY-OPERATOR 2026-08-15: 8-12 m/s at BOTH the KMUTNB rooftop pitch
+  # and the KMITL competition field this month (Beaufort 5, "fresh breeze").
+  # That is 2-3x the 4 m/s "monsoon" figure this block used to carry, which was
+  # a seasonal guess and nothing more — and 3-4x the 3 m/s MPC_XY_CRUISE the
+  # mission flies at, so upwind legs cost real airspeed.
+  base_speed_mps: 10
+  gust_amplitude_mps: 2    # world sine is +/-20% of base -> the 8-12 m/s band
   direction_deg: 225   # FROM the south-west -> blows toward NE
-                       # -> world vector (4*sin45, 4*cos45) = (2.83, 2.83) ENU
+                       # -> world vector (10*sin45, 10*cos45) = (7.07, 7.07) ENU
 
 # Outer-loop flight tuning applied once before takeoff (orchestrator.main →
 # commander.apply_param_overrides). Operator intent: fly stably (less overshoot),
