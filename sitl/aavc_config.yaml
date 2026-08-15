@@ -442,6 +442,18 @@ px4_tuning:
   # set here — it is chosen at the G5 bench once the wiring is decided, and a
   # wrong port number would take over a port the CM4 or GPS needs.
   EKF2_RNG_CTRL: 1          # fuse the downward rangefinder
+  # ── STATUS BEACON PATH (cm4/status_beacon.py) ──
+  # MAV_1 = TELEM2 = the CM4's link. Forwarding lets the CM4's broadcast
+  # STATUSTEXT cross to the radio instance so the operator sees the mission +
+  # camera summary WITHOUT WiFi. Default is [true, false, false] per instance,
+  # i.e. MAV_0 (the radio) already forwards and MAV_1 (this one) does not —
+  # so this single key is what the beacon needs.
+  # ⚠ reboot_required: PX4 applies it as a module start argument, so pushing it
+  # at mission start only takes effect on the NEXT boot. Set it once at the
+  # bench (QGC) too; this key just makes the aircraft self-heal after a param
+  # reset. Verified in SITL by the mission_AAVC session 2026-08-15: with it at
+  # 0, send_status_text SUCCEEDS and zero lines reach the other link.
+  MAV_1_FORWARD: 1          # CM4 -> radio STATUSTEXT forwarding (reboot to apply)
   # Optical flow was CUT from the project on 2026-07-22 (no flow module in the
   # X6100 kit). PX4 1.17 defaults EKF2_OF_CTRL to 1, so pin it OFF: with no flow
   # sensor present the fusion never runs, but leaving it enabled invites a

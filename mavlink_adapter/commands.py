@@ -192,6 +192,14 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     # PX4 1.17 enables the fusion by default, which only invites a puzzling
     # "flow timeout" health failure at arming.
     "EKF2_OF_CTRL": 0.0,        # optical flow fusion OFF — no such sensor
+    # MAV_1 = TELEM2 = the CM4 link. Forwarding carries the status beacon's
+    # broadcast STATUSTEXT across to the radio instance, so the operator gets
+    # the mission + camera summary with no WiFi (cm4/status_beacon.py). PX4's
+    # per-instance default is [true, false, false]: the radio (MAV_0) already
+    # forwards, this one does not. ⚠ reboot_required — pushing it here only
+    # applies from the NEXT boot; the bench sets it once in QGC and this key
+    # keeps it that way after a param reset.
+    "MAV_1_FORWARD": 1.0,       # CM4 -> radio STATUSTEXT (reboot to apply)
 }
 
 
