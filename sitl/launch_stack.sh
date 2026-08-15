@@ -43,11 +43,18 @@ AAVC_GCS="${AAVC_GCS:-$HOME/Desktop/aavc-gcs/src/aavc_gcs.py}"
 # trap that goes off every time both are working.) A gz world outside THIS repo
 # is the tell: ours always comes from $REPO_ROOT/sitl/worlds.
 foreign_sitl() {
-    # gz is easy: the world PATH is right there in the command line.
+    # gz has the world right there in the command line — but match its NAME,
+    # not its directory. launch_sitl.sh COPIES our world into PX4's own
+    # Tools/simulation/gz/worlds/ (so PX4's resource lookup finds the current
+    # one), and gz is then started from THAT path — never from $REPO_ROOT. A
+    # directory test therefore called our own simulator foreign and made
+    # `stop` refuse to stop it (2026-08-16). The basename is the honest
+    # discriminator, and it is the same one the PX4 branch below already
+    # trusts via PX4_GZ_WORLD.
     pgrep -af "gz sim" 2>/dev/null \
         | grep -v "pgrep" \
         | grep -oE "/[^ ]*\.sdf" \
-        | grep -v "^${REPO_ROOT}/" || true
+        | grep -v "/kmutnb_skyfield\.sdf$" || true
     # PX4 is NOT: both projects run the same binary out of the same shared
     # worktree, so the command lines are byte-identical and no pattern can tell
     # them apart (the parallel session hit this from the other side — their
