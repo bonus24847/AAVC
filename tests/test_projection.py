@@ -179,3 +179,27 @@ def test_projection_module_has_no_oblique_surface() -> None:
 
     assert not hasattr(P, "OBLIQUE")
     assert not hasattr(P, "pixel_to_world_oblique")
+
+
+def test_flight_callers_pass_attitude_into_the_projection() -> None:
+    """Both flight call sites must hand roll/pitch to project_pixel.
+
+    They default to 0.0, so dropping the kwargs is SILENT: the projection keeps
+    returning a confident fix that is simply wrong by ~alt*tan(tilt). With no
+    gimbal fitted (operator, 2026-08-16) the camera pitches with the body, so
+    this composition is the only thing keeping a translating aircraft's fixes
+    off by centimetres instead of metres — worth a guard even though it reads
+    source text.
+    """
+    import inspect
+
+    import orchestrator.tactical_align as TA
+    import orchestrator.vision_worker as VW
+
+    for mod in (VW, TA):
+        src = inspect.getsource(mod)
+        assert "project_pixel(" in src, f"{mod.__name__} stopped projecting"
+        call = src.split("project_pixel(", 1)[1][:400]
+        assert "roll_deg=" in call and "pitch_deg=" in call, (
+            f"{mod.__name__} calls project_pixel without attitude — fixes will "
+            "drift by ~alt*tan(tilt) with no gimbal to hold the camera down")

@@ -494,20 +494,26 @@ px4_tuning:
   # confusing "flow timeout" health failure at arming.
   EKF2_OF_CTRL: 0           # optical flow fusion OFF — no such sensor aboard
 
-# Camera gimbal — single-axis PITCH servo holding the OV9281 nadir camera
-# pointing straight DOWN against vehicle pitch. PX4's gimbal/mount driver
-# stabilizes AUTONOMOUSLY once these params are set; the flight code only
-# pushes them at mission start (best-effort — SITL's PX4 build lacks the mount
-# module, so the push logs warnings and the mission proceeds; the SITL camera
-# is rigidly nadir anyway). ⚠ EVERY value below is a CANDIDATE — VERIFY-AT-G5
-# against the 6X's PX4 v1.17 docs + bench (props off):
-#   - confirm the gimbal/mount module exists in the flashed px4_fmu-v6x fw
-#   - map the AUX output to "Gimbal Pitch" in QGC Actuators — QGC-side, NOT
-#     pushed from here; must not collide with the egg servo (AUX 9)
-#   - confirm servo PWM min/max/travel so 90° down sits centred with margin
-#   - verify the stabilization DIRECTION (nose-down pitch ⇒ servo compensates)
+# Camera gimbal — ❌ NOT FITTED (operator, 2026-08-16: "กล้องผมไม่ได้ติดกิมบอล").
+# The OV9281 is HARD-MOUNTED looking straight down, so there is no mount servo
+# to drive and nothing to stabilize; `enabled: false` stops the mission pushing
+# MNT_* at a board that has no gimbal (it was best-effort, but a failed push
+# still lands in the anomaly log as noise that hides real faults).
+#
+# ⚠ WHAT THIS MOVES ONTO THE SOFTWARE: a hard-mounted camera pitches WITH the
+# body, so the attitude composition in vision/projection.py stops being a
+# refinement and becomes load-bearing — a translating multirotor holds 10-15°
+# and an uncompensated nadir projection drifts by ~alt*tan(tilt) (≈2 m at 12 m
+# / 10°). That path is implemented and both flight call sites do pass roll/pitch
+# (orchestrator/vision_worker.py, orchestrator/tactical_align.py), which is why
+# losing the gimbal costs accuracy rather than correctness. It does raise the
+# value of the camera FOV calibration: `cameras.nadir.fov_deg` is still a
+# PLACEHOLDER, and every degree of FOV error now rides on top of the tilt term.
+#
+# The params are KEPT (not deleted) so re-fitting a gimbal is a one-line change
+# back to `enabled: true`; every value remains a VERIFY-AT-BENCH candidate.
 gimbal:
-  enabled: true
+  enabled: false
   params:
     MNT_MODE_IN: 4        # int   VERIFY-AT-G5: input mode (v1.17 enum)
     # 0 = AUX (drive the PWM servo directly), 1 = MAVLink gimbal protocol v1,
@@ -590,21 +596,43 @@ sim_battery:
   # the same guide table — kept in agreement.)
   SIM_BAT_DRAIN: 1400.0     # ~23 min — one 20-min window with real margin
   SIM_BAT_MIN_PCT: 0.0      # the default 50 stops the drain half way
-  # ── Pack + power module (2 x DXF 6S 7500 mAh 140C in PARALLEL, through a
-  #    Holybro PM03D) ──
+  # ── Pack + power sensing ──
+  # ⚠ REWIRED 2026-08-16 (operator): the Holybro PM03D FAILED and is OUT. Power
+  # now splits in two — a converter straight from the pack feeds the Pixhawk,
+  # and the MOTORS are fed by a SEPARATE board that the FC does not sense.
+  #
+  # The consequence is not "one less sensor", it is that any current the FC
+  # still measures is the AVIONICS draw (well under an amp), NOT the ~35-43 A
+  # the aircraft actually burns. A current-integrating fuel gauge fed that
+  # signal reads a pack that never empties — the most dangerous possible
+  # failure here, because it fails OPTIMISTIC and silently: every GO gate and
+  # every RTH-on-battery decision would be made against a full-looking pack
+  # while the real one runs flat mid-delivery.
+  #
+  #   ⇒ At the bench, DISABLE current sensing rather than leaving it wrong:
+  #       BAT1_I_CHANNEL = -1        (no current sense on this wiring)
+  #     PX4 then reports no consumed-mAh, orchestrator/energy_policy.py's
+  #     `energy_consumed_mah` drops to its VOLTAGE path ("B", capacity x
+  #     (1 - percent/100)) and every budget downstream stays honest. Path B
+  #     already exists and is tested — it does not need new code, it needs
+  #     PX4 to stop publishing a number that looks valid and is not.
+  #
+  # VOLTAGE is still true (same pack), so the % gauge is what must be right:
+  #   BAT1_N_CELLS  = 6
+  #   BAT1_V_DIV               calibrate in QGC → Power against a MEASURED pack
+  #                            voltage (multimeter); the divider depends on the
+  #                            new converter, so the PM03D's value is void
+  #   BAT1_V_EMPTY  = 3.50     BAT1_V_CHARGED = 4.15  (per Power-System-Guide;
+  #                            CONFIRM against the pack's own spec sheet)
+  #   BAT1_CAPACITY = 17000    (informational once current sensing is off)
   # These are NOT pushed from here: BAT1_* are calibration values that belong to
-  # the airframe, and writing a wrong divider/offset over MAVLink would corrupt a
-  # good calibration. Set them ONCE in QGC → Power at G5 and leave them:
-  #   BAT1_N_CELLS  = 6       BAT1_CAPACITY = 17000  (mAh — the ONE semi-solid
-  #                                                   pack actually loaded)
-  #   BAT1_V_EMPTY  = 3.50    BAT1_V_CHARGED = 4.15  (per Power-System-Guide;
-  #                           CONFIRM against the semi-solid pack's own spec
-  #                           sheet at the bench before trusting the % gauge)
-  #   BAT1_SOURCE / the INA2xx enable come from the PM03D's own wiring guide.
-  # As of 2026-07-22 the board still reports BAT1_* unset (SOURCE=-1, N_CELLS=0),
-  # so battery percentage is meaningless until this is done — and the thresholds
-  # above are percentages OF that calibration. Re-confirm them against the real
-  # pack's discharge curve before G7.
+  # the airframe, and writing a wrong divider over MAVLink would corrupt a good
+  # calibration. Set them ONCE in QGC → Power and leave them.
+  #
+  # Until that is done the board reports BAT1_* unset (SOURCE=-1, N_CELLS=0) and
+  # battery percentage is MEANINGLESS — and the thresholds above are percentages
+  # OF that calibration. Re-confirm against the real pack's discharge curve
+  # before the first field mission.
 
 # Pre-flight readiness gate thresholds (orchestrator.preflight). The mission holds
 # in a PREFLIGHT phase before EVERY sortie until the operator GOs on the dashboard

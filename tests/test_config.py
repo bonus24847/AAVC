@@ -110,10 +110,11 @@ def test_drop_servo_channels_reject_an_unflyable_map() -> None:
         == (4, 1, 2, 3)
 
 
-def test_gimbal_config_block_is_locked() -> None:
-    """The stabilized-nadir gimbal ships as a config block whose MNT_* values
-    are VERIFY-AT-G5 candidates — lock the shipped schema so it can't silently
-    drift before the bench pass."""
+def test_gimbal_is_off_because_none_is_fitted() -> None:
+    """No gimbal on the aircraft (operator, 2026-08-16) — the camera is hard
+    mounted. Pushing MNT_* at a board with no mount only fills the anomaly log,
+    so the block must ship DISABLED. The params stay so re-fitting is one line.
+    """
     from pathlib import Path
 
     import yaml
@@ -121,7 +122,7 @@ def test_gimbal_config_block_is_locked() -> None:
     cfg = yaml.safe_load(
         (Path(__file__).resolve().parents[1] / "sitl" / "aavc_config.yaml").read_text())
     gimbal = cfg["gimbal"]
-    assert gimbal["enabled"] is True
+    assert gimbal["enabled"] is False
     assert gimbal["params"] == {
         # MODE_OUT 0 = drive the AUX PWM servo. It shipped as 1 (= MAVLink
         # gimbal protocol v1, i.e. talk to a gimbal device this aircraft does
