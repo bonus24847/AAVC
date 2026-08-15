@@ -29,9 +29,17 @@ changed:
   (no.0) inside. The egg-hold bay must physically accept this box (→ G5/G6
   hardware; `docs/FLIGHT.md`, `docs/BOM_REPORT.md`).
 - **Imaging requirement wording** now explicitly says the imaging system must
-  **record AND transmit** (record was implicit in V1.1). We satisfy both:
-  transmit = the live dashboard; record = the mission frame recorder
-  (`orchestrator/frame_recorder.py` → `runs/<id>/frames/`, config `recording:`).
+  **record AND transmit** (record was implicit in V1.1). We satisfy both, and
+  **neither half needs WiFi** (2026-08-16, once the aircraft gained a separate
+  FPV camera): **record** = the mission frame recorder writing to the CM4's own
+  disk (`orchestrator/frame_recorder.py` → `runs/<id>/frames/`, config
+  `recording:`) — local, no link at all; **transmit** = the **FPV video
+  downlink** on its own VTX. The live dashboard image over WiFi was the previous
+  answer to "transmit" and is now a **debug convenience, not a scored
+  requirement** — it can be dropped on competition day at no cost. Note the two
+  halves are covered by two different things: FPV alone would not satisfy
+  "record" (a VTX transmits, it does not store), and the frame recorder alone
+  would not satisfy "transmit".
 - **"subject to be changed" watermark** on every page — treat all figure-derived
   coordinates (no-fly zone, L&R) as provisional; keep them config-tunable and
   **re-measure at the event briefing**.

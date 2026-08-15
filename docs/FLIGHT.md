@@ -87,13 +87,30 @@ Goal: validate the orchestrator ↔ real-FC seam + the actuators, motors **off t
       window). Confirm the CM4 SD card has headroom for a full day of sorties, or
       lower `recording.hz` / `recording.jpeg_quality` (or set `recording.enabled:
       false` to keep transmit-only).
-- [ ] **Camera gimbal (stabilized nadir):** confirm the flashed PX4 fw includes the
-      gimbal/mount module; map the servo's AUX output to **"Gimbal Pitch"** in QGC
-      Actuators (must NOT collide with the four egg servos on AUX 1–4); verify the config
-      `gimbal:` MNT_* candidates against the 6X's v1.17 docs (every value is marked
-      VERIFY-AT-G5); pitch the airframe by hand (props OFF) — the servo must
-      COMPENSATE so the camera stays pointing straight down (right direction, full
-      travel, no binding); lock the verified PWM band/travel into the config comments.
+- [x] ~~**Camera gimbal**~~ — **NOT FITTED** (operator 2026-08-16). The OV9281 is
+      hard mounted looking down and `gimbal.enabled` is false, so there is nothing
+      to configure here. What the gimbal used to buy is now bought by the
+      roll/pitch composition in `vision/projection.py` (see CLAUDE.md §2), which
+      makes the `fov_deg` measurement below matter more, not less.
+- [ ] **FPV camera + VTX (added to the aircraft 2026-08-16) — three checks:**
+      - **Frequency plan.** There are now up to four radios on one airframe: the
+        ELRS RC link (TX16S + Nomad + DBR4), MAVLink telemetry, the FPV VTX
+        (usually 5.8 GHz) and the CM4's WiFi (2.4 or 5 GHz). Write down what band
+        each ACTUALLY uses — do not assume — then separate them.
+        ⚠ Priority when they collide: **the RC link never gives ground**. It is
+        the safety pilot's authority and the one link whose loss is
+        unrecoverable. WiFi yields first (since the FPV took over the imaging
+        downlink, WiFi is now a debug convenience, not a scored requirement),
+        telemetry second. The common trap is moving the CM4 to 2.4 GHz to dodge
+        a 5.8 GHz VTX and landing it straight on top of a 2.4 GHz ELRS link.
+      - **Weight.** VTX + camera + antenna is roughly 50–150 g and is NOT in the
+        8.22 kg AUW every energy/endurance figure was computed from. Weigh the
+        aircraft **with the FPV fitted**, not bare, and update `battery:` seeds if
+        it moved materially.
+      - **Nadir FOV obstruction.** The mission camera looks straight down through
+        a wide cone. Confirm no FPV antenna, lens or bracket enters it — a mast in
+        frame costs decode area exactly where pads are searched for. Check on a
+        real frame, not by eye.
 - [ ] **Camera stream (OV9281):** `make camera-real BACKEND=v4l2 GRAB_ARGS="--nadir-device 0
       --fourcc GREY --fps 50"` — confirm 1280×720 mono frames land in /tmp
       (preflight's camera-age critical passes) and the dashboard shows the feed.
