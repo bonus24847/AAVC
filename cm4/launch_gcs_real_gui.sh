@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# ไอคอน "AAVC GCS เครื่องจริง" — ทำทุกอย่างด้วยการคลิก ไม่ต้องแตะ terminal
+# ไอคอน "AAVC GCS" — ทำทุกอย่างด้วยการคลิก ไม่ต้องแตะ terminal
 # (operator 2026-08-15: "ผม deploy ขึ้น cm4 ไม่เป็น" + "ไม่อยากเข้า terminal").
 #
-# ขั้นตอนที่สคริปต์นี้ทำให้ทั้งหมด:
+# ไอคอนเดียวคุมทั้ง 2 โหมด (operator 2026-08-16: "รวม SIM กับ REAL เป็นตัวเดียว
+# ได้ไหม") — ถามโหมดก่อนเป็นอย่างแรก:
+#   * จำลอง  -> รัน reset_cmd ของ mission นั้น (ยกสแตก SITL + console) แล้วจบ
+#   * เครื่องจริง -> ขั้นตอน CM4 ทั้งหมดข้างล่าง
+#
+# ขั้นตอนฝั่งเครื่องจริง:
 #   1. ถามว่าจะบิน mission ไหน (อ่านจาก aavc-gcs/missions.yaml บล็อก `real:`)
 #   2. หา/ถามที่อยู่ CM4 (สแกน <วงปัจจุบัน>.41 ให้ก่อน, จำค่าล่าสุด)
 #   3. เช็ก ssh + เช็กว่า repo ของ mission นั้นอยู่บน CM4 แล้วหรือยัง
@@ -11,7 +16,7 @@
 #      "เปิดไอคอนใหม่แล้วเลือกอีก mission" ไม่ต้อง Ctrl-C เอง
 #   5. เปิด console + status_sync แบบ background (log ลงไฟล์) แล้วเปิดเบราว์เซอร์
 #
-# ทดสอบอัตโนมัติได้ด้วย AAVC_NONINTERACTIVE=1 + AAVC_MISSION/AAVC_HOST
+# ทดสอบอัตโนมัติได้ด้วย AAVC_NONINTERACTIVE=1 + AAVC_MODE/AAVC_MISSION/AAVC_HOST
 # (ข้ามทุก dialog — ใช้ตอน CI/ไม่มี CM4 จริง)
 set -uo pipefail
 
@@ -39,24 +44,61 @@ ask()  { [ "$NONINT" = 1 ] && return 0
          zenity --question --width=470 --title="AAVC GCS เครื่องจริง" --text="$1" \
                 --ok-label="${2:-ตกลง}" --cancel-label="${3:-ยกเลิก}" 2>/dev/null; }
 
+# ── 0. โหมด: จำลอง หรือ เครื่องจริง ───────────────────────────────────────
+# ไอคอนเดียวคุมทั้งสองโหมด (ผู้ใช้ 2026-08-16: "รวม SIM กับ REAL เป็นตัวเดียว
+# ได้ไหม") — missions.yaml เก็บทั้งสองอยู่ในรายการเดียวกันอยู่แล้ว (`mission_cmd`
+# + `reset_cmd` = ฝั่งจำลอง, บล็อก `real:` = ฝั่งโดรน) ที่แยกกันมีแค่ตัวเปิด
+#
+# ⚠ สิ่งที่ "รวม" ได้คือ **ตัวเปิด** ไม่ใช่ตัว console — console หนึ่งตัวยังผูกกับ
+# โหมดเดียวเสมอ (aavc_gcs.py ปฏิเสธการเอา console เครื่องจริงไปบิน mission จำลอง
+# มาตั้งแต่ผู้ใช้ถามเอง 2026-08-14) เพราะความสับสนที่แพงที่สุดในโปรเจกต์นี้คือ
+# **กด 🚀 คิดว่าเป็นซิม แต่ของจริง arm** ⇒ ถามโหมดก่อนเสมอ และค่าเริ่มต้นคือ
+# จำลอง คนที่ตั้งใจบินของจริงต้องเลือกเอง
+MODE="${AAVC_MODE:-}"
+if [ -z "$MODE" ]; then
+    MODE=$(zenity --list --radiolist --width=560 --height=250 \
+        --title="AAVC GCS" --text="จะเปิดโหมดไหน?" \
+        --column="" --column="โหมด" --column="ทำอะไร" \
+        TRUE  sim  "จำลอง (SITL) — ปลอดภัย ไม่มีอะไรขยับจริง" \
+        FALSE real "🚁 เครื่องจริง — ปุ่ม 🚀 สั่งโดรนที่บินได้จริง" \
+        2>/dev/null) || exit 0
+fi
+
 # ── 1. mission ที่จะบิน ────────────────────────────────────────────────────
 [ -f "$REGISTRY" ] || die "ไม่พบรายการ mission ที่\n$REGISTRY"
-mapfile -t ROWS < <(/usr/bin/python3 - "$REGISTRY" <<'PY'
+mapfile -t ROWS < <(/usr/bin/python3 - "$REGISTRY" "$MODE" <<'PY'
 import sys, yaml
 doc = yaml.safe_load(open(sys.argv[1])) or {}
+mode = sys.argv[2]
 for name, m in (doc.get("missions") or {}).items():
-    r = (m or {}).get("real") or {}
-    if r.get("repo") and r.get("dir") and r.get("entry"):
-        print("\t".join([name, str(m.get("label") or name),
-                         r["repo"], r["dir"], r["entry"],
-                         str(m.get("field") or ""), str(m.get("captures") or "")]))
+    m = m or {}
+    r = m.get("real") or {}
+    if mode == "real":
+        ok = bool(r.get("repo") and r.get("dir") and r.get("entry"))
+    else:
+        # a SIM entry is one that knows how to bring its own simulator up
+        ok = bool(m.get("reset_cmd") and m.get("mission_cmd"))
+    if ok:
+        # \x1f (unit separator), NOT a tab: tab is IFS *whitespace*, so bash
+        # collapses runs of them and an empty field silently shifts every
+        # later column left. SIM rows have empty repo/dir/entry, which is
+        # exactly that case (found by the smoke test, 2026-08-16).
+        print("\x1f".join([name, str(m.get("label") or name),
+                         str(r.get("repo") or ""), str(r.get("dir") or ""),
+                         str(r.get("entry") or ""),
+                         str(m.get("field") or ""), str(m.get("captures") or ""),
+                         str(m.get("reset_cmd") or "")]))
 PY
 )
-[ ${#ROWS[@]} -gt 0 ] || die "ยังไม่มี mission ที่ตั้งค่าสำหรับเครื่องจริงใน\n$REGISTRY"
+if [ ${#ROWS[@]} -eq 0 ]; then
+    [ "$MODE" = "real" ] \
+        && die "ยังไม่มี mission ที่ตั้งค่าสำหรับเครื่องจริงใน\n$REGISTRY" \
+        || die "ยังไม่มี mission ที่เปิดตัวจำลองเองได้ใน\n$REGISTRY\n(ต้องมี reset_cmd)"
+fi
 
 pick_row() {
     local want="$1"
-    for r in "${ROWS[@]}"; do [ "${r%%$'\t'*}" = "$want" ] && { echo "$r"; return; }; done
+    for r in "${ROWS[@]}"; do [ "${r%%$'\x1f'*}" = "$want" ] && { echo "$r"; return; }; done
 }
 if [ -n "${AAVC_MISSION:-}" ]; then
     ROW="$(pick_row "$AAVC_MISSION")"
@@ -64,7 +106,7 @@ elif [ ${#ROWS[@]} -eq 1 ]; then
     ROW="${ROWS[0]}"
 else
     LIST=(); for r in "${ROWS[@]}"; do
-        IFS=$'\t' read -r n l _ <<<"$r"; LIST+=(FALSE "$n" "$l"); done
+        IFS=$'\x1f' read -r n l _ <<<"$r"; LIST+=(FALSE "$n" "$l"); done
     LIST[0]=TRUE
     SEL=$(zenity --list --radiolist --width=520 --height=260 \
           --title="AAVC GCS เครื่องจริง" --text="จะบิน mission ไหนบนโดรน?" \
@@ -72,7 +114,25 @@ else
     ROW="$(pick_row "$SEL")"
 fi
 [ -n "${ROW:-}" ] || die "ไม่รู้จัก mission นี้"
-IFS=$'\t' read -r M_NAME M_LABEL M_REPO M_DIR M_ENTRY M_FIELD M_CAPT <<<"$ROW"
+IFS=$'\x1f' read -r M_NAME M_LABEL M_REPO M_DIR M_ENTRY M_FIELD M_CAPT M_RESET <<<"$ROW"
+
+# ── 1b. โหมดจำลอง: ไม่มี CM4 ไม่มี ssh — ยกสแตกขึ้นมาแล้วจบ ──────────────
+# reset_cmd ของแต่ละ mission คือคำสั่งที่ "ยกสนามจำลองขึ้นใหม่ทั้งชุด" อยู่แล้ว
+# (ปุ่ม 🧹 ในหน้าเว็บใช้ตัวเดียวกัน) และมันเปิด console ให้ในตัว ⇒ ใช้ซ้ำได้เลย
+# ไม่ต้องมีเส้นทางที่สองให้แตกต่างกันเงียบ ๆ
+if [ "$MODE" != "real" ]; then
+    [ -n "$M_RESET" ] || die "mission '$M_NAME' ไม่มี reset_cmd — เปิดตัวจำลองเองไม่ได้"
+    ( eval "$M_RESET" ) >>"$LOG" 2>&1 &
+    msg "กำลังเปิดสนามจำลองของ <b>$M_LABEL</b>…\n\nใช้เวลาราวครึ่งนาที \
+แล้วหน้าเว็บจะเปิดเอง\n\nlog: $LOG"
+    for _ in $(seq 1 60); do
+        curl -sf "http://127.0.0.1:$PORT/" >/dev/null 2>&1 && break
+        sleep 1
+    done
+    xdg-open "http://127.0.0.1:$PORT/" >/dev/null 2>&1 &
+    exit 0
+fi
+
 [ -d "$M_REPO" ] || die "ไม่พบโฟลเดอร์ repo ของ mission นี้:\n$M_REPO"
 
 # ── 2. ที่อยู่ CM4 ─────────────────────────────────────────────────────────
