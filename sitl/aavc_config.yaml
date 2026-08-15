@@ -442,6 +442,23 @@ px4_tuning:
   # set here — it is chosen at the G5 bench once the wiring is decided, and a
   # wrong port number would take over a port the CM4 or GPS needs.
   EKF2_RNG_CTRL: 1          # fuse the downward rangefinder
+  # CONDITIONAL range aiding (RNG_CTRL=1) only fuses the rangefinder while
+  # speed < EKF2_RNG_A_VMAX (1 m/s) AND altitude < EKF2_RNG_A_HMAX. PX4's
+  # default HMAX is 5.0 — which is EXACTLY the competition ladder's 5 m rung
+  # (tactical_align rungs 12/8/5/3/2/1.5), i.e. the enable boundary sits on the
+  # altitude where the aircraft is deliberately slowed to re-centre, so the
+  # height reference can flip source at the worst possible moment. Pinned to
+  # 7.0: clear of every rung, still well inside the TFmini-S's trustworthy band
+  # (0.1-12 m), and inside PX4's own 1..10 limit. Chosen from what the SENSOR
+  # can be believed at, not merely to dodge the rung numbers.
+  EKF2_RNG_A_HMAX: 7.0      # range aiding engages below this (m); PX4 default 5.0
+  # Which source owns absolute height. 1 = GPS, PX4's default, and the right
+  # answer here: 2 (range) makes the local origin ride ground level, so a shed
+  # cargo box or a person under the beam would move "down". The rangefinder
+  # still pins the last few metres through conditional aiding above. Pinned so
+  # a param reset or a well-meant edit is caught by verify_envelope_pins.
+  # ⚠ reboot_required — a change applies from the next boot.
+  EKF2_HGT_REF: 1           # GPS is the height reference (PX4 default; pinned)
   # ── STATUS BEACON PATH (cm4/status_beacon.py) ──
   # MAV_1 = TELEM2 = the CM4's link. Forwarding lets the CM4's broadcast
   # STATUSTEXT cross to the radio instance so the operator sees the mission +

@@ -155,15 +155,46 @@ def _build_connection(cc: dict[str, Any], connect_override: str | None) -> Conne
 
 
 def _is_sitl_endpoint(system_address: str) -> bool:
-    """True when the MAVLink endpoint is a simulator, not a wired flight board.
+    """HINT ONLY: does the endpoint *look* like a simulator?
 
-    SITL speaks UDP (`udpin://0.0.0.0:14540`); the CM4 talks to the 6X over a
-    serial port (`serial:///dev/ttyAMA0`). Anything sim-only — PX4's battery
-    simulator today — is gated on this rather than on a config block being
-    present, because the real bird flies the SAME config file
-    (cm4/launch_flight.sh defaults CONFIG=sitl/aavc_config.yaml).
+    ⚠ This cannot decide the question and must never gate anything that would
+    be unsafe on hardware. The premise it was written on ("SITL speaks UDP, the
+    CM4 talks serial") is false in this repo's own default configuration:
+    cm4/launch_flight.sh runs the REAL aircraft through a mavlink-router at
+    `udpin://0.0.0.0:14540`, so the real bird looks exactly like SITL here.
+    Ask the autopilot instead — `_detect_simulator`.
+
+    Kept as the cheap pre-check for `sim_battery`, where a wrong answer costs
+    only a param timeout, never safety.
     """
     return system_address.strip().lower().startswith(("udp", "tcp"))
+
+
+async def _detect_simulator(commander: Any) -> bool | None:
+    """Ask the AUTOPILOT whether it is a simulator. ``None`` = cannot tell.
+
+    `SIM_GZ_EN` is compiled into px4_sitl only — a Pixhawk's firmware has no
+    such parameter — so its presence is the honest test, and no endpoint,
+    hostname or CLI flag can lie about it.
+
+    The trap this deliberately avoids: "parameter absent" and "link is dead"
+    look identical from a single failed read, and defaulting either way is
+    unsafe (call hardware a sim and safety pins get disabled; call a sim
+    hardware and nothing is testable). So a missing SIM_GZ_EN is only believed
+    once `SYS_AUTOSTART` — which every build has — answers on the same link.
+    If neither reads, the caller gets ``None`` and must refuse rather than
+    guess.
+    """
+    try:
+        await commander.get_param_int("SIM_GZ_EN")
+        return True
+    except Exception:                                    # noqa: BLE001
+        pass
+    try:
+        await commander.get_param_int("SYS_AUTOSTART")    # proves the link works
+        return False
+    except Exception:                                    # noqa: BLE001
+        return None
 
 
 async def _wait_for_gps(state: OrchestratorState, timeout_s: float = 30.0) -> bool:
@@ -707,11 +738,31 @@ async def run(args: argparse.Namespace) -> int:
                 except Exception as e:
                     state.record_anomaly(f"gimbal mount setup failed: {e}")
         else:
-            for _fs in ("NAV_DLL_ACT", "NAV_RCL_ACT", "GF_ACTION"):
-                try:
-                    await commander.set_param_int(_fs, 0)
-                except Exception as e:
-                    state.record_anomaly(f"tuning: disable {_fs} failed: {e}")
+            # TUNING mode flies frequency sweeps, which the geofence/datalink
+            # failsafes would abort — so this used to switch them off with no
+            # gate at all. On the real aircraft that is the safety pilot losing
+            # RC-loss RTL, datalink RTL and the geofence action during the most
+            # aggressive manoeuvre the airframe ever performs. Ask the autopilot
+            # what it is (endpoints lie — see _detect_simulator) and refuse on
+            # anything that is not provably a simulator.
+            sim = await _detect_simulator(commander)
+            if sim is True:
+                for _fs in ("NAV_DLL_ACT", "NAV_RCL_ACT", "GF_ACTION"):
+                    try:
+                        await commander.set_param_int(_fs, 0)
+                    except Exception as e:
+                        state.record_anomaly(f"tuning: disable {_fs} failed: {e}")
+            else:
+                why = ("a REAL flight controller" if sim is False
+                       else "an autopilot that did not answer (link down?)")
+                logger.warning(
+                    f"[main] tuning mode on {why} — KEEPING the failsafes "
+                    "(NAV_DLL_ACT/NAV_RCL_ACT/GF_ACTION) armed. A sweep that "
+                    "trips one is a sweep the safety pilot can still recover; "
+                    "flying it with them off is not. Disable them by hand in "
+                    "QGC if that is genuinely what you want.")
+                state.record_anomaly(
+                    f"tuning mode: failsafes left ON ({why})")
 
         # ── flight tuning (applied once before takeoff) ──
         # (1) Inner-loop rate/attitude gains from the pre-flight System-ID +

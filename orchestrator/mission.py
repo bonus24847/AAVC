@@ -352,15 +352,49 @@ async def run_delivery_mission(
         This is the parameter autonomous descents actually read;
         MPC_Z_VEL_MAX_DN is the manual/offboard limit and leaving the mission
         to it was why a first staged-descent attempt sank at 0.4 m/s and saved
-        nothing (SITL 2026-07-20). Non-fatal: a failed set leaves the aircraft
-        descending at whatever is already pinned, never faster."""
+        nothing (SITL 2026-07-20).
+
+        A failed set is only harmless in ONE direction, which this used to get
+        wrong (the old comment claimed "never faster"): going UP to the staging
+        speed, a failure leaves the slower pad value and merely wastes time —
+        but coming back DOWN to the pad value, a failure leaves the aircraft
+        pinned at the staging speed, 3.75x the descent every land-ON was
+        validated at, for the NEXT flight's approach onto a 1 m pad with an egg
+        aboard. The tuning push happens once at mission start, so nothing else
+        would correct it until the mission ends. So the restore direction gets
+        a read-back and a retry, and shouts if it still cannot get there;
+        the staging direction stays best-effort.
+        """
         setter = getattr(commander, "set_param_float", None)
         if setter is None:
             return
-        try:
-            await setter("MPC_Z_V_AUTO_DN", float(mps))
-        except Exception:
-            logger.debug("[mission] MPC_Z_V_AUTO_DN set failed (non-fatal)")
+        slowing = mps <= _PAD_DESCENT_MPS
+        for attempt in (1, 2, 3):
+            try:
+                await setter("MPC_Z_V_AUTO_DN", float(mps))
+                if not slowing:
+                    return
+                getter = getattr(commander, "get_param_float", None)
+                if getter is None:
+                    return
+                got = float(await getter("MPC_Z_V_AUTO_DN"))
+                if abs(got - mps) <= 1e-3:
+                    return
+                logger.warning(
+                    f"[mission] MPC_Z_V_AUTO_DN read back {got:.2f} after "
+                    f"setting {mps:.2f} (attempt {attempt}/3)")
+            except Exception as e:  # noqa: BLE001
+                if not slowing:
+                    logger.debug("[mission] MPC_Z_V_AUTO_DN set failed (non-fatal)")
+                    return
+                logger.warning(
+                    f"[mission] MPC_Z_V_AUTO_DN restore failed "
+                    f"(attempt {attempt}/3): {e}")
+            await asyncio.sleep(0.2)
+        state.record_anomaly(
+            f"MPC_Z_V_AUTO_DN stuck above the validated pad descent "
+            f"({_PAD_DESCENT_MPS} m/s) — the next pad approach would descend at "
+            "the staging speed; land and fix before flying another egg")
 
     async def _wait_descent(target_alt_m: float, *, timeout_s: float) -> bool:
         """Wait until the vehicle has actually sunk to `target_alt_m`.

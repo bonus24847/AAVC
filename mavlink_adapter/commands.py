@@ -188,6 +188,18 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     # reset cannot silently drop height aiding. The serial port assignment
     # (SENS_TFMINI_CFG) is a G5 bench decision, deliberately not set from here.
     "EKF2_RNG_CTRL": 1.0,       # fuse the downward rangefinder
+    # Conditional aiding fuses range only while speed < EKF2_RNG_A_VMAX (1 m/s)
+    # AND altitude < EKF2_RNG_A_HMAX. PX4's default HMAX 5.0 lands exactly on
+    # the competition ladder's 5 m rung, where the aircraft is slowed to
+    # re-centre — so the height reference could switch source right there.
+    # 7.0 clears every rung, stays inside the TFmini-S band (0.1-12 m) and
+    # inside PX4's own 1..10 limit.
+    "EKF2_RNG_A_HMAX": 7.0,     # range aiding engages below this (m); default 5.0
+    # 1 = GPS owns absolute height (PX4 default, pinned). 2 (range) would make
+    # the local origin follow ground level — a shed box under the beam becomes
+    # "down". Conditional aiding still pins the final metres.
+    # ⚠ reboot_required — applies from the next boot.
+    "EKF2_HGT_REF": 1.0,        # height reference = GPS (pinned default)
     # Optical flow was cut from the project 2026-07-22 — no flow module aboard.
     # PX4 1.17 enables the fusion by default, which only invites a puzzling
     # "flow timeout" health failure at arming.
@@ -226,6 +238,13 @@ _ENVELOPE_PINS = (
     "RTL_RETURN_ALT",     # default 60 m vs the 20 m ceiling — busts it on any RTL
     "MPC_Z_V_AUTO_DN",    # default 1.5 m/s vs 0.4 validated onto the pad
     "COM_DISARM_LAND",    # default 2 s auto-disarms ON the pad mid-sortie
+    # Height aiding: which source the EKF trusts for altitude, and the ceiling
+    # under which the rangefinder is allowed to join. Both decide where the
+    # aircraft thinks the ground is during the land-ON descent — the phase the
+    # whole score rests on — and neither shows up as an error if it is wrong,
+    # only as a worse touchdown.
+    "EKF2_HGT_REF",
+    "EKF2_RNG_A_HMAX",
 )
 
 
@@ -531,7 +550,14 @@ class DroneCommander:
             except Exception as e:  # noqa: BLE001 — an unreadable pin IS a finding
                 bad.append(f"{name} unreadable ({e})")
                 continue
-            if abs(got - want) > tol:
+            # RELATIVE, not absolute (2026-08-15). PX4 stores params as 32-bit
+            # floats, whose spacing grows with magnitude: ~3.6e-6 at 60 but
+            # ~5.5e-3 at 92160 — already past a 1e-3 absolute tol. Today's pins
+            # are all small, so absolute happened to work; the failure it would
+            # eventually cause is the WORSE direction for a gate that can stop a
+            # flight — rejecting a CORRECT value, on the line, on competition
+            # day. Fixed before the pin list grows, not after.
+            if abs(got - want) > tol * max(1.0, abs(want)):
                 bad.append(f"{name}={got:g} (want {want:g})")
         return bad
 
