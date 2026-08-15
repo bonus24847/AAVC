@@ -162,9 +162,17 @@ single sortie" is history, not current design.)
 - **EFT X6100 hexacopter + Pixhawk 6X + Raspberry Pi CM4** (airframe swapped
   2026-07-22 from the 700 mm X-quad; differs from the reference repo's
   6C-Mini/Jetson). Board state read live 2026-07-22: PX4 **1.17.0**,
-  `SYS_AUTOSTART=6001` (Generic Hexarotor X), `CA_ROTOR_COUNT=6`,
-  `PWM_MAIN_FUNC1..6=101..106`, sensors + radio + flight modes already
-  calibrated. Power (**REWIRED 2026-08-16** — the Holybro PM03D failed and is
+  `SYS_AUTOSTART=6001` (Generic Hexarotor X), `CA_ROTOR_COUNT=6`, sensors +
+  radio + flight modes calibrated. ⚠ **`PWM_MAIN_FUNC1..6` read 101..106 THEN
+  and read 0 NOW** (parallel session, 2026-08-16, cross-checked against an
+  older ULog): the motors are **unassigned to outputs — the aircraft cannot
+  fly** until they are restored and motor-tested. Treat this as a REGRESSION
+  with an unknown cause, not a never-configured board; whatever cleared it can
+  clear it again, so re-read the params before every field day rather than
+  trusting this line. Same session found `PWM_AUX_FUNC1..4` sitting at
+  402/405/409/410 (**RC passthrough** — two egg latches were wired to the roll
+  and yaw sticks, i.e. the eggs would have released while the aircraft banked);
+  now 301..304, verified across a reboot. Power (**REWIRED 2026-08-16** — the Holybro PM03D failed and is
   OUT): a converter feeds the **Pixhawk straight off the pack**, and the
   **motors run from a SEPARATE board the FC cannot sense**. So any current the
   FC reads is avionics draw, not the ~35-43 A of flight, and a current-fused
