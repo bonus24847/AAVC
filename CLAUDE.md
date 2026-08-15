@@ -173,8 +173,13 @@ single sortie" is history, not current design.)
   `estimateStateOfCharge` takes the voltage-only `else` only when capacity
   <= 0) — **NOT** `BAT1_I_CHANNEL=-1`, which is a no-op: -1 means "board
   default" and the default already IS -1. `BAT1_V_DIV`, `BAT1_V_EMPTY` and
-  `BAT1_V_CHARGED` then carry the WHOLE measurement (re-calibrate `V_DIV` for
-  the new converter — the PM03D's value is void). Because
+  `BAT1_V_CHARGED` then carry the WHOLE measurement. `V_DIV` is **verified**
+  (operator: multimeter vs the live GCS reading during the offboard flights —
+  re-check only if that was read through the old PM03D, since the divider
+  belongs to the module); `V_EMPTY`/`V_CHARGED` are **not**, and a correct
+  voltage still yields a wrong percentage if they are, because the whole gauge
+  is `interpolate(cell_v, v_empty, v_charged)` and every threshold is a % of it.
+  Because
   `calculateStateOfChargeVoltageBased` only load-compensates when current > 0,
   the gauge sags under thrust and rebounds, so `safety.py` requires both
   battery thresholds to hold for `battery_sustain_s` (5 s) before acting. Height

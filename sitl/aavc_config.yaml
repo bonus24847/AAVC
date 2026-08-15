@@ -647,15 +647,25 @@ sim_battery:
   #     looks valid and is not.
   #
   # VOLTAGE is now the ONLY input to the gauge, so these stop being trim and
-  # become the whole measurement:
+  # become the whole measurement. They are THREE separate questions, and
+  # answering one does not answer the others:
+  #
+  #   BAT1_V_DIV      ✅ VERIFIED (operator, offboard flights): pack voltage read
+  #                   with a multimeter matched what the AAVC GCS displayed live.
+  #                   That is the right kind of evidence — an independent
+  #                   instrument against the system's own number — and it closes
+  #                   the divider. ⚠ ONLY if that measurement was taken on the
+  #                   CURRENT wiring: V_DIV is a property of the module, so if it
+  #                   was read through the PM03D it has to be repeated.
   #   BAT1_N_CELLS  = 6
-  #   BAT1_V_DIV               calibrate in QGC → Power against a MEASURED pack
-  #                            voltage (multimeter); the divider depends on the
-  #                            new converter, so the PM03D's value is void
-  #   BAT1_V_EMPTY  = 3.50     BAT1_V_CHARGED = 4.15  (per Power-System-Guide;
-  #                            CONFIRM against the pack's own spec sheet — these
-  #                            two are now the endpoints the ENTIRE percentage is
-  #                            interpolated between, not a fine adjustment)
+  #   BAT1_V_EMPTY  = 3.50     BAT1_V_CHARGED = 4.15
+  #                   ❌ NOT verified by the above. A correct VOLTAGE and a
+  #                   correct PERCENTAGE are different claims: these two are the
+  #                   endpoints the whole percentage is interpolated between
+  #                   (`math::interpolate(cell_v, v_empty, v_charged, 0, 1)`), so
+  #                   a right voltage still reports a wrong % if they are wrong —
+  #                   and every threshold in this file is a % of that.
+  #                   Confirm against the pack's own discharge spec.
   #
   # ⚠ And because the gauge has no load compensation without current
   # (`calculateStateOfChargeVoltageBased` only corrects when current > 0), the
