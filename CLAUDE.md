@@ -167,12 +167,17 @@ single sortie" is history, not current design.)
   calibrated. Power (**REWIRED 2026-08-16** — the Holybro PM03D failed and is
   OUT): a converter feeds the **Pixhawk straight off the pack**, and the
   **motors run from a SEPARATE board the FC cannot sense**. So any current the
-  FC reads is avionics draw, not the ~35-43 A of flight — set
-  **`BAT1_I_CHANNEL=-1`** and let `energy_policy.energy_consumed_mah` use its
-  VOLTAGE path (already implemented + tested), because a current-integrating
-  gauge on that wiring fails OPTIMISTIC and silently. `BAT1_V_DIV` must be
-  re-calibrated for the new converter (the PM03D's value is void); `BAT1_*` is
-  still UNSET on the board, so battery % is meaningless until it is. Height
+  FC reads is avionics draw, not the ~35-43 A of flight, and a current-fused
+  gauge on that wiring fails OPTIMISTIC and silently. The switch to the voltage
+  branch is **`BAT1_CAPACITY=-1`** (`lib/battery/battery.cpp`
+  `estimateStateOfCharge` takes the voltage-only `else` only when capacity
+  <= 0) — **NOT** `BAT1_I_CHANNEL=-1`, which is a no-op: -1 means "board
+  default" and the default already IS -1. `BAT1_V_DIV`, `BAT1_V_EMPTY` and
+  `BAT1_V_CHARGED` then carry the WHOLE measurement (re-calibrate `V_DIV` for
+  the new converter — the PM03D's value is void). Because
+  `calculateStateOfChargeVoltageBased` only load-compensates when current > 0,
+  the gauge sags under thrust and rebounds, so `safety.py` requires both
+  battery thresholds to hold for `battery_sustain_s` (5 s) before acting. Height
   aiding for the real bird is a **Benewake TFmini-S** downward lidar
   (`EKF2_RNG_CTRL=1` pinned; its `SENS_TFMINI_CFG` port is chosen at the bench).
   **Optical flow was CUT 2026-07-22** — no flow module in the kit, so
@@ -407,7 +412,7 @@ make lint           # ruff + mypy
 | G2 pads spawn | `make spawn-targets` places 6 ArUco pads (ids 1-6, varied yaw — 4 get committee-assigned per team, 2 stay permanent distractors); camera bridge feeds frames |
 | G3 detect | `find_landing_pads` decodes a SITL pad id at sweep altitude; projections sane |
 | G4 SITL mission | `make run --assigned-ids …`: FLIGHT(s) ⊃ DELIVERIES — transit both ways per flight, land-ON each assigned pad, release after touchdown (`payload_id` 0..eggs_aboard-1 → AUX 4/1/2/3), land+disarm at L&R, window < 20 min; `tools/verify_flight.py` PASSES. All evidence below **predates the 2026-07-24 briefing** and validated the then-current one-egg-per-flight model (`eggs_aboard=1` — behaviourally the SAME loop today, per the regression pin `test_delivery_mission.py::test_eggs_aboard_1_is_one_delivery_per_flight`): **PASSED on the hexacopter 2026-07-22** on the model rebuilt from `Power-System-Guide-1.pdf` (1.000 m wheelbase, 7.17 kg, 18" props, 37.65 N/motor): 4/4 delivered id-correct, release 0.13-0.25 m from truth, transit 8/8 in order, 14.8 min, 19 checks / 0 warnings — `docs/evidence/G4_hexacopter_corrected-model_2026-07-22.txt`. Re-run with the sysid gains: 19/0, releases 0.11-0.27 m, 882 s (`G4_hexacopter_tuned-gains_2026-07-22.txt`). Three runs — guessed geometry, corrected geometry, corrected+tuned — all pass and agree within scatter. ✅ **G4′ CLOSED 2026-07-25**: the briefing default (`eggs_aboard=4` — ONE flight, four deliveries, 6-pad field) **PASSED 14 checks / 0 warnings** on the 2-pack aircraft (AUW 8.22 kg): 4/4 delivered id-correct, releases **0.15–0.21 m** from truth, transit 6/6 in order, max altitude 19.69 m, landed 2.6 m from L&R, **457 s of the 1200 s window** — `docs/evidence/G4prime_multiegg_2packs_2026-07-25.txt`. That run was also the first on the flight clock and the progress-based leg guard (§8). ⚠ It ran at host RTF **0.95** (headless), so it confirms no regression but does NOT re-create the ~0.20 RTF that caused the 2026-07-25 `sweep_leg_timeout_wp0` — that condition is covered by unit tests, not by this flight. |
-| G5 HW bench | 6X + CM4 bench (props off): **6-motor** map, battery calibration on the **post-PM03D** wiring (`BAT1_N_CELLS=6`, `BAT1_V_DIV` measured, **`BAT1_I_CHANNEL=-1`** — §2), TFmini-S port + `listener distance_sensor`, camera `fov_deg` measured (no gimbal ⇒ it rides on top of the tilt term), egg-release servo verified. ✅ **egg-release servos DONE 2026-08-15** (`ACTUATOR_TEST` per pin, all four corners; one latch needs `PWM_AUX_MAX=2100`, `docs/SERVO_AUX_MAPPING.md`) |
+| G5 HW bench | 6X + CM4 bench (props off): **6-motor** map, battery calibration on the **post-PM03D** wiring (`BAT1_N_CELLS=6`, `BAT1_V_DIV` measured, **`BAT1_CAPACITY=-1`**, and `BAT1_V_EMPTY`/`BAT1_V_CHARGED` confirmed against the pack — they are now the entire gauge, §2), TFmini-S port + `listener distance_sensor`, camera `fov_deg` measured (no gimbal ⇒ it rides on top of the tilt term), egg-release servo verified. ✅ **egg-release servos DONE 2026-08-15** (`ACTUATOR_TEST` per pin, all four corners; one latch needs `PWM_AUX_MAX=2100`, `docs/SERVO_AUX_MAPPING.md`) |
 | ~~G6 HW tethered~~ | **DROPPED 2026-08-16** (operator): the aircraft has already flown 3-4 real flights, so a tether proves nothing new. ⚠ What was NOT dropped are the two G6 items that are measurements, not ceremony — **camera `fov_deg` calibration** (moved to G5, ground procedure) and the **first land-ON + release over a printed pad** (folded into G7's first flight) |
 | G7 HW mission | Full mission flown **at the KMUTNB sky field** — the practice field standing in for KMITL. This IS the "fly the mission for real" step, not a hurdle before it |
 | G8 Dress rehearsal | Full mission + live egg deliveries within the 20-min window |

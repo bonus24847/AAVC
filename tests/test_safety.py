@@ -119,10 +119,15 @@ def _flying_telemetry() -> CurrentTelemetry:
     return t
 
 
-def _make_wd(t: CurrentTelemetry) -> tuple[SafetyWatchdog, OrchestratorState, _FakeCommander]:
+def _make_wd(t: CurrentTelemetry,
+             **kw) -> tuple[SafetyWatchdog, OrchestratorState, _FakeCommander]:
+    """Watchdog under test. `battery_sustain_s` defaults to 0 here so a single
+    tick still decides: these cases ask "does this threshold act at all", and
+    the debounce has its own tests below."""
     state = OrchestratorState(mode=OrchestratorMode.OFFLINE, plan=_dummy_plan(), telemetry=t)
     cmd = _FakeCommander()
-    wd = SafetyWatchdog(state, cmd, AIRSPACE)  # type: ignore[arg-type]
+    kw.setdefault("battery_sustain_s", 0.0)
+    wd = SafetyWatchdog(state, cmd, AIRSPACE, **kw)  # type: ignore[arg-type]
     return wd, state, cmd
 
 
@@ -498,3 +503,66 @@ def test_offboard_and_auto_modes_are_not_a_takeover() -> None:
     asyncio.run(_ticks())
 
     assert state.terminal == TerminalState.RUNNING
+
+
+# ── battery debounce (no current sensing after the PM03D failure) ────────────
+
+
+def test_battery_sag_under_load_does_not_trigger() -> None:
+    """A transient dip must NOT land the aircraft mid-field.
+
+    With the motors on a board the FC cannot sense, PX4's gauge is purely
+    voltage-derived and its load compensation is gated on a current it no
+    longer has (lib/battery/battery.cpp), so the reading sags whenever the
+    motors pull and springs back. One sample cannot tell that from a flat pack.
+    """
+    t = _flying_telemetry()
+    wd, state, cmd = _make_wd(t, battery_sustain_s=5.0)
+
+    async def run() -> None:
+        t.battery_percent = 12.0          # sag, well under the LAND floor
+        await _check_and_settle(wd)
+        assert state.terminal == TerminalState.RUNNING
+        t.battery_percent = 55.0          # springs back a tick later
+        await _check_and_settle(wd)
+        t.battery_percent = 11.0          # sags again — timer must have reset
+        await _check_and_settle(wd)
+        assert state.terminal == TerminalState.RUNNING
+        assert cmd.land_calls == 0 and cmd.rth_calls == 0
+
+    asyncio.run(run())
+
+
+def test_battery_flat_still_lands_once_sustained() -> None:
+    """A pack that is genuinely empty never comes back up, so it still acts."""
+    t = _flying_telemetry()
+    t.battery_percent = 12.0
+    wd, state, cmd = _make_wd(t, battery_sustain_s=0.05)
+
+    async def run() -> None:
+        await _check_and_settle(wd)
+        assert state.terminal == TerminalState.RUNNING   # armed, not fired
+        await asyncio.sleep(0.06)
+        await _check_and_settle(wd)
+        assert state.terminal == TerminalState.ABORTED
+        assert cmd.land_calls == 1
+        assert any("battery_critical" in a for a in state.anomalies)
+
+    asyncio.run(run())
+
+
+def test_battery_rth_debounce_is_independent_of_land() -> None:
+    """A reading between the two thresholds arms RTH only, and still fires."""
+    t = _flying_telemetry()
+    t.battery_percent = 25.0             # < rth (30), >= land floor (20)
+    wd, state, cmd = _make_wd(t, battery_sustain_s=0.05)
+
+    async def run() -> None:
+        await _check_and_settle(wd)
+        assert state.terminal == TerminalState.RUNNING
+        await asyncio.sleep(0.06)
+        await _check_and_settle(wd)
+        assert state.terminal == TerminalState.LANDED_RTH
+        assert cmd.rth_calls == 1 and cmd.land_calls == 0
+
+    asyncio.run(run())

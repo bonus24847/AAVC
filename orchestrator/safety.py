@@ -126,6 +126,7 @@ class SafetyWatchdog:
         datalink_loss_threshold_s: float = 5.0,
         gps_loss_threshold_s: float = 5.0,
         battery_nan_threshold_s: float = 10.0,
+        battery_sustain_s: float = 5.0,
         telemetry_stale_threshold_s: float = 10.0,
         pilot_takeover_threshold_s: float = 1.0,
         geofence_margin_m: float = 5.0,
@@ -155,6 +156,7 @@ class SafetyWatchdog:
         self.datalink_loss_threshold_s = datalink_loss_threshold_s
         self.gps_loss_threshold_s = gps_loss_threshold_s
         self.battery_nan_threshold_s = battery_nan_threshold_s
+        self.battery_sustain_s = battery_sustain_s
         self.telemetry_stale_threshold_s = telemetry_stale_threshold_s
         self.pilot_takeover_threshold_s = pilot_takeover_threshold_s
         self.geofence_margin_m = geofence_margin_m
@@ -196,6 +198,8 @@ class SafetyWatchdog:
         self._datalink_lost_since: float | None = None
         self._gps_lost_since: float | None = None
         self._battery_nan_since: float | None = None
+        self._battery_land_since: float | None = None
+        self._battery_rth_since: float | None = None
         self._telemetry_stale_since: float | None = None
         self._manual_mode_since: float | None = None
         # Terminal action in progress: None | "rth" | "abort". The watchdog
@@ -292,21 +296,58 @@ class SafetyWatchdog:
         else:
             self._manual_mode_since = None
 
-        # 2. Battery
+        # 2. Battery — both thresholds require the reading to STAY down.
+        #
+        # A single sample used to be enough, which was safe only while the pack
+        # had current sensing. It no longer does (2026-08-16: the PM03D failed;
+        # the motors moved to a board the FC cannot see), so PX4 falls back to a
+        # purely voltage-derived gauge — and its load compensation is gated on
+        # `current_a > FLT_EPSILON` (lib/battery/battery.cpp
+        # `calculateStateOfChargeVoltageBased`), so with no current to correct
+        # with, the reading SAGS every time the motors pull hard and springs back
+        # after. On one sample that transient is indistinguishable from a flat
+        # pack: a climb or a gust would fire LAND NOW in the middle of the field.
+        # Requiring the condition to persist keeps a genuinely empty pack fully
+        # protected (it never comes back up) while ignoring the sag.
+        #
+        # This costs at most `battery_sustain_s` of delay, against an FC-side
+        # failsafe (BAT_*_THR / COM_LOW_BAT_ACT) that is still armed underneath
+        # and has direct sensor access — so the aircraft is not unprotected in
+        # the meantime. Credit: the parallel session hit this first.
         if not math.isnan(t.battery_percent):
             self._battery_nan_since = None
+            now = asyncio.get_running_loop().time()
+
             if t.battery_percent < self.land_battery_pct:
-                logger.critical(f"[safety] battery {t.battery_percent:.0f}% — LAND NOW")
-                st.record_anomaly(f"battery_critical_{t.battery_percent:.0f}%")
-                await self._trigger_abort()
-                return
+                if self._battery_land_since is None:
+                    self._battery_land_since = now
+                    if self.battery_sustain_s > 0.0:
+                        logger.warning(
+                            f"[safety] battery {t.battery_percent:.0f}% below the "
+                            f"LAND floor — confirming for {self.battery_sustain_s:.0f}s")
+                if now - self._battery_land_since >= self.battery_sustain_s:
+                    logger.critical(
+                        f"[safety] battery {t.battery_percent:.0f}% sustained — LAND NOW")
+                    st.record_anomaly(f"battery_critical_{t.battery_percent:.0f}%")
+                    await self._trigger_abort()
+                    return
+            else:
+                self._battery_land_since = None
+
             if t.battery_percent < self.rth_battery_pct and st.phase not in (
                 MissionPhase.TRANSIT_EGRESS, MissionPhase.LAND, MissionPhase.RTH
             ):
-                logger.warning(f"[safety] battery {t.battery_percent:.0f}% — triggering RTH")
-                st.record_anomaly(f"battery_low_{t.battery_percent:.0f}%")
-                await self._trigger_rth()
-                return
+                if self._battery_rth_since is None:
+                    self._battery_rth_since = now
+                if now - self._battery_rth_since >= self.battery_sustain_s:
+                    logger.warning(
+                        f"[safety] battery {t.battery_percent:.0f}% sustained — "
+                        "triggering RTH")
+                    st.record_anomaly(f"battery_low_{t.battery_percent:.0f}%")
+                    await self._trigger_rth()
+                    return
+            else:
+                self._battery_rth_since = None
         else:
             # NaN battery (sensor dropout, or pre-first-frame at boot) silently
             # disables BOTH low-battery checks above. Debounce like GPS/datalink:

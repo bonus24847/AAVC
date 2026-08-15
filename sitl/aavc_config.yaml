@@ -620,22 +620,49 @@ sim_battery:
   # every RTH-on-battery decision would be made against a full-looking pack
   # while the real one runs flat mid-delivery.
   #
-  #   ⇒ At the bench, DISABLE current sensing rather than leaving it wrong:
-  #       BAT1_I_CHANNEL = -1        (no current sense on this wiring)
-  #     PX4 then reports no consumed-mAh, orchestrator/energy_policy.py's
-  #     `energy_consumed_mah` drops to its VOLTAGE path ("B", capacity x
-  #     (1 - percent/100)) and every budget downstream stays honest. Path B
-  #     already exists and is tested — it does not need new code, it needs
-  #     PX4 to stop publishing a number that looks valid and is not.
+  #   ⇒ At the bench, set:
+  #       BAT1_CAPACITY = -1         (reboot_required)
   #
-  # VOLTAGE is still true (same pack), so the % gauge is what must be right:
+  #     ⚠ CORRECTION 2026-08-16: this block first said `BAT1_I_CHANNEL = -1`.
+  #     That is a NO-OP — src/modules/battery_status/module.yaml documents -1 as
+  #     "use the board default" AND ships `default: [-1, -1]`, so writing it
+  #     changes nothing (verified in the v1.17 worktree; caught by the parallel
+  #     session before it was set on the aircraft).
+  #
+  #     CAPACITY is the real switch, in lib/battery/battery.cpp
+  #     `estimateStateOfCharge()`:
+  #         if ((_capacity_mah > 0.f) && _battery_initialized) {
+  #             weight_v = 3e-2f * (1 - soc_volt_based);   // ~0 on a full pack
+  #             soc -= _discharged_mah_loop / _capacity_mah;   // ~0, no current
+  #             soc = min(1 - _discharged_mah/_capacity_mah, soc);
+  #         } else {
+  #             soc = _state_of_charge_volt_based;         // <- the path we want
+  #         }
+  #     With a positive capacity and no current, the gauge is pinned near 100%
+  #     for the whole flight. Only capacity <= 0 reaches the voltage branch.
+  #     PX4 then reports no consumed-mAh either, so orchestrator/energy_policy.py's
+  #     `energy_consumed_mah` also drops to its VOLTAGE path ("B", capacity x
+  #     (1 - percent/100)) and every budget downstream stays honest — existing,
+  #     tested code; what it needed was PX4 to stop publishing a number that
+  #     looks valid and is not.
+  #
+  # VOLTAGE is now the ONLY input to the gauge, so these stop being trim and
+  # become the whole measurement:
   #   BAT1_N_CELLS  = 6
   #   BAT1_V_DIV               calibrate in QGC → Power against a MEASURED pack
   #                            voltage (multimeter); the divider depends on the
   #                            new converter, so the PM03D's value is void
   #   BAT1_V_EMPTY  = 3.50     BAT1_V_CHARGED = 4.15  (per Power-System-Guide;
-  #                            CONFIRM against the pack's own spec sheet)
-  #   BAT1_CAPACITY = 17000    (informational once current sensing is off)
+  #                            CONFIRM against the pack's own spec sheet — these
+  #                            two are now the endpoints the ENTIRE percentage is
+  #                            interpolated between, not a fine adjustment)
+  #
+  # ⚠ And because the gauge has no load compensation without current
+  # (`calculateStateOfChargeVoltageBased` only corrects when current > 0), the
+  # reading SAGS whenever the motors pull and springs back. orchestrator/
+  # safety.py therefore requires both battery thresholds to hold for
+  # `battery_sustain_s` before acting — a single dip must not land the aircraft
+  # in the middle of the field.
   # These are NOT pushed from here: BAT1_* are calibration values that belong to
   # the airframe, and writing a wrong divider over MAVLink would corrupt a good
   # calibration. Set them ONCE in QGC → Power and leave them.
