@@ -56,12 +56,38 @@ ask()  { [ "$NONINT" = 1 ] && return 0
 # จำลอง คนที่ตั้งใจบินของจริงต้องเลือกเอง
 MODE="${AAVC_MODE:-}"
 if [ -z "$MODE" ]; then
-    MODE=$(zenity --list --radiolist --width=560 --height=250 \
-        --title="AAVC GCS" --text="จะเปิดโหมดไหน?" \
+    MODE=$(zenity --list --radiolist --width=580 --height=280 \
+        --title="AAVC GCS" --text="จะทำอะไร?" \
         --column="" --column="โหมด" --column="ทำอะไร" \
         TRUE  sim  "จำลอง (SITL) — ปลอดภัย ไม่มีอะไรขยับจริง" \
         FALSE real "🚁 เครื่องจริง — ปุ่ม 🚀 สั่งโดรนที่บินได้จริง" \
+        FALSE stop "⏹ ปิดทุกอย่าง — หยุด SITL + Gazebo + หน้าเว็บให้หมดจริง" \
         2>/dev/null) || exit 0
+fi
+
+# ── 0b. ปิดทุกอย่างให้หมดจริง ──────────────────────────────────────────────
+# ทำไมต้องมีเมนูนี้ (ผู้ใช้ 2026-08-16: "ถ้าผมกดปิดเว็บกับ gazebo มันจะปิดจริงไหม")
+# **ไม่ปิดครับ** และเคยหลอกมาแล้วรอบหนึ่ง:
+#   * ปิดแท็บเบราว์เซอร์ = ปิดแค่ "จอ" — console เป็นโปรเซสเซิร์ฟเวอร์ ยังรันต่อ
+#   * ปิดหน้าต่าง Gazebo = ปิดแค่ตัว viewer (`gz sim -g`) — ตัวคำนวณโลก
+#     (`gz sim -s`) ยังหมุนต่อ พร้อม PX4 + bridge + console ครบทีม
+# ⇒ เครื่องดูเหมือนว่างแต่ยังกิน CPU/พอร์ตอยู่ และไปชนกับเซสชันข้างบ้าน
+stop_everything() {
+    [ -f "$PIDFILE" ] && { while read -r pid; do
+        [ -n "$pid" ] && kill "$pid" 2>/dev/null; done < "$PIDFILE"; rm -f "$PIDFILE"; }
+    pkill -f 'status_sync.s[h]' 2>/dev/null
+    bash "$REPO_ROOT/sitl/launch_stack.sh" stop 2>&1
+}
+if [ "$MODE" = "stop" ]; then
+    OUT="$(stop_everything)"
+    RC=$?
+    # launch_stack ออก 3 เมื่อมี SITL ของโปรเจกต์อื่นรันอยู่ — ไม่ใช่ความผิดพลาด
+    # ของผู้ใช้ และไม่ควรฆ่าให้ (อาจกำลังบินอยู่) บอกไปตรง ๆ
+    if [ "$RC" = 3 ]; then
+        die "ไม่ได้ปิดให้ เพราะมี SITL ของอีกโปรเจกต์รันอยู่ (อาจกำลังบินอยู่)\n\n$OUT"
+    fi
+    msg "ปิดหมดแล้ว ✔\n\nSITL · Gazebo · bridge · หน้าเว็บ — ไม่เหลือค้าง"
+    exit 0
 fi
 
 # ── 1. mission ที่จะบิน ────────────────────────────────────────────────────
