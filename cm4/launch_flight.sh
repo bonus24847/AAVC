@@ -47,6 +47,7 @@ cleanup() {
     pkill -9 -P $$ 2>/dev/null      # kill the keep_alive supervisors we spawned
     for p in "${INFRA_PIDS[@]:-}"; do [ -n "$p" ] && kill -9 "$p" 2>/dev/null; done
     pkill -9 -f 'camera_grabber.p[y]' 2>/dev/null
+    pkill -9 -f 'status_beacon.p[y]' 2>/dev/null
     pkill -9 -f 'orchestrator.mai[n]' 2>/dev/null
     pkill -9 -f 'mavsdk_serve[r]' 2>/dev/null
     pkill -9 -f 'mavlink-route[r]d' 2>/dev/null   # reparented grandchild of keep_alive
@@ -128,6 +129,17 @@ if [ "${NO_CAMERA:-0}" != "1" ]; then
     [ -f /tmp/aavc_nadir.png ] || echo "[flight] WARNING: no nadir frame after 10 s — the camera did NOT start (check /dev/video*, and that nothing else holds it)"
 else
     echo "[flight] NO_CAMERA=1 — expecting /tmp/aavc_*.png from a synthetic/gz feeder"
+fi
+
+# 2b) radio status beacon — the phase/pad/camera summary as MAVLink STATUSTEXT,
+#     so the operator still sees it when WiFi cannot reach the aircraft (the
+#     console's own stepper/pad/camera panels all ride WiFi). ~30 B/s. Needs
+#     MAV_<i>_FORWARD=1 on the FC's CM4 port for the lines to leave the
+#     aircraft; without it this is simply inert. BEACON=0 to skip.
+if [ "${BEACON:-1}" = "1" ]; then
+    echo "[flight] status beacon: mission + camera -> STATUSTEXT (radio)"
+    keep_alive "status-beacon" "${PY[@]}" cm4/status_beacon.py \
+        --captures "$REPO_ROOT/captures" --endpoint "udpout:127.0.0.1:14550"
 fi
 
 # 3) orchestrator — the mission, ONCE (not restarted). Headless field run vs
