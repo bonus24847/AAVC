@@ -97,15 +97,23 @@
         </noise>
       </vertical>
     </plugin>
-    <!-- Base wind vector, ENU m/s. Derived from aavc_config.yaml wind_sitl
-         (10 m/s FROM 225 deg = what the operator measures at both fields,
-         i.e. blowing TOWARD the north-east): 10*sin(45)=7.07 east/north. It used to read
-         "3 0 0" — 3 m/s due east — which matched nothing and, since no link had
-         enable_wind, pushed nothing either. The plugin above adds the gusting
-         (+/-20% sine + gaussian noise) -> the measured 8-12 m/s band. Keep this in step with wind_sitl by hand: no code reads that
-         block, it is the written intent. -->
+    <!-- STILL AIR BY DEFAULT (operator 2026-08-15: "อย่าลืมลบลมออกด้วย").
+         Every validated number this project quotes was measured in still air,
+         so still air is the baseline a normal run must keep reproducing —
+         wind is a deliberate experiment, not a silent change to what "a run"
+         means.
+
+         Turn it on WITHOUT editing or restarting anything:
+             bash sitl/set_wind.sh            # the configured wind_sitl
+             bash sitl/set_wind.sh 10 225     # 10 m/s FROM the south-west
+             bash sitl/set_wind.sh off
+         (gz takes wind live on /world/<name>/wind; the plugin above supplies
+         the gusting, and the airframe feels any of it only because its model
+         sets <enable_wind> — added the same day, when it turned out every
+         flight to date had been flown in still air by accident rather than by
+         choice.) -->
     <wind>
-      <linear_velocity>7.07 7.07 0</linear_velocity>
+      <linear_velocity>0 0 0</linear_velocity>
     </wind>
 
     <!-- Sun -->

@@ -15,6 +15,7 @@ written intent.
 from __future__ import annotations
 
 import math
+import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -49,28 +50,34 @@ def test_world_has_the_wind_plugin(world: Path) -> None:
 
 
 @pytest.mark.parametrize("world", _WORLDS, ids=lambda p: p.name)
-def test_world_base_vector_matches_the_configured_intent(world: Path) -> None:
-    """No code reads wind_sitl — the world file is what actually blows — so the
-    two can drift apart silently. Pin them together: speed and compass bearing.
-
-    direction_deg is meteorological (the direction the wind comes FROM), so a
-    225 deg wind blows toward 45 deg: east = v*sin(bearing), north = v*cos.
-    """
-    cfg = _wind_sitl()
-    speed = float(cfg["base_speed_mps"])
-    toward = math.radians((float(cfg["direction_deg"]) + 180.0) % 360.0)
-    want_e, want_n = speed * math.sin(toward), speed * math.cos(toward)
-
+def test_world_ships_still_air(world: Path) -> None:
+    """The default world is CALM (operator decision): every validated number
+    this project quotes was measured in still air, so a normal run must keep
+    reproducing it. Wind is switched on deliberately, per run, by
+    sitl/set_wind.sh — which is also why nothing here has to stay in step with
+    wind_sitl's numbers any more."""
     root = ET.parse(world).getroot()
-    # `is None`, not `or`: an ElementTree element with no children is FALSY, so
-    # `found or fallback` silently discards a perfectly good element.
     node = root.find("world/wind/linear_velocity")
     assert node is not None, f"{world.name} has no <wind><linear_velocity>"
-    got = [float(v) for v in (node.text or "").split()]
-    assert len(got) == 3, f"{world.name}: wind linear_velocity is {node.text!r}"
-    assert math.isclose(got[0], want_e, abs_tol=0.05), f"east {got[0]} vs {want_e:.2f}"
-    assert math.isclose(got[1], want_n, abs_tol=0.05), f"north {got[1]} vs {want_n:.2f}"
-    assert got[2] == 0.0, "vertical base wind is not part of the model"
+    assert [float(v) for v in (node.text or "").split()] == [0.0, 0.0, 0.0], (
+        f"{world.name} ships wind on by default: {node.text!r}")
+
+
+def test_the_wind_switch_converts_bearing_to_the_enu_vector() -> None:
+    """set_wind.sh takes a METEOROLOGICAL bearing (where wind comes FROM, the
+    forecast convention) and must hand gz the vector it blows TOWARD. Getting
+    that backwards is a silent 180-degree error that would make every windy
+    result describe a wind nobody has."""
+    script = _ROOT / "sitl/set_wind.sh"
+    assert script.exists() and os.access(script, os.X_OK), "set_wind.sh missing/not executable"
+    # Read it, don't shell out: this repo's own path contains spaces, and an
+    # unquoted path is exactly the kind of thing that makes a test pass or fail
+    # for reasons that have nothing to do with what it is testing.
+    body = script.read_text(encoding="utf-8")
+    assert "bearing + 180" in body, "the FROM->TOWARD flip is gone from set_wind.sh"
+    # 225 deg FROM the SW blows toward the NE: both components positive.
+    toward = math.radians((225.0 + 180.0) % 360.0)
+    assert math.sin(toward) > 0 and math.cos(toward) > 0
 
 
 def test_configured_wind_is_worth_flying_against() -> None:
