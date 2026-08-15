@@ -76,7 +76,7 @@ bash sitl/launch_stack.sh        # หรือ make stack — ตั้ง --mi
    |---|---|
    | `--field gcs/kmutnb_field.yaml` | เส้น geofence/search/transit ของสนามบนแผนที่ |
    | `--captures captures` | โฟลเดอร์ที่ status_sync ดึงผลจาก CM4 มาลง (จอ stepper/pad ✓) |
-   | `--url udpin:0.0.0.0:14550` | ช่องรับ telemetry — Nomad backpack / mavlink-router ยิงมาที่นี่ |
+   | `--url …` (เลือกอัตโนมัติ) | ช่องรับ telemetry — **วิทยุ NOMAD ที่เสียบ USB ก่อน** (serial @460800, ไม่ต้องมี router), ไม่พบจึงใช้ `udpin:0.0.0.0:14550` (Nomad backpack / mavlink-router ยิงมาที่นี่). ตัวเลือกอยู่ที่ `cm4/pick_telemetry_link.sh`, สั่งทับด้วย `AAVC_URL` / `AAVC_BAUD` — คอนโซลพิมพ์บอกทุกครั้งว่าใช้ลิงก์ไหน |
    | `--mission-cmd "ssh … REAL=1 run_mission.sh {ids}"` | ปุ่ม 🚀 = ssh ไป stage mission บน CM4 (`{ids}` = pad ที่เลือก) |
    | `--mission-label REAL` | ป้าย [REAL] บนปุ่ม |
    | *(ไม่ใส่ `--reset-cmd`)* | ปุ่ม 🧹 (SIM-only) ซ่อนตัวเอง |
@@ -182,3 +182,19 @@ bench checklist ให้ครบก่อน ห้ามสลับโหม
 หมายเหตุ: จอสดจาก Nomad คือ telemetry (ตำแหน่ง/โหมด/แบต) — ส่วน stepper/pad ✓
 มาจาก `mission_status.json` ผ่าน `status_sync` (WiFi) เหมือนเดิม: กลางเที่ยวอาจ
 ค้าง แล้วสรุปผลครบตอนโดรนกลับเข้าระยะ
+
+### เสียบวิทยุเข้าโน้ตบุ๊กตรง ๆ (ทางที่ใช้จริง 2026-08-15)
+
+ไม่ต้องมี backpack/WiFi และ**ไม่ต้องมี mavlink-router**: เสียบวิทยุ NOMAD เข้า USB
+โน้ตบุ๊กแล้วให้ console อ่าน serial ตรง — `aavc_gcs.py` รับ `--url <dev> --baud 460800`
+ได้อยู่แล้ว ทั้ง `cm4/launch_gcs_real.sh` และไอคอน "AAVC GCS เครื่องจริง" เลือกให้
+อัตโนมัติผ่าน `cm4/pick_telemetry_link.sh` (วิทยุ by-id CP2102/Silicon_Labs →
+`/dev/ttyUSB*` → udp 14550) และพิมพ์บอกทุกครั้งว่าใช้ลิงก์ไหน
+
+⚠ **ปุ่ม 🚀 กับ stepper/pad ✓ ยังต้องใช้ WiFi ถึง CM4 อยู่** — telemetry มาทางวิทยุ
+แต่การสั่งบิน (ssh) และ `status_sync` เป็นคนละเส้น เลือกวิทยุแล้วจอสด แต่ถ้าไม่มี
+เครือข่ายถึง CM4 ปุ่ม 🚀 จะยังล็อก
+
+⚠ อย่าหวังพึ่ง `udpin:14550` โดยไม่มีตัวป้อน: CM4 (Debian 13 trixie) **ไม่มี
+mavlink-router ใน apt** (พบ 2026-08-15) ถ้าไม่ได้ลงเอง UDP 14550 จะเงียบสนิท —
+คอนโซลที่ขึ้นว่า "ไม่มีลิงก์" ในสภาพนั้นไม่ใช่ของเสีย

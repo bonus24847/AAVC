@@ -108,10 +108,24 @@ keep_alive "mavlink-router" "$ROUTERD" -c "$ROUTER_CONF"
 # 2) camera grabber (real cameras). picamera2 needs system python3; the Makefile
 #    target picks the interpreter by BACKEND. Skip for synthetic/gz-fed bench runs.
 if [ "${NO_CAMERA:-0}" != "1" ]; then
+    # A grabber left over from a bench preview (or a previous stack that died
+    # without running cleanup()) still OWNS /dev/video0, so ours would fail with
+    # "v4l2 device did not open" — seen live 2026-08-15. cleanup() only pkills on
+    # EXIT, which is too late to help the run that is starting, and the
+    # frame-file wait below cannot catch it either: the stale file already
+    # exists, so the check passes and the mission flies on a frozen frame
+    # (the vision worker then rejects every frame on age and sees no pads).
+    if pgrep -f 'camera_grabber.p[y]' >/dev/null 2>&1; then
+        echo "[flight] a camera grabber is already running — stopping it so this run owns the camera"
+        pkill -9 -f 'camera_grabber.p[y]' 2>/dev/null
+        sleep 1
+    fi
+    rm -f /tmp/aavc_nadir.png /tmp/aavc_frame.png   # never inherit a stale frame
     echo "[flight] camera grabber: backend=$BACKEND args='$GRAB_ARGS'"
     keep_alive "camera-grabber" make camera-real BACKEND="$BACKEND" GRAB_ARGS="$GRAB_ARGS"
     # let the first frames land so the preflight camera-age check passes
     for _ in $(seq 1 20); do [ -f /tmp/aavc_nadir.png ] && break; sleep 0.5; done
+    [ -f /tmp/aavc_nadir.png ] || echo "[flight] WARNING: no nadir frame after 10 s — the camera did NOT start (check /dev/video*, and that nothing else holds it)"
 else
     echo "[flight] NO_CAMERA=1 — expecting /tmp/aavc_*.png from a synthetic/gz feeder"
 fi

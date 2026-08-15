@@ -12,8 +12,9 @@
 #   2) the AAVC GCS console with the REAL-flight settings:
 #        --field    gcs/kmutnb_field.yaml    (KMUTNB geofence/pads overlay)
 #        --captures captures                 (the dir status_sync fills)
-#        --url      udpin:0.0.0.0:14550      (telemetry in — Nomad backpack /
-#                                             mavlink-router aim HERE)
+#        --url      เลือกเอง (cm4/pick_telemetry_link.sh): วิทยุ NOMAD ที่เสียบ
+#                   USB ก่อน (serial @460800) ไม่พบค่อยใช้ udpin:0.0.0.0:14550
+#                   (Nomad backpack / mavlink-router). AAVC_URL/AAVC_BAUD สั่งทับได้
 #        --mission-cmd  ssh → run_mission.sh (REAL=1 ⇒ RC-GO: 🚀 only STAGES;
 #                                             the safety pilot's RC launches)
 #        --mission-label REAL                (badge on the 🚀 button)
@@ -39,12 +40,16 @@ SSH_ID=(); SSH_ID_STR=""
 if [ -f "$CM4_KEY" ]; then SSH_ID=(-i "$CM4_KEY"); SSH_ID_STR="-i $CM4_KEY "; fi
 
 # The 🚀 button needs passwordless ssh — fail loudly NOW, not at GO time.
-if ! ssh "${SSH_ID[@]}" -o ConnectTimeout=5 -o BatchMode=yes "$HOST" true; then
+if ! ssh "${SSH_ID[@]}" -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$HOST" true; then
     echo "ERROR: ssh $HOST still asks for a password — run: ssh-copy-id ${SSH_ID_STR}$HOST" >&2
     exit 1
 fi
 
+. "$REPO_ROOT/cm4/pick_telemetry_link.sh"
+pick_telemetry_link
+
 echo "[real-gcs] status sync + console → http://127.0.0.1:$PORT  (Ctrl-C stops both)"
+echo "[real-gcs] telemetry link: $LINK_DESC"
 bash "$REPO_ROOT/cm4/status_sync.sh" "$HOST" "$DIR" &
 SYNC_PID=$!
 trap 'kill "$SYNC_PID" 2>/dev/null' EXIT INT TERM
@@ -52,7 +57,7 @@ trap 'kill "$SYNC_PID" 2>/dev/null' EXIT INT TERM
 /usr/bin/python3 "$GCS" \
     --field "$REPO_ROOT/gcs/kmutnb_field.yaml" \
     --captures "$REPO_ROOT/captures" \
-    --url "udpin:0.0.0.0:14550" \
-    --mission-cmd "ssh ${SSH_ID_STR}$HOST 'REAL=1 ~/$DIR/sitl/run_mission.sh {ids}'" \
+    "${LINK_ARGS[@]}" \
+    --mission-cmd "ssh -o StrictHostKeyChecking=accept-new ${SSH_ID_STR}$HOST 'REAL=1 ~/$DIR/sitl/run_mission.sh {ids}'" \
     --mission-label REAL \
     --port "$PORT"

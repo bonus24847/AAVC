@@ -95,11 +95,11 @@ HOST="${HOST// /}"
 [[ "$HOST" == *"@"* ]] || die "รูปแบบต้องเป็น <user>@<ip>\nเช่น $CM4_USER@192.168.2.$CM4_OCTET"
 
 # ── 3. ssh + repo บน CM4 ──────────────────────────────────────────────────
-if ! ssh "${SSH_ID[@]}" -o ConnectTimeout=6 -o BatchMode=yes "$HOST" true 2>/dev/null; then
+if ! ssh "${SSH_ID[@]}" -o ConnectTimeout=6 -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$HOST" true 2>/dev/null; then
     ask "ssh ไป <b>$HOST</b> ไม่สำเร็จ (ไม่ตอบ หรือยังต้องใส่รหัสผ่าน)\n\nเช็ก: โดรนเปิดอยู่ไหม · WiFi วงเดียวกันไหม\n\nจะเปิด console ต่อไปไหม? (ปุ่ม 🚀 จะล็อกจนกว่าจะเจอ CM4)" \
         "เปิดต่อไป" "ยกเลิก" || exit 0
 else
-    if ! ssh "${SSH_ID[@]}" -o BatchMode=yes "$HOST" "[ -d ~/$M_DIR ]" 2>/dev/null; then
+    if ! ssh "${SSH_ID[@]}" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$HOST" "[ -d ~/$M_DIR ]" 2>/dev/null; then
         ask "โดรนยังไม่มี mission <b>$M_LABEL</b> อยู่ในเครื่อง\n\nจะอัพขึ้นให้เลยไหม? (ใช้เวลา ~1-3 นาที ครั้งแรกนานสุด)" \
             "อัพขึ้นโดรนเลย" "ข้ามไปก่อน" && {
             if [ "$NONINT" = 1 ]; then
@@ -133,10 +133,15 @@ fi
 : > "$LOG"
 nohup bash "$REPO_ROOT/cm4/status_sync.sh" "$HOST" "$M_DIR" >> "$LOG" 2>&1 &
 echo $! > "$PIDFILE"
+# telemetry เข้าทางไหน: วิทยุ NOMAD ที่เสียบ USB ก่อน แล้วค่อย udp 14550
+# (cm4/pick_telemetry_link.sh — จุดเลือกร่วมกับไอคอนแบบ terminal)
+. "$REPO_ROOT/cm4/pick_telemetry_link.sh"
+pick_telemetry_link
+echo "[real-gcs] telemetry link: $LINK_DESC" >> "$LOG"
 nohup /usr/bin/python3 "$GCS" \
     --field "$M_FIELD" --captures "$M_CAPT" \
-    --url "udpin:0.0.0.0:14550" \
-    --mission-cmd "ssh ${SSH_ID_STR}$HOST '$M_ENTRY'" \
+    "${LINK_ARGS[@]}" \
+    --mission-cmd "ssh -o StrictHostKeyChecking=accept-new ${SSH_ID_STR}$HOST '$M_ENTRY'" \
     --mission-label REAL --port "$PORT" >> "$LOG" 2>&1 &
 echo $! >> "$PIDFILE"
 
@@ -146,8 +151,9 @@ for _ in $(seq 1 20); do
 done
 if [ "$NONINT" = 1 ]; then
     echo "[info] console up: http://127.0.0.1:$PORT ($M_LABEL → $HOST)"
+    echo "[info] telemetry: $LINK_DESC"
 else
     (xdg-open "http://127.0.0.1:$PORT" >/dev/null 2>&1 &)
     zenity --info --width=470 --title="AAVC GCS เครื่องจริง" \
-      --text="เปิดแล้ว: <b>$M_LABEL</b>\nสั่งไปที่ <b>$HOST</b> → ~/$M_DIR\n\nหน้าเว็บ: http://127.0.0.1:$PORT\n\n• สลับ mission = เปิดไอคอนนี้ใหม่แล้วเลือกอีกอัน (ปิดตัวเก่าให้เอง)\n• ปิดทั้งหมด = เปิดไอคอนนี้แล้วกด 'ปิด console'" 2>/dev/null
+      --text="เปิดแล้ว: <b>$M_LABEL</b>\nสั่งไปที่ <b>$HOST</b> → ~/$M_DIR\n\nTelemetry: <b>$LINK_DESC</b>\nหน้าเว็บ: http://127.0.0.1:$PORT\n\n• สลับ mission = เปิดไอคอนนี้ใหม่แล้วเลือกอีกอัน (ปิดตัวเก่าให้เอง)\n• ปิดทั้งหมด = เปิดไอคอนนี้แล้วกด 'ปิด console'" 2>/dev/null
 fi

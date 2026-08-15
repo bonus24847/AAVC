@@ -48,7 +48,7 @@ CM4_KEY="${CM4_KEY:-$HOME/.ssh/cm4_key}"
 SSH_ID=(); [ -f "$CM4_KEY" ] && SSH_ID=(-i "$CM4_KEY")
 
 echo "[deploy] checking ssh to $HOST …"
-if ! ssh "${SSH_ID[@]}" -o ConnectTimeout=5 -o BatchMode=yes "$HOST" true; then
+if ! ssh "${SSH_ID[@]}" -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$HOST" true; then
     echo "[deploy] ERROR: cannot ssh to $HOST without a password." >&2
     echo "         Run: ssh-copy-id ${SSH_ID[*]:+-i $CM4_KEY }$HOST" >&2
     echo "         (the 🚀 button needs the same passwordless path)" >&2
