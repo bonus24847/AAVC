@@ -1076,9 +1076,18 @@ class DroneCommander:
         battery pins — a failsafe that silently failed to apply is worse than
         one we know is off.
 
-        ⚠ DEPENDENCY: detection itself is ``FD_ACT_EN`` (default 1, but
-        ``@reboot_required`` so it is a bench setting, not one to push here),
-        and it works by watching **ESC current per throttle level**. If the ESC
+        ⚠ DEPENDENCY: detection itself is ``FD_ACT_EN``, which we do NOT push —
+        for one reason only: **its default is already 1, so there is nothing to
+        push**. (Not because pushing would be ineffective. The param carries
+        ``@reboot_required true``, but that flag is conservative metadata, not a
+        statement that the value is ignored: ``FailureDetector`` holds it as a
+        ModuleParams ``ParamBool`` and reads it live every loop at
+        ``FailureDetector.cpp:80``, and Commander's ``updateParams()`` recurses
+        into its children — so a runtime write DOES take effect. Contrast
+        ``MAV_1_FORWARD``, same flag, genuinely boot-only because PX4 consumes
+        it as a module start argument. Check the owning module; the flag alone
+        tells you nothing.)
+        Detection works by watching **ESC current per throttle level**. If the ESC
         telemetry wire is not landed on the FC, nothing above ever triggers —
         which is why orchestrator/safety.py carries a companion-side check on
         the same signal. Verify at G5 with ``listener esc_status``.

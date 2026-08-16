@@ -572,8 +572,12 @@ def test_battery_rth_debounce_is_independent_of_land() -> None:
 # ── motor health: one rotor out (2026-08-16) ────────────────────────────────
 #
 # The FC layer (CA_FAILURE_MODE=1 + COM_ACT_FAIL_ACT=2) is the primary; this
-# watchdog check is the backstop for FD_ACT_EN having been reset without a
-# reboot. Every test below is really asking the same question in two
+# watchdog check is the backstop for FD_ACT_EN having been switched off, for
+# FD's own thresholds never having been fitted to this power train, and for
+# leaving an audit trail the FC's detector does not. (It is NOT, as this
+# comment first claimed, a backstop for "reset without a reboot" — FD_ACT_EN
+# applies live and its default is on; see safety.py::_check_motor_health.)
+# Every test below is really asking the same question in two
 # directions: does it act on a real motor failure, and does it stay silent on
 # everything that merely LOOKS like one?
 

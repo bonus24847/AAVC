@@ -590,7 +590,8 @@ failsafes:
                             # if the field layout makes landing-in-place worse.
                             # ⚠ Neither key does ANYTHING unless the failure
                             # detector can see per-motor ESC current (FD_ACT_EN,
-                            # reboot-required, default on). Verify the ESC
+                            # default on, and applies live despite its
+                            # reboot_required flag — see commands.py). Verify the ESC
                             # telemetry wire at G5: `listener esc_status`.
                             # The companion-side backstop for the same signal is
                             # motor_health below.
@@ -695,7 +696,11 @@ sim_battery:
   # while the real one runs flat mid-delivery.
   #
   #   ⇒ At the bench, set:
-  #       BAT1_CAPACITY = -1         (reboot_required)
+  #       BAT1_CAPACITY = -1
+  #     (flagged reboot_required, but `battery.cpp` param_get's it and calls
+  #      setCapacityMah() on every param update, so it applies live. Verified
+  #      2026-08-16 — do not assume the flag means boot-only, it varies per
+  #      module: FD_ACT_EN is live too, MAV_1_FORWARD genuinely is not.)
   #
   #     ⚠ CORRECTION 2026-08-16: this block first said `BAT1_I_CHANNEL = -1`.
   #     That is a NO-OP — src/modules/battery_status/module.yaml documents -1 as

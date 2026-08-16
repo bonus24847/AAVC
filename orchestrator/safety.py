@@ -567,9 +567,21 @@ class SafetyWatchdog:
         since 2026-08-16, we pin it to act (CA_FAILURE_MODE=1 +
         COM_ACT_FAIL_ACT=2, `DroneCommander.set_motor_failure_failsafe`). That
         FC layer is faster (FD_ACT_MOT_TOUT = 100 ms) and authoritative. This is
-        the companion backstop for the case the FC layer is silently off —
-        FD_ACT_EN is reboot-required, so a param reset plus a flight without a
-        reboot leaves detection disabled with nothing to show for it.
+        the companion backstop for the case the FC layer is silently off.
+        ⚠ CORRECTED 2026-08-16 (same day it was written): the reason here first
+        read "FD_ACT_EN is reboot-required, so a param reset plus a flight
+        without a reboot leaves detection disabled". Both halves were wrong.
+        FD_ACT_EN carries `@reboot_required true` in its metadata but
+        `FailureDetector` holds it as a ModuleParams `ParamBool` and reads it
+        live every loop (`FailureDetector.cpp:80`), with Commander's
+        `updateParams()` recursing into it — so it applies at runtime; and its
+        default is 1, so a param reset RESTORES detection rather than losing it.
+        The real reasons for this layer are that someone can set it to 0 (this
+        board has a documented history of parameters changing on their own —
+        PWM_MAIN_FUNC to 0, PWM_AUX_FUNC to RC passthrough), that FD's own
+        thresholds (FD_ACT_MOT_THR / _C2T / _TOUT) were never fitted to this
+        power train, and that a companion-side check leaves an audit trail the
+        FC's does not.
         `motor_fail_sustain_s` (3 s) is 30x the FC's timeout precisely so the two
         cannot race: if PX4 was going to act, it already did.
 
