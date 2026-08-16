@@ -416,9 +416,13 @@ class SafetyWatchdog:
             if not _point_in_polygon(t.lat, t.lon, self.controlled_airspace):
                 # FLIGHT-BEHAVIOR CHANGE (re-validate SITL G2/G4): a breach now
                 # triggers RTH — return INSIDE the field, matching PX4
-                # GF_ACTION=2 — instead of LAND-in-place, which left the vehicle
-                # DOWN outside controlled airspace (a rules violation + recovery
-                # hazard). See docs/flight_behavior_changes.md.
+                # GF_ACTION=3 (Return) — instead of LAND-in-place, which left
+                # the vehicle DOWN outside controlled airspace (a rules
+                # violation + recovery hazard). See docs/flight_behavior_changes.md.
+                # ⚠ This comment said GF_ACTION=2 until 2026-08-16, and so did
+                # the code that set it — 2 is HOLD, not Return, so the FC half
+                # of "return inside the field" was never actually in place and
+                # this companion check was carrying the rule alone.
                 logger.critical(
                     f"[safety] outside controlled airspace at "
                     f"({t.lat:.6f}, {t.lon:.6f}) — RTH back inside"

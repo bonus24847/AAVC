@@ -156,6 +156,43 @@ def test_set_battery_failsafe_raises_when_action_readback_wrong():
             low=0.25, crit=0.15, emergen=0.07, action=3))
 
 
+# ── geofence breach action (GF_ACTION, corrected 2026-08-16) ──
+
+
+def test_geofence_action_is_return_not_hold():
+    """GF_ACTION=2 is HOLD, not Return — this shipped wrong for its whole life.
+
+    PX4's enum (src/modules/navigator/geofence_params.c) is
+    0 None / 1 Warning / 2 Hold / 3 Return / 4 Terminate / 5 Land. Setting 2
+    made the FC park the aircraft AT the breach point — outside the fence —
+    which is the very outcome safety.py's geofence comment says the design
+    moved away from.
+    """
+    p = _FakeParam()
+    asyncio.run(_commander_with_param(p).set_geofence_action_rtl())
+    assert p.int_sets["GF_ACTION"] == 3, "3 = Return; 2 would be Hold"
+
+
+def test_geofence_action_stays_in_the_companion_detectable_set():
+    """A geofence action of Hold can never be spotted from the companion.
+
+    PX4 answers our own goto_location (DO_REPOSITION) with AUTO_LOITER, which
+    MAVSDK reports as HOLD — the mode the mission flies in end to end. So a
+    Hold failsafe is indistinguishable from normal flight. Return (3) and Land
+    (5) are the only actions that surface as a distinct mode; pin that, because
+    "restore GF_ACTION=2" is exactly the change a future reader would make.
+    """
+    p = _FakeParam()
+    asyncio.run(_commander_with_param(p).set_geofence_action_rtl())
+    assert p.int_sets["GF_ACTION"] in (3, 5)
+
+
+def test_geofence_action_raises_when_readback_wrong():
+    p = _FakeParam(readback={"GF_ACTION": 2})     # PX4 kept the old Hold value
+    with pytest.raises(RuntimeError):
+        asyncio.run(_commander_with_param(p).set_geofence_action_rtl())
+
+
 # ── one-motor-out (CA_FAILURE_MODE / COM_ACT_FAIL_ACT, 2026-08-16) ──
 
 

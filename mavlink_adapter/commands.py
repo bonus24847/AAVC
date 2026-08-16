@@ -944,17 +944,43 @@ class DroneCommander:
         return len(points)
 
     async def set_geofence_action_rtl(self) -> None:
-        """Make PX4 RTL on geofence breach (vs the default warn-only).
+        """Make PX4 RETURN on geofence breach (vs the default warn-only).
+
+        ⚠ FIXED 2026-08-16 — THIS WROTE THE WRONG ACTION FOR ITS WHOLE LIFE.
+        It set ``GF_ACTION = 2`` and called that RTL in the value comment, the
+        error text, the function name and CLAUDE.md. It is not. PX4's enum
+        (``src/modules/navigator/geofence_params.c``) is:
+
+            0 None · 1 Warning · 2 **Hold** · 3 **Return** · 4 Terminate · 5 Land
+
+        So the FC-level geofence response was "stop and loiter" — executed at
+        the breach point, i.e. potentially OUTSIDE the fence. That is the exact
+        failure the design had already rejected once: safety.py's own comment
+        records the move away from LAND-in-place because it "left the vehicle
+        DOWN outside controlled airspace (a rules violation + recovery
+        hazard)". Hold parks it there instead of landing it there — same
+        problem, quieter. The companion watchdog's geofence check still RTHs,
+        so the aircraft was not unprotected; what was missing is precisely the
+        layer advertised as working when the CM4 does not.
+
+        Fixing this also makes the breach DETECTABLE from the companion. PX4
+        answers our own ``goto_location`` (DO_REPOSITION) with AUTO_LOITER,
+        which MAVSDK reports as ``HOLD`` — the mode the mission flies in from
+        takeoff to landing. A failsafe configured to Hold is therefore
+        indistinguishable from normal flight and can never be spotted mode-side;
+        one configured to Return shows up as RETURN_TO_LAUNCH. Any future
+        geofence action must stay in {3 Return, 5 Land} for that reason — do
+        NOT "restore" 2.
 
         Reads the param back after setting and raises if it didn't stick — a
         clean MAVSDK ACK does not guarantee PX4 stored the value. The caller
         records an anomaly on failure so a lost onboard geofence isn't silent."""
-        await self.system.param.set_param_int("GF_ACTION", 2)  # 2 = RTL
+        await self.system.param.set_param_int("GF_ACTION", 3)  # 3 = Return
         readback = await self.system.param.get_param_int("GF_ACTION")
-        if readback != 2:
+        if readback != 3:
             raise RuntimeError(
-                f"GF_ACTION readback={readback}, expected 2 (RTL) — PX4 did not "
-                "store the geofence action; onboard breach enforcement is OFF."
+                f"GF_ACTION readback={readback}, expected 3 (Return) — PX4 did "
+                "not store the geofence action; onboard breach enforcement is OFF."
             )
 
     async def set_datalink_loss_rtl(self, timeout_s: float = 10.0) -> None:

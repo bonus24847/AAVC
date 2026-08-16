@@ -102,7 +102,7 @@ MAVLINK_FOR_COMMAND: dict[str, str] = {
     "abort":                   "MAV_CMD_COMPONENT_ARM_DISARM  (force-disarm / kill)",
     "connect":                 "HEARTBEAT  (link established)",
     "upload_geofence":         "MISSION_COUNT / MISSION_ITEM_INT  (MAV_MISSION_TYPE_FENCE)",
-    "set_geofence_action_rtl": "PARAM_SET  GF_ACTION=2 (RTL)",
+    "set_geofence_action_rtl": "PARAM_SET  GF_ACTION=3 (Return)",
     "set_datalink_loss_rtl":   "PARAM_SET  NAV_DLL_ACT=2 (RTL)",
     "run_mission":             "MISSION_COUNT / MISSION_ITEM_INT → MAV_CMD_MISSION_START",
     # Manual verbs from the dashboard command bar (recorded as dashboard_<verb>).

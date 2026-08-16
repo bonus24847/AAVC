@@ -153,6 +153,23 @@ single sortie" is history, not current design.)
   sustained; **search floor** <10 m advisory outside the delivery-descent
   phases. The no-fly polygon + L&R coordinates are APPROXIMATE (figure-only in
   the rules) — config-tunable, re-measure at the event briefing.
+  ⚠ **`GF_ACTION` FIXED 2026-08-16 — it was Hold, not Return, for its whole
+  life.** `set_geofence_action_rtl()` wrote **2** while its own name, value
+  comment, error text and this file all said RTL. PX4's enum
+  (`navigator/geofence_params.c`) is `0 None · 1 Warning · 2 Hold · 3 Return ·
+  4 Terminate · 5 Land`, so the FC-level breach response was "stop and loiter"
+  **at the breach point, outside the fence** — the same outcome the design had
+  already rejected once when it moved off LAND-in-place ("left the vehicle DOWN
+  outside controlled airspace"). The companion check carried the rule alone;
+  nothing was unprotected, but the layer sold as working *without* the CM4 did
+  not. Now **3 (Return)**, verified live (fresh SITL rootfs read the factory
+  default 2 = Hold, then held 3). Any future value must stay in {3 Return,
+  5 Land} — never 2 — because PX4 answers our own `goto_location`
+  (DO_REPOSITION) with AUTO_LOITER = MAVLink **HOLD**, the mode the mission
+  flies in end to end, so a Hold failsafe is indistinguishable from normal
+  flight and cannot be detected mode-side. Lesson worth keeping: the readback
+  gate **passed** the whole time — it proves a value was stored, never that the
+  value means what the caller thinks.
 - **One motor out** (2026-08-16): the hexa's rotor redundancy — the stated
   reason for six motors — was never actually ENABLED. PX4 1.17 ships both
   halves off: `CA_FAILURE_MODE=0` (allocator ignores the failure, so the mixer
