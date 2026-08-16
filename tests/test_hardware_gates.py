@@ -133,15 +133,26 @@ def test_height_aiding_params_are_shipped(pin: str) -> None:
 
 
 def test_only_live_params_may_gate_the_flight() -> None:
-    """A reboot_required parameter must NEVER sit in the read-back gate.
+    """A param the running module will not re-read must NEVER gate the flight.
 
     PX4 stores such a value immediately — so the read-back reports PASS — while
-    the module keeps running on the OLD value until the next boot. A gate that
-    can only ever say "held" is worse than no gate, because it gets believed.
-    EKF2_HGT_REF is reboot_required (ekf2/module.yaml); EKF2_RNG_A_HMAX is not.
+    the module keeps running on the OLD one. A gate that can only ever say
+    "held" is worse than no gate, because it gets believed.
+
+    ⚠ The test used to justify itself with "EKF2_HGT_REF is reboot_required
+    (ekf2/module.yaml)". That flag decides nothing — it is conservative
+    metadata, and PX4 carries it on params that DO apply live (FD_ACT_EN is
+    read every loop; BAT1_CAPACITY re-runs setCapacityMah on every update).
+    What actually disqualifies EKF2_HGT_REF is the mechanism: the EKF latches
+    `_height_sensor_ref` when a source starts fusing, and the only code that
+    consults `_params.ekf2_hgt_ref` again — `checkHeightSensorRefFallback()` —
+    returns at its first line unless the reference is UNKNOWN
+    (height_control.cpp:63). Once locked, nothing re-reads the param to switch
+    back. So decide membership here by "does the owner re-read it", never by
+    the flag.
     """
-    assert "EKF2_RNG_A_HMAX" in _ENVELOPE_PINS      # applies live
-    assert "EKF2_HGT_REF" not in _ENVELOPE_PINS     # reboot_required
+    assert "EKF2_RNG_A_HMAX" in _ENVELOPE_PINS      # re-read live
+    assert "EKF2_HGT_REF" not in _ENVELOPE_PINS     # latched at fusion start
     # …and the honest place for it is the bench sweep, which reports
     # reboot-required keys as their own class instead of as drift.
     import importlib.util

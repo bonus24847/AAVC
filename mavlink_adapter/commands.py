@@ -244,13 +244,19 @@ _ENVELOPE_PINS = (
     # Applies live, so reading it back means something.
     "EKF2_RNG_A_HMAX",
     # ⚠ EKF2_HGT_REF is deliberately NOT here even though it matters just as
-    # much. It is reboot_required: PX4 stores a new value immediately — so this
-    # read-back would say PASS — while the estimator keeps running on the OLD
-    # reference until the next boot. A gate that can only report success is
-    # worse than no gate, because it is believed. It is pinned in px4_tuning
-    # (so the value survives) and checked where the answer is honest: at the
-    # bench, by tools/param_audit.py, which reports reboot-required keys
-    # separately for exactly this reason.
+    # much: PX4 stores a new value immediately — so this read-back would say
+    # PASS — while the estimator keeps running on the OLD reference. A gate that
+    # can only report success is worse than no gate, because it is believed.
+    # It is pinned in px4_tuning (so the value survives) and checked where the
+    # answer is honest: at the bench, by tools/param_audit.py.
+    # ⚠ REASON CORRECTED 2026-08-16: this used to say "it is reboot_required",
+    # as if the metadata flag settled it. It does not — FD_ACT_EN and
+    # BAT1_CAPACITY carry the same flag and both apply live. The real
+    # disqualifier is that the EKF LATCHES its height reference when a source
+    # starts fusing, and the one function that re-reads the param
+    # (`checkHeightSensorRefFallback`) bails at its first line unless the
+    # reference is UNKNOWN (height_control.cpp:63). Judge every candidate pin
+    # by "does the owning module re-read it", never by the flag.
 )
 
 
