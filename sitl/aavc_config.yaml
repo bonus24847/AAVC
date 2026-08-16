@@ -557,6 +557,60 @@ failsafes:
   bat_crit_thr: 0.15        # BAT_CRIT_THR — critical (below companion LAND 20%)
   bat_emergen_thr: 0.07     # BAT_EMERGEN_THR — emergency land
   low_bat_act: 3            # COM_LOW_BAT_ACT: 3 = Return at low, Land at critical
+  # ── ONE MOTOR OUT (2026-08-16) ──
+  # Six rotors are only redundant if PX4 is told to USE the redundancy, and it
+  # ships with both halves disabled. Until this block existed, a dead motor got
+  # a log warning and nothing else — while the presentation script promised
+  # "เสีย 1 ตัวยังควบคุมลงจอดได้".
+  ca_failure_mode: 1        # CA_FAILURE_MODE (PX4 default 0 = Ignore):
+                            # 1 = drop the failed motor from the control
+                            # allocator's effectiveness matrix, so the mixer
+                            # re-solves across the surviving five.
+  act_fail_act: 2           # COM_ACT_FAIL_ACT (PX4 default 0 = warning only):
+                            # 0 warn / 1 Hold / 2 Land / 3 Return.
+                            # 2 = land where it is. A five-motor hexa is flyable
+                            # but degraded, and Return (3) would send it across
+                            # the field over the crew and the judges to save an
+                            # airframe that is already damaged. Change to 3 only
+                            # if the field layout makes landing-in-place worse.
+                            # ⚠ Neither key does ANYTHING unless the failure
+                            # detector can see per-motor ESC current (FD_ACT_EN,
+                            # reboot-required, default on). Verify the ESC
+                            # telemetry wire at G5: `listener esc_status`.
+                            # The companion-side backstop for the same signal is
+                            # motor_health below.
+
+# ── Companion-side motor-health backstop (orchestrator/safety.py) ──
+# Reads the SAME per-motor ESC current the FC failure detector uses, but over
+# MAVLink ESC_STATUS via the raw listener. It exists because failsafes.* above
+# are invisible from the companion: if FD_ACT_EN got reset, or the FC's own
+# detection thresholds don't fit this power train, the aircraft would fly on a
+# dead motor with nothing said. This layer is DELIBERATELY slower than the FC
+# (which acts in FD_ACT_MOT_TOUT = 100 ms) so it can only ever be a backstop,
+# never a racer.
+#
+# Fails OPEN by construction, which matters because the ESC telemetry wiring is
+# still unverified (G5) and SITL emits no ESC_STATUS at all: no data, stale
+# data, an unloaded rotor set, or MORE than one suspect motor all mean "say
+# something, do nothing". Only the single-motor case with the other five
+# clearly pulling current can command a landing.
+motor_health:
+  motor_count: 6            # rotors to watch (EFT X6100 hexa). 0 disables the
+                            # check entirely.
+  min_median_current_a: 3.0 # the other motors must be pulling at least this
+                            # (median) before a zero reading means anything —
+                            # on the ground / idle every ESC reads ~0 and a
+                            # "failure" there is just an unarmed aircraft.
+  dead_frac: 0.2            # a motor under this fraction of the median is not
+                            # producing thrust. 20% of a ~7 A/motor hover
+                            # median is ~1.4 A — well clear of ESC noise.
+  sustain_s: 3.0            # hold the condition this long before acting (the FC
+                            # gets 100 ms; if it were going to act it already
+                            # has).
+  stale_s: 2.0              # ESC_STATUS older than this is not evidence. The
+                            # list is never cleared, so without this a frozen
+                            # raw-MAVLink listener would keep re-serving the
+                            # last frame forever.
 
 # ── Pack + energy budget (orchestrator/energy_policy.py) ──
 # The reserve is NOT declared here: it is failsafes.bat_low_thr above, because

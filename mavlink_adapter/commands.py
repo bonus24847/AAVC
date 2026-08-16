@@ -1027,6 +1027,48 @@ class DroneCommander:
                 "not store the low-battery action; FC-level battery failsafe is OFF."
             )
 
+    async def set_motor_failure_failsafe(
+        self, *, failure_mode: int = 1, action: int = 2,
+    ) -> None:
+        """Arm PX4's one-motor-out response — OFF at the factory, on both counts.
+
+        The hexacopter's whole reason for being here is that six rotors can lose
+        one and still fly (docs/AAVC2026_Presentation_Script_TH.md says exactly
+        that on stage). PX4 1.17 ships that capability DISABLED:
+
+          * ``CA_FAILURE_MODE``  default **0 = Ignore** — the control allocator
+            keeps solving for six healthy motors, so the mixer never
+            redistributes around the dead one and the redundancy is theoretical.
+            1 = remove the first failed motor from the effectiveness matrix.
+          * ``COM_ACT_FAIL_ACT`` default **0 = Warning only** — the failure
+            detector raises the flag and the aircraft carries on flying.
+            2 = Land, 3 = Return.
+
+        We pin 1 + Land: a crippled airframe should come down where it is
+        rather than fly a transit leg over the crew. Both are INT32 and both are
+        readback-confirmed, same treatment as the geofence / RC / datalink /
+        battery pins — a failsafe that silently failed to apply is worse than
+        one we know is off.
+
+        ⚠ DEPENDENCY: detection itself is ``FD_ACT_EN`` (default 1, but
+        ``@reboot_required`` so it is a bench setting, not one to push here),
+        and it works by watching **ESC current per throttle level**. If the ESC
+        telemetry wire is not landed on the FC, nothing above ever triggers —
+        which is why orchestrator/safety.py carries a companion-side check on
+        the same signal. Verify at G5 with ``listener esc_status``.
+        """
+        for name, value in (
+            ("CA_FAILURE_MODE", failure_mode), ("COM_ACT_FAIL_ACT", action),
+        ):
+            await self.system.param.set_param_int(name, int(value))
+            readback = await self.system.param.get_param_int(name)
+            if readback != int(value):
+                raise RuntimeError(
+                    f"{name} readback={readback}, expected {value} — PX4 did not "
+                    "store it; one-motor-out handling is at the PX4 default "
+                    "(allocator ignores the failure / warning only)."
+                )
+
     async def set_gimbal_mount(self, params: Mapping[str, float]) -> int:
         """Best-effort push of the MNT_* mount-driver params at mission start.
 

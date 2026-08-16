@@ -721,6 +721,18 @@ async def run(args: argparse.Namespace) -> int:
             )
         except Exception as e:
             state.record_anomaly(f"battery failsafe setup failed: {e}")
+        # One-motor-out (2026-08-16). PX4 ships BOTH halves off: the allocator
+        # ignores a reported motor failure (CA_FAILURE_MODE=0) and the commander
+        # only warns (COM_ACT_FAIL_ACT=0) — i.e. the hexacopter's rotor
+        # redundancy, the stated reason for choosing six motors, was never
+        # actually enabled. Pinned here with the other FC-level failsafes.
+        try:
+            await commander.set_motor_failure_failsafe(
+                failure_mode=int(fs.get("ca_failure_mode", 1)),
+                action=int(fs.get("act_fail_act", 2)),
+            )
+        except Exception as e:
+            state.record_anomaly(f"motor-failure failsafe setup failed: {e}")
         # Stabilized-nadir camera gimbal (PX4 mount driver) — best-effort:
         # SITL's PX4 lacks the module (params warn + skip); the real 6X is
         # configured here so the servo holds the camera straight down.
@@ -793,8 +805,17 @@ async def run(args: argparse.Namespace) -> int:
                 f"{energy_policy.capacity_mah:.0f} mAh")
 
         # ── safety watchdog ──
+        # motor_health: the companion half of the one-motor-out net (the FC half
+        # is set_motor_failure_failsafe above). Omit the block to take the
+        # watchdog's own hexa defaults; motor_count: 0 turns the check off.
+        mh = cfg.get("motor_health", {}) or {}
         watchdog = SafetyWatchdog(
             state, commander, controlled_airspace=cfg.get("controlled_airspace", []),
+            motor_count=int(mh.get("motor_count", 6)),
+            motor_min_median_current_a=float(mh.get("min_median_current_a", 3.0)),
+            motor_dead_frac=float(mh.get("dead_frac", 0.2)),
+            motor_fail_sustain_s=float(mh.get("sustain_s", 3.0)),
+            esc_stale_s=float(mh.get("stale_s", 2.0)),
             rth_battery_pct=profile.rth_battery_pct,
             land_battery_pct=profile.land_battery_pct,
             min_time_remaining_for_continue_s=profile.min_time_remaining_s,

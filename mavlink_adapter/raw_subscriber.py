@@ -20,9 +20,17 @@ QGC bound). Real CM4 / HITL: mavlink-router fans a dedicated [UdpEndpoint raw]
 selects the port; 0/absent disables the listener entirely.
 
 This module does NOT replace MAVSDK; it augments CurrentTelemetry with fields
-the dashboard needs. The orchestrator's safety watchdog reads MAVSDK-populated
-fields exclusively (battery_percent, datalink_rssi, etc.), so a pymavlink failure
-cannot affect safety.
+the dashboard needs. Every SAFETY-ACTING check in the watchdog reads
+MAVSDK-populated fields (battery_percent, datalink_rssi, gps_fix_type, …), so a
+pymavlink failure cannot ground a healthy aircraft.
+
+⚠ ONE EXCEPTION since 2026-08-16: the motor-health check
+(`orchestrator/safety.py::_check_motor_health`) reads `esc_current_a` from
+here, because per-motor current is the only signal that tells a dead rotor from
+a live one and MAVSDK does not expose it. That check is built to fail OPEN — no
+listener, no pymavlink, a stale `esc_monotonic`, or an all-zero list are each
+"do nothing" — precisely so this module keeps its "cannot affect safety"
+property in the only direction that matters.
 """
 
 from __future__ import annotations
@@ -39,7 +47,11 @@ if TYPE_CHECKING:
 DEFAULT_RAW_PORT = 14551
 DEFAULT_BIND_HOST = "0.0.0.0"
 _SERVO_CHANNELS = 16  # SERVO_OUTPUT_RAW carries servo1..servo16
-_ESC_CHANNELS = 8     # AAVC X-quad uses 4 motors; PX4 reserves 8 slots for hex/oct
+_ESC_CHANNELS = 8     # AAVC flies a 6-motor hexa; PX4 reserves 8 slots. Slots
+                      # 6..7 stay 0.0 and are NOT motors — anything reading this
+                      # list for motor health must slice to the real rotor count
+                      # (safety.motor_health.motor_count), or it will diagnose
+                      # two permanently-dead motors on every healthy flight.
 # The MAVLink message types we subscribe to (ATTITUDE is deliberately absent —
 # MAVSDK owns roll/pitch; see the module docstring).
 _MSG_TYPES = ("SERVO_OUTPUT_RAW", "ESC_STATUS", "BATTERY_STATUS")
@@ -162,6 +174,7 @@ class RawMavlinkSubscriber:
                     t.esc_rpm[idx] = int(rpm[offset]) if offset < len(rpm) else 0
                     t.esc_current_a[idx] = float(current[offset]) if offset < len(current) else 0.0
                     t.esc_voltage_v[idx] = float(voltage[offset]) if offset < len(voltage) else 0.0
+            t.esc_monotonic = time.monotonic()
         elif mtype == "BATTERY_STATUS":
             consumed = getattr(msg, "current_consumed", -1)
             if consumed >= 0:

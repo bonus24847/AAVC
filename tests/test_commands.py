@@ -156,6 +156,43 @@ def test_set_battery_failsafe_raises_when_action_readback_wrong():
             low=0.25, crit=0.15, emergen=0.07, action=3))
 
 
+# ── one-motor-out (CA_FAILURE_MODE / COM_ACT_FAIL_ACT, 2026-08-16) ──
+
+
+def test_set_motor_failure_failsafe_arms_both_halves():
+    """PX4 ships the hexa's rotor redundancy switched off in two places, and
+    BOTH have to be set: the allocator has to drop the dead motor from its
+    effectiveness matrix (CA_FAILURE_MODE), and the commander has to do
+    something about it (COM_ACT_FAIL_ACT, default 0 = log a warning)."""
+    p = _FakeParam()
+    asyncio.run(_commander_with_param(p).set_motor_failure_failsafe())
+    assert p.int_sets["CA_FAILURE_MODE"] == 1    # remove the failed motor
+    assert p.int_sets["COM_ACT_FAIL_ACT"] == 2   # 2 = Land where it is
+
+
+def test_set_motor_failure_failsafe_raises_when_allocator_readback_wrong():
+    """The dangerous case is the half that fails QUIETLY: COM_ACT_FAIL_ACT
+    stored, allocator mode not. The aircraft would then land on a motor
+    failure — while still mixing for six healthy rotors on the way down."""
+    p = _FakeParam(readback={"CA_FAILURE_MODE": 0})
+    with pytest.raises(RuntimeError):
+        asyncio.run(_commander_with_param(p).set_motor_failure_failsafe())
+
+
+def test_set_motor_failure_failsafe_raises_when_action_readback_wrong():
+    p = _FakeParam(readback={"COM_ACT_FAIL_ACT": 0})
+    with pytest.raises(RuntimeError):
+        asyncio.run(_commander_with_param(p).set_motor_failure_failsafe())
+
+
+def test_set_motor_failure_failsafe_action_is_overridable():
+    """Return (3) instead of Land (2) is a one-integer config change, not a
+    code edit — the field layout decides which is safer."""
+    p = _FakeParam()
+    asyncio.run(_commander_with_param(p).set_motor_failure_failsafe(action=3))
+    assert p.int_sets["COM_ACT_FAIL_ACT"] == 3
+
+
 # ── gimbal mount params (stabilized-nadir pitch servo, PX4 mount driver) ──
 
 

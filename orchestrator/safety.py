@@ -15,12 +15,15 @@ Safety triggers (in order of severity):
   9. Datalink RSSI critically low for > 5 s → emergency egress
  10. Time remaining < 3 min and not yet at egress → RTH unconditionally
  11. Telemetry age > 2 s → suspect link issue
+ 12. One rotor drawing no current while the others are loaded → LAND in place
 """
 
 from __future__ import annotations
 
 import asyncio
 import math
+import statistics
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -129,6 +132,11 @@ class SafetyWatchdog:
         battery_sustain_s: float = 5.0,
         telemetry_stale_threshold_s: float = 10.0,
         pilot_takeover_threshold_s: float = 1.0,
+        motor_count: int = 6,
+        motor_min_median_current_a: float = 3.0,
+        motor_dead_frac: float = 0.2,
+        motor_fail_sustain_s: float = 3.0,
+        esc_stale_s: float = 2.0,
         geofence_margin_m: float = 5.0,
         no_fly_zones: list[list[list[float]]] | None = None,
         altitude_ceiling_m: float = 20.0,
@@ -159,6 +167,12 @@ class SafetyWatchdog:
         self.battery_sustain_s = battery_sustain_s
         self.telemetry_stale_threshold_s = telemetry_stale_threshold_s
         self.pilot_takeover_threshold_s = pilot_takeover_threshold_s
+        # Motor health (config `motor_health:`). motor_count=0 disables.
+        self.motor_count = int(motor_count)
+        self.motor_min_median_current_a = motor_min_median_current_a
+        self.motor_dead_frac = motor_dead_frac
+        self.motor_fail_sustain_s = motor_fail_sustain_s
+        self.esc_stale_s = esc_stale_s
         self.geofence_margin_m = geofence_margin_m
         # V1.3 airspace rules: no-fly polygons (entry prohibited), the 20 m
         # ceiling (transit flies AT it, so warn has headroom above), and the
@@ -202,6 +216,7 @@ class SafetyWatchdog:
         self._battery_rth_since: float | None = None
         self._telemetry_stale_since: float | None = None
         self._manual_mode_since: float | None = None
+        self._motor_fail_since: float | None = None
         # Terminal action in progress: None | "rth" | "abort". The watchdog
         # keeps checking DURING an in-progress RTH (run as a background task,
         # not awaited inline) so a worsening condition can escalate to LAND.
@@ -295,6 +310,11 @@ class SafetyWatchdog:
                 return
         else:
             self._manual_mode_since = None
+
+        # 1.6 Motor health — one rotor out. Ahead of battery on purpose: a hexa
+        # flying on five is the shortest fuse on this list.
+        if await self._check_motor_health():
+            return
 
         # 2. Battery — both thresholds require the reading to STAY down.
         #
@@ -532,6 +552,98 @@ class SafetyWatchdog:
             )
             st.record_anomaly("time_budget_exhausted")
             await self._trigger_rth()
+
+    async def _check_motor_health(self) -> bool:
+        """One rotor producing no current while the others are loaded → LAND.
+
+        Returns True if a terminal action was dispatched (caller must then stop
+        checking the remaining rules this tick).
+
+        WHY THIS EXISTS. PX4 has its own motor-failure detector (FD_ACT_*) and,
+        since 2026-08-16, we pin it to act (CA_FAILURE_MODE=1 +
+        COM_ACT_FAIL_ACT=2, `DroneCommander.set_motor_failure_failsafe`). That
+        FC layer is faster (FD_ACT_MOT_TOUT = 100 ms) and authoritative. This is
+        the companion backstop for the case the FC layer is silently off —
+        FD_ACT_EN is reboot-required, so a param reset plus a flight without a
+        reboot leaves detection disabled with nothing to show for it.
+        `motor_fail_sustain_s` (3 s) is 30x the FC's timeout precisely so the two
+        cannot race: if PX4 was going to act, it already did.
+
+        WHY IT IS SAFE TO ADD. Every uncertain input is "do nothing":
+
+          * `motor_count=0`, a short/absent list → no data, no action
+          * `esc_monotonic` stale or NaN → the lists are overwritten in place and
+            never cleared, so old data must not read as live
+          * median current below `motor_min_median_current_a` → the rotors are
+            not loaded (on the ground, idling, or the whole feed reads 0, which
+            is exactly what SITL and an unwired ESC telemetry lead both look
+            like)
+          * MORE than one quiet motor → ESC_STATUS arrives four channels per
+            message, so a dropped block zeroes a pair. Two simultaneous motor
+            failures and one lost MAVLink packet are indistinguishable from
+            here, and only one of them is survivable by landing — so this
+            records the anomaly and leaves the decision to the FC and the pilot.
+
+        Only the single-motor case, with the surviving rotors visibly pulling
+        current, can command a landing.
+        """
+        if self.motor_count <= 0:
+            return False
+        st = self.state
+        t = st.telemetry
+        currents = t.esc_current_a
+        if not currents or len(currents) < self.motor_count:
+            self._motor_fail_since = None
+            st.record_anomaly("motor_health_blind_no_esc_telemetry")
+            return False
+        if math.isnan(t.esc_monotonic) or (
+            time.monotonic() - t.esc_monotonic > self.esc_stale_s
+        ):
+            self._motor_fail_since = None
+            st.record_anomaly("motor_health_blind_esc_stale")
+            return False
+        motors = [float(c) for c in currents[: self.motor_count]]
+        if any(math.isnan(c) for c in motors):
+            self._motor_fail_since = None
+            st.record_anomaly("motor_health_blind_esc_nan")
+            return False
+
+        median = statistics.median(motors)
+        if median < self.motor_min_median_current_a:
+            self._motor_fail_since = None
+            return False
+        dead = [i for i, c in enumerate(motors) if c < median * self.motor_dead_frac]
+        if len(dead) != 1:
+            if dead:
+                st.record_anomaly(
+                    f"esc_current_implausible_motors_{'_'.join(map(str, dead))}")
+            self._motor_fail_since = None
+            return False
+
+        idx = dead[0]
+        now = asyncio.get_running_loop().time()
+        if self._motor_fail_since is None:
+            self._motor_fail_since = now
+            logger.warning(
+                f"[safety] motor {idx} drawing {motors[idx]:.2f} A against a "
+                f"{median:.2f} A median — confirming for "
+                f"{self.motor_fail_sustain_s:.0f}s"
+            )
+            st.record_anomaly(f"motor_{idx}_no_current")
+        if now - self._motor_fail_since < self.motor_fail_sustain_s:
+            return False
+
+        logger.critical(
+            f"[safety] motor {idx} has produced no current for "
+            f"{self.motor_fail_sustain_s:.0f}s (median {median:.2f} A) — LAND NOW"
+        )
+        st.record_anomaly(f"motor_failure_{idx}_sustained")
+        st.record_audit(
+            f"t={st.time_elapsed_s():.1f}s MOTOR FAILURE motor={idx} "
+            f"current={motors[idx]:.2f}A median={median:.2f}A — landing in place"
+        )
+        await self._trigger_abort()
+        return True
 
     def _spawn_action(self, coro: Awaitable[None], cb: Callable[[], None] | None) -> None:
         """Run a terminal action (rth/land) as a tracked background task so the

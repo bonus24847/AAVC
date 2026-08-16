@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 
 from mavlink_adapter.telemetry import CurrentTelemetry
 from mission_brain.schemas import (
@@ -566,3 +567,146 @@ def test_battery_rth_debounce_is_independent_of_land() -> None:
         assert cmd.rth_calls == 1 and cmd.land_calls == 0
 
     asyncio.run(run())
+
+
+# ── motor health: one rotor out (2026-08-16) ────────────────────────────────
+#
+# The FC layer (CA_FAILURE_MODE=1 + COM_ACT_FAIL_ACT=2) is the primary; this
+# watchdog check is the backstop for FD_ACT_EN having been reset without a
+# reboot. Every test below is really asking the same question in two
+# directions: does it act on a real motor failure, and does it stay silent on
+# everything that merely LOOKS like one?
+
+
+def _esc(currents: list[float]) -> list[float]:
+    """Build an 8-slot ESC_STATUS-shaped list (PX4 reserves 8; only the first
+    6 are rotors on this airframe)."""
+    return list(currents) + [0.0] * (8 - len(currents))
+
+
+def _flying_with_escs(currents: list[float]) -> CurrentTelemetry:
+    t = _flying_telemetry()
+    t.esc_current_a = _esc(currents)
+    t.esc_monotonic = time.monotonic()
+    return t
+
+
+def test_healthy_six_motor_current_does_nothing() -> None:
+    t = _flying_with_escs([7.0, 7.2, 6.8, 7.1, 6.9, 7.0])
+    wd, state, cmd = _make_wd(t, motor_fail_sustain_s=0.0)
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING
+    assert cmd.land_calls == 0 and cmd.rth_calls == 0
+
+
+def test_one_dead_motor_sustained_lands_in_place() -> None:
+    """Motor 3 pulling nothing while the other five hover at ~7 A."""
+    t = _flying_with_escs([7.0, 7.2, 6.8, 0.05, 6.9, 7.0])
+    wd, state, cmd = _make_wd(t, motor_fail_sustain_s=0.05)
+
+    async def run() -> None:
+        await _check_and_settle(wd)
+        assert state.terminal == TerminalState.RUNNING     # debounce armed only
+        await asyncio.sleep(0.06)
+        t.esc_monotonic = time.monotonic()                  # data still live
+        await _check_and_settle(wd)
+
+    asyncio.run(run())
+    assert state.terminal == TerminalState.ABORTED
+    assert cmd.land_calls == 1 and cmd.rth_calls == 0       # LAND, never RTH
+    assert any("motor_failure_3_sustained" in a for a in state.anomalies)
+
+
+def test_one_dead_motor_recovering_resets_the_debounce() -> None:
+    """A single dropped ESC sample must not land a healthy aircraft."""
+    t = _flying_with_escs([7.0, 7.2, 6.8, 0.0, 6.9, 7.0])
+    wd, state, cmd = _make_wd(t, motor_fail_sustain_s=5.0)
+
+    async def run() -> None:
+        await _check_and_settle(wd)
+        assert wd._motor_fail_since is not None
+        t.esc_current_a = _esc([7.0, 7.2, 6.8, 7.0, 6.9, 7.0])
+        t.esc_monotonic = time.monotonic()
+        await _check_and_settle(wd)
+        assert wd._motor_fail_since is None
+
+    asyncio.run(run())
+    assert state.terminal == TerminalState.RUNNING
+    assert cmd.land_calls == 0
+
+
+def test_two_quiet_motors_are_treated_as_a_telemetry_fault() -> None:
+    """ESC_STATUS carries four channels per message, so a dropped block zeroes
+    a PAIR. Two motor failures and one lost packet look identical from here —
+    and only one of them is fixed by landing, so this must not act."""
+    t = _flying_with_escs([7.0, 7.2, 6.8, 7.1, 0.0, 0.0])
+    wd, state, cmd = _make_wd(t, motor_fail_sustain_s=0.0)
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING
+    assert cmd.land_calls == 0
+    assert any("esc_current_implausible" in a for a in state.anomalies)
+
+
+def test_idle_on_the_ground_never_reads_as_a_motor_failure() -> None:
+    """Armed on a pad between deliveries (COM_DISARM_LAND=-1 keeps it armed):
+    every ESC idles near zero, so the median is below the flight threshold and
+    nothing here is evidence of anything."""
+    t = _flying_with_escs([0.4, 0.4, 0.0, 0.4, 0.4, 0.4])
+    wd, state, cmd = _make_wd(t, motor_fail_sustain_s=0.0)
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING
+    assert cmd.land_calls == 0
+
+
+def test_absent_esc_telemetry_is_blind_not_fatal() -> None:
+    """SITL sends no ESC_STATUS at all, and the real aircraft's ESC telemetry
+    lead is unverified until G5. Both must fly, loudly rather than silently."""
+    t = _flying_telemetry()                       # esc_current_a stays []
+    wd, state, cmd = _make_wd(t, motor_fail_sustain_s=0.0)
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING
+    assert cmd.land_calls == 0
+    assert any("motor_health_blind_no_esc_telemetry" in a for a in state.anomalies)
+
+
+def test_stale_esc_telemetry_does_not_act() -> None:
+    """The ESC lists are overwritten in place and never cleared, so a raw
+    listener that dies leaves the last good frame looking live forever."""
+    t = _flying_with_escs([7.0, 7.2, 6.8, 0.0, 6.9, 7.0])
+    t.esc_monotonic = time.monotonic() - 30.0
+    wd, state, cmd = _make_wd(t, motor_fail_sustain_s=0.0, esc_stale_s=2.0)
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING
+    assert cmd.land_calls == 0
+    assert any("motor_health_blind_esc_stale" in a for a in state.anomalies)
+
+
+def test_motor_count_zero_disables_the_check() -> None:
+    t = _flying_with_escs([7.0, 7.2, 6.8, 0.0, 6.9, 7.0])
+    wd, state, cmd = _make_wd(t, motor_count=0, motor_fail_sustain_s=0.0)
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING
+    assert cmd.land_calls == 0
+
+
+def test_unused_esc_slots_do_not_count_as_dead_motors() -> None:
+    """PX4 reserves 8 ESC slots; slots 6-7 read 0.0 on a hexa forever. Slicing
+    to motor_count is the whole reason this passes."""
+    t = _flying_with_escs([7.0, 7.2, 6.8, 7.1, 6.9, 7.0])
+    assert t.esc_current_a[6] == 0.0 and t.esc_current_a[7] == 0.0
+    wd, state, cmd = _make_wd(t, motor_count=6, motor_fail_sustain_s=0.0)
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING
+    assert cmd.land_calls == 0
+    assert not any("motor" in a for a in state.anomalies)
+
+
+def test_motor_failure_is_checked_before_battery() -> None:
+    """A dead rotor with a low pack must land (motor), not RTH (battery) —
+    ordering inside _check_once, not two independent rules."""
+    t = _flying_with_escs([7.0, 7.2, 6.8, 0.0, 6.9, 7.0])
+    t.battery_percent = 25.0                       # under the RTH threshold
+    wd, state, cmd = _make_wd(t, motor_fail_sustain_s=0.0)
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.ABORTED
+    assert cmd.land_calls == 1 and cmd.rth_calls == 0
