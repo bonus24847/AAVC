@@ -12,19 +12,26 @@ says, not where the drone thinks it is. Survey with the SAME receiver and
 the common-mode part cancels: the corner the drone measured is the corner
 the drone will fly to.
 
-Field procedure (see docs/FIELD_SURVEY.md):
-  1. start this logger (drone powered, 3D fix, ideally sats >= 12)
-  2. carry the aircraft to each boundary corner and STAND STILL >= 30 s
+Field procedure (see docs/FIELD_SURVEY.md, step-by-step sheet in
+docs/FIELD_SURVEY_CHECKLIST.html):
+  1. cable the laptop to the FC over USB and start this logger
+     (drone powered, 3D fix, ideally sats >= 12)
+  2. carry the aircraft — laptop on the other end of the cable — to each
+     boundary corner and STAND STILL >= 30 s
   3. finish at the intended Launch & Recovery spot, stand still >= 30 s
   4. Ctrl-C, then run tools/survey_extract.py on the file it wrote
 
 Usage:
-    env -u PYTHONPATH .venv/bin/python tools/survey_logger.py [--url URL]
-        [--out captures/survey_track.jsonl]
+    env -u PYTHONPATH .venv/bin/python tools/survey_logger.py \\
+        --url /dev/ttyACM0 --baud 921600 --out captures/survey_track.jsonl
 
-The default endpoint is the GCS link (udpin:0.0.0.0:14550). If the AAVC GCS
-console already holds that port, point this at another mavlink-router
-output (e.g. --url udpin:0.0.0.0:14552) or stop the console first.
+The survey is walked on the cable, so --url is normally the FC's own serial
+port (`ls /dev/ttyACM* /dev/ttyUSB*` to find it). Close QGC / the AAVC GCS
+console / mavlink-router first — they hold that port, and this then exits
+with "no heartbeat" while the cable is plugged in perfectly well. A UDP
+endpoint still works when a router IS running: the --url default is the GCS
+link udpin:0.0.0.0:14550, or point it at a spare output like
+udpin:0.0.0.0:14552.
 """
 from __future__ import annotations
 
@@ -45,11 +52,13 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--url", default="udpin:0.0.0.0:14550",
-                   help="MAVLink source. ON THE CM4 (recommended — nothing has "
-                        "to reach the laptop while you walk) point it at the "
-                        "FC serial, e.g. --url /dev/ttyAMA0 --baud 921600, or "
-                        "at a mavlink-router output. On the laptop the default "
-                        "GCS port works but only within radio/WiFi range.")
+                   help="MAVLink source. For the walk-the-field survey point "
+                        "it at the FC's USB serial — --url /dev/ttyACM0 "
+                        "--baud 921600 (find it with `ls /dev/ttyACM* "
+                        "/dev/ttyUSB*`), with QGC/GCS/mavlink-router closed so "
+                        "the port is free. A UDP endpoint (the default, or a "
+                        "spare router output) works only while the radio link "
+                        "reaches, which it will not across the whole field.")
     p.add_argument("--baud", type=int, default=921600,
                    help="serial baud, used only when --url is a device path")
     p.add_argument("--out", default="captures/survey_track.jsonl")
