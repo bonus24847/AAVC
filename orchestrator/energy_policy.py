@@ -61,10 +61,13 @@ class EnergyPolicy:
     # BAT1_CAPACITY, because a pack swapped without updating the config and an
     # uncalibrated power module look identical from here.
     capacity_mah: float = 15000.0
-    # Charge the companion may not plan against: the FC flies its own
-    # low-battery RTL below this fraction, so planning past it would be planning
-    # through a failsafe. Construct from failsafes.bat_low_thr — NOT a second,
-    # independently-drifting number.
+    # Charge the companion may not plan against. Construct from
+    # failsafes.bat_low_thr — NOT a second, independently-drifting number.
+    # ⚠ CORRECTED 2026-08-16: the old wording here ("the FC flies its own
+    # low-battery RTL below this fraction") was wrong. At BAT_LOW_THR the FC
+    # only raises a WARNING; with COM_LOW_BAT_ACT=3 it returns at BAT_CRIT_THR
+    # (0.15) and lands at BAT_EMERGEN_THR (0.07). This fraction is a planning
+    # floor chosen to sit above all of that, not the lip of a failsafe.
     reserve_frac: float = 0.25
     # These defaults describe the CURRENT aircraft: two DXF 6S 7500 mAh packs in
     # parallel (2026-07-25), 15,000 mAh at 8.22 kg AUW. The hover current they

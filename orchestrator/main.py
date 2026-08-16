@@ -110,8 +110,14 @@ def _build_energy_policy(cfg: dict[str, Any], reserve_frac: float,
     """Build the FLIGHT energy-budget policy (the twin of the time policy).
 
     The reserve fraction comes from `failsafes.bat_low_thr`, not a key of its
-    own: below that threshold the FC flies its own low-battery RTL, so a second
-    number here could only ever drift out of agreement with it.
+    own, so a second number here could only ever drift out of agreement with it.
+    ⚠ CORRECTED 2026-08-16: this used to justify the choice as "below that
+    threshold the FC flies its own low-battery RTL". It does not — with
+    COM_LOW_BAT_ACT=3 the FC only WARNS at BAT_LOW_THR and does not return
+    until BAT_CRIT_THR (0.15). The reserve is still the right number to plan
+    against (it is the first line anything reacts to at all, and the companion
+    RTHs at 30% well above it), but it is a POLICY floor, not the edge of a
+    failsafe — do not re-derive it from "where the FC acts".
 
     ``eggs_aboard`` comes from the resolved mission config for the same reason:
     the seed cost of a flight scales with the deliveries it carries, and a seed
