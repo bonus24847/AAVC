@@ -3,16 +3,19 @@
 The twin of ``time_policy.py``: that one refuses to start a sortie the clock
 cannot finish, this one refuses to start a sortie the PACK cannot finish.
 
-The numbers say this matters. ONE 6S 7,500 mAh pack yields 5,625 mAh once the
-flight controller's own low-battery reserve is set aside, and a four-delivery
-flight seeds at 1,700 + 3 x 900 = 4,400 mAh at the ~29 A hover the EFT E5 bench
-table gives for a 7.17 kg X6100 — inside the pack, but with only ~1.2 Ah of
-slack for wind, a longer sweep, a go-around, or any second flight. Since
-2026-07-25 the aircraft therefore carries TWO of those packs in PARALLEL:
-15,000 mAh at 6S, 11,250 mAh usable. The second pack is bought back in weight,
-not for free — +1.05 kg takes hover to ~35.6 A, so capacity +100 % buys
-endurance +64 % (11.6 -> 19.0 min), and the seeds below moved with the current,
-not just the capacity.
+The numbers say this matters. ONE 6S 7,500 mAh pack — what the aircraft carries
+again as of 2026-08-17 — yields 5,625 mAh once the flight controller's own
+low-battery reserve is set aside, and a four-delivery flight seeds at 1,750 +
+3 x 900 = 4,450 mAh at the ~29.6 A hover a ~7.3 kg X6100 gives. That is inside
+the pack with about 1 Ah of slack for wind, a longer sweep, a go-around, or any
+second flight — enough, but not enough to ignore.
+
+History worth keeping, because it is the argument for the next pack decision:
+the aircraft flew 2 x 7,500 in PARALLEL (15,000 mAh, 11,250 usable) from
+2026-07-25, which is the 8.22 kg configuration every validated G4/G4' run used,
+then 1 x 17,000 from 2026-08-14. Capacity is never free — the second pack's
++1.05 kg took hover to ~35.6 A, so +100 % capacity bought +64 % endurance
+(11.6 -> 19.0 min). The seeds move with the CURRENT, not just the capacity.
 
 That is enough for the briefing-default single four-egg flight with room to
 spare, which is the point: at ``eggs_aboard=4`` the whole mission is ONE
@@ -22,11 +25,12 @@ This module still refuses work the pack cannot finish — a second flight, a
 ``eggs_aboard=1`` rollback's four sorties, or any flight starting on a pack
 that practice already drained.
 
-Two caveats this module cannot see. The flight controller reports the SUM of
-the parallel pair, so a pack dropping out mid-flight halves the real capacity
-while every number here still assumes 15,000 mAh. And no figure below has ever
-been MEASURED: they are bench-table arithmetic (SITL's battery simulator
-recharges on disarm), so confirm them against a watt-meter at G5.
+One caveat this module cannot see: no figure below has ever been MEASURED.
+They are bench-table arithmetic (SITL's battery simulator recharges on disarm),
+and on the single pack they additionally rest on an ESTIMATED pack mass, so
+confirm them against a watt-meter at G5. (A second caveat retired with the
+parallel pair: the FC used to report the SUM of two packs, so one dropping out
+mid-flight halved the real capacity invisibly. One pack cannot do that.)
 
 Like ``time_policy`` this only refuses to START new work; it is never a flight
 action. The safety watchdog and the FC's own battery failsafe remain the hard
@@ -60,7 +64,7 @@ class EnergyPolicy:
     # Pack label capacity. Declared in config and cross-checked against the FC's
     # BAT1_CAPACITY, because a pack swapped without updating the config and an
     # uncalibrated power module look identical from here.
-    capacity_mah: float = 15000.0
+    capacity_mah: float = 7500.0
     # Charge the companion may not plan against. Construct from
     # failsafes.bat_low_thr — NOT a second, independently-drifting number.
     # ⚠ CORRECTED 2026-08-16: the old wording here ("the FC flies its own
@@ -78,7 +82,7 @@ class EnergyPolicy:
     #
     # First-flight estimate for a ONE-delivery flight: 35.6 A hover x 3.5 min
     # (was 1700 at 29 A / 7.17 kg). Used ONLY until one flight has been measured.
-    seed_sortie_mah: float = 2100.0
+    seed_sortie_mah: float = 1750.0
     # Marginal seed cost of each EXTRA delivery carried in the SAME flight: the
     # ~110 s TimePolicy.serve_cost_s at that same 35.6 A hover
     # = 35.6 A x 110/3600 h = 1.09 Ah, rounded to 1100 mAh (was 900 at 29 A).
@@ -89,14 +93,14 @@ class EnergyPolicy:
     # flight actually costs and showed a falsely green card for a flight the
     # pack cannot finish. Scaling the SEED (not the measurements — those are
     # already whole flights) is what keeps the gate honest on flight 1.
-    seed_delivery_mah: float = 1100.0
+    seed_delivery_mah: float = 900.0
     # Deliveries carried per FLIGHT — 1 = the original one-egg-per-flight model.
     # Constructed from mission.eggs_aboard so the two can't drift apart.
     eggs_aboard: int = 1
     # Slack so a sortie approved at the boundary still lands with charge in hand.
     # Scaled with the cost it guards (150 x 1.23, rounded up) — it protects
     # against the flight-cost ESTIMATE being wrong, and the estimate grew.
-    margin_mah: float = 200.0
+    margin_mah: float = 250.0
 
     def usable_mah(self) -> float:
         """Charge available for planning, i.e. above the FC's own reserve."""

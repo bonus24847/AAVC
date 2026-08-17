@@ -596,27 +596,39 @@ failsafes:
 # hover from the EFT E5 bench table becomes ~35.6 A. Airframe side of the same
 # change: sitl/models/eft_x6100_base/model.sdf (mass) and
 # sitl/px4_patches/22000_gz_eft_x6100 (MPC_THR_HOVER 0.48 -> 0.53).
-# ⚠ 2026-08-14 — PACK SWAP FINAL (user: "แบต 7500 ไม่พอ เปลี่ยนเป็น 17000 เลย"):
-# ONE Perpetual Wings Semi-Solid 6S 17000 mAh (22.2 V, 377 Wh, 10C) replaces
-# the 2x7500 parallel pair. Trigger: a realistic-drain sim flight at 8.36 kg
-# hit the 30% floor mid-egress on the 7500-class budget. Mass is ESTIMATED
-# until the pack arrives (+2.1 kg over no-pack → aircraft ~9.05 kg, flying
-# weight with 4 boxes ~9.41 kg): hover scales (9.41/8.22)^1.5 = 1.22x → the
-# 35.6 A seed becomes ~43 A (matches the sibling repo's guide-table read).
-# RE-DERIVE these seeds after the real pack is weighed. SITL model mass +
-# MPC_THR_HOVER intentionally NOT changed yet (validated baselines) — they
-# move together at the reweigh.
+# ⚠ 2026-08-17 — PACK SWAP: back to ONE 7500 mAh 6S (operator: "เกจแบต ตอนนี้
+# เปลี่ยนเป็น 7500 ก่อนครับ"). This supersedes the 2026-08-14 note below it.
+# History: 2x7500 in parallel (15000, the AUW-8.22 kg aircraft every validated
+# G4/G4' run flew) -> 1x17000 Perpetual Wings semi-solid on 2026-08-14 -> ONE
+# 7500 now. Note this is HALF the validated pair, not the pair.
+#
+# The numbers below are DERIVED, not measured, using this file's own rule that
+# hover current scales with mass^1.5 — the rule reproduces the 43 A that the
+# 17000 note recorded (8.22 kg/35.6 A -> 9.41 kg gives 43.6 A), so it is the
+# same arithmetic, not a new guess. Dropping one ~0.95 kg pack off the 8.22 kg
+# pair aircraft gives ~7.27 kg flying with 4 boxes and ~29.6 A hover, i.e.
+# x0.69 of the 17000-era seeds.
+#
+# Endurance sanity: 5625 mAh usable / 29.6 A = ~11.4 min to the reserve, against
+# the 7.6 min (457 s) the four-delivery G4' flight actually took. It fits, but
+# the whole margin now rides on an ESTIMATED pack mass — reweigh and re-derive.
+# ⚠ NOT changed here, on purpose: the SITL model mass (8.169 kg) and
+# MPC_THR_HOVER still describe the 2-pack aircraft, and they are shared with the
+# parallel session's repo. They move together, after a real weighing, with that
+# session pinged first.
 battery:
-  capacity_mah: 17000       # 1 x Perpetual Wings Semi-Solid 6S 17000 mAh
+  capacity_mah: 7500        # ONE 6S 7500 mAh pack (half the validated pair)
   cells: 6
-  # ~43 A hover x 3.5 min (ESTIMATED mass — see header note).
-  # Used ONLY for flight 1; measurement replaces it from flight 2 onwards.
-  seed_sortie_mah: 2500
-  # Marginal seed cost of each EXTRA delivery in the SAME flight: the ~110 s
-  # TimePolicy.serve_cost_s at ~43 A = 1.31 Ah.
-  seed_delivery_mah: 1300
-  # Scaled with the cost it guards (x1.22 from 200): slack against the
-  # flight-cost ESTIMATE being wrong — and this estimate is pre-reweigh.
+  # ~29.6 A hover x 3.5 min. Used ONLY for flight 1; measurement replaces it
+  # from flight 2 onwards.
+  seed_sortie_mah: 1750
+  # Marginal cost of each EXTRA delivery in the SAME flight (~110 s at ~29.6 A).
+  seed_delivery_mah: 900
+  # DELIBERATELY NOT scaled down with the cost it guards (the 17000 note scaled
+  # it up x1.22 for exactly that reason). This estimate rests on a pack mass
+  # nobody has weighed, so the slack matters more now, not less — and there is
+  # room for it: a four-delivery flight budgets 1750 + 3x900 + 250 = 4700 mAh
+  # against 5625 usable.
   margin_mah: 250
 
 # ── SITL ONLY — PX4's battery simulator ──
@@ -627,10 +639,12 @@ battery:
 # path from px4_tuning and must never be merged into it.
 sim_battery:
   SIM_BAT_ENABLE: 1
-  # Seconds full -> empty at hover draw: 17000 mAh / ~43 A x 3600 = ~1420 s.
-  # (2026-08-14 pack swap; the sibling repo independently derived 1400 from
-  # the same guide table — kept in agreement.)
-  SIM_BAT_DRAIN: 1400.0     # ~23 min — one 20-min window with real margin
+  # Seconds full -> empty at hover draw: 7500 mAh / ~29.6 A x 3600 = ~912 s.
+  # (2026-08-17 pack swap back to ONE 7500. NOTE this is now SHORTER than the
+  # 20-minute operation window, which is the point: the sim will actually reach
+  # the reserve inside a long run, so the energy gate gets exercised instead of
+  # idling behind a pack that never empties.)
+  SIM_BAT_DRAIN: 900.0      # ~15 min full -> empty at hover
   SIM_BAT_MIN_PCT: 0.0      # the default 50 stops the drain half way
   # ── Pack + power sensing ──
   # ⚠ REWIRED 2026-08-16 (operator): the Holybro PM03D FAILED and is OUT. Power
