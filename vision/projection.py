@@ -40,7 +40,11 @@ _R_EARTH_M = 6_378_137.0
 _MAX_GROUND_DIST_M = 500.0
 
 # Back-compat module constants (the SITL camera default; see CameraModel).
-CAMERA_FOV_RAD = 1.74
+# MEASURED 2026-08-17 (was 1.74, an unmeasured placeholder): 50 mm on-screen
+# marker at 0.495 m from the real WSD-9781-v12 lens → 85.5 px over three
+# frames → fx 847 px on the 1280-px frame → HFOV 74.2° = 1.295 rad (±1°).
+# The SITL gz camera and the config cameras: block carry the same value.
+CAMERA_FOV_RAD = 1.295
 CAMERA_WIDTH_PX = 640
 CAMERA_HEIGHT_PX = 480
 

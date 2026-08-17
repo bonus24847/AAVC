@@ -38,10 +38,12 @@ def _enu(lat, lon, lat0, lon0):
 
 def test_three_legs_cover_the_field_at_16m() -> None:
     spec = build_search_pattern(GEOFENCE, HOME, sweep_alt_m=16.0, overlap_frac=0.3)
-    assert spec.leg_count == 3
+    # 4 legs since the MEASURED 74.2° lens (2026-08-17): swath 24.2 m at 16 m
+    # vs the old placeholder's 38.1 m — narrower lens, tighter legs, same field.
+    assert spec.leg_count == 4
     assert len(spec.waypoints) == 2 * spec.leg_count
     # Swath = 2·alt·tan(fov/2); spacing leaves the 30% overlap.
-    assert math.isclose(spec.swath_m, 2 * 16.0 * math.tan(1.74 / 2), rel_tol=1e-6)
+    assert math.isclose(spec.swath_m, 2 * 16.0 * math.tan(1.295 / 2), rel_tol=1e-6)
     assert math.isclose(spec.spacing_m, spec.swath_m * 0.7, rel_tol=1e-6)
     assert spec.est_duration_s > 0.0
 

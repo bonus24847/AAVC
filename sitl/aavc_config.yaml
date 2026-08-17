@@ -113,8 +113,8 @@ ground_operation:
 # /tmp/aavc_targets.json — used ONLY for the post-flight --truth-json audit and
 # tools/verify_flight.py, NEVER for planning.
 search:
-  sweep_alt_m: 4.0         # 400 mm marker ≈ 54 px @ 1280 px/99.7° from 4 m —
-                           # decodes trivially (no booster regime); swath 9.5 m;
+  sweep_alt_m: 4.0         # 400 mm marker ≈ 85 px @ 1280 px/74.2° from 4 m —
+                           # decodes trivially (no booster regime); swath 6.0 m;
                            # legal band is [search_floor_m 2.5, ceiling 5]
   overlap_frac: 0.4        # spacing = swath*(1-overlap) ≈ 5.7 m -> ~7 legs over
                            # the 40 m cross-span; pad is a huge high-contrast
@@ -257,17 +257,18 @@ sitl:
 
 # Camera intrinsics + mounting for the pixel->ground projection
 # (vision/projection.py via configure_cameras). MUST match the SITL eft_x6100
-# camera sensor (1.74 rad / 1280x720, mounted 0.25 m below the CG on the
+# camera sensor (1.295 rad / 1280x720, mounted 0.25 m below the CG on the
 # centreline — user spec 2026-08-11, same plane as the rangefinder). The
 # single NADIR camera = sole control authority AND the ArUco decode camera.
-# REAL HARDWARE: WSD-9781-v12 module — 1280x720 (the 1280 width keeps the
-# validated decode geometry; at the 4 m KMUTNB sweep the 400 mm marker is
-# ~54 px, decode-trivial). fov_deg 99.7 is an UNMEASURED PLACEHOLDER — MEASURE
-# the real WSD-9781-v12 lens at the bench (docs/FLIGHT.md camera calibration)
-# along with the residual mount pitch (depression_deg trim).
+# REAL HARDWARE: WSD-9781-v12 module — 1280x720. fov_deg MEASURED 2026-08-17
+# on the real lens (50 mm marker at 0.495 m → 85.5 px avg over 3 sharp
+# frames → fx 847 px → 74.2°, ±1°); replaces the 99.7 unmeasured placeholder.
+# Consequence: the ground swath is ~0.66x the placeholder's, so sweeps grow
+# more legs — spacing is fov-derived (search_pattern.py), no coverage gaps.
+# Still open: residual mount pitch (depression_deg trim) at the field.
 cameras:
   nadir:                  # the single control-authority + decode camera
-    fov_deg: 99.7         # UNMEASURED placeholder — measure the WSD-9781-v12 lens
+    fov_deg: 74.2         # MEASURED 2026-08-17 (bench, ±1°) — see comment above
     width_px: 1280
     height_px: 720
     depression_deg: 90.0  # optical axis below horizontal; 90 = straight down

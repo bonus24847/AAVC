@@ -158,8 +158,8 @@ item("Vision", "microSD 32GB (ถ้า CM4 Lite)", "—", "", 1, 250, 400, "ซ
 item("Vision", "กล้อง NADIR (ตัวเดียว)", "Meige OV9281 USB UVC mono GS 1280x720",
      "", 1, 0, 0, "มีแล้ว",
      "ตัดสินใจ 2026-07-15: กล้องเดียว mono global-shutter; กว้าง 1280px "
-     "→ decode ArUco 400mm ที่ sweep 12m (~18px) เท่าเดิม; HFOV เลนส์ยังไม่ทราบ "
-     "— วัดจริงที่ G6 (config ใส่ placeholder 99.7)")
+     "→ decode ArUco 400mm ที่ sweep 12m; HFOV เลนส์วัดจริงแล้ว 2026-08-17 "
+     "= 74.2° (marker 50mm ที่ 0.495m → 85.5px → fx 847)")
 item("Vision", "Gimbal servo + mount (stabilized nadir)", "servo metal-gear แกน pitch "
      "+ เคสกล้องกันสั่น", "", 1, 300, 900, "ซื้อ",
      "PX4 mount driver (MNT_*) กดกล้องดิ่งตลอด; VERIFY-AT-G5: ทิศ/ช่วง servo, "

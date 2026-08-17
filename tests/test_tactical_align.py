@@ -137,7 +137,7 @@ def _centred_hit(marker_id) -> PadHit:
 def _patch_detector(monkeypatch, marker_id) -> None:
     def fake(frame_path, min_conf, assigned_id):
         alt = max(state_ref.telemetry.relative_alt_m, 0.5)
-        exp = 271.4 * 0.2 / alt          # fx(640px,1.74rad) * R / slant
+        exp = 423.1 * 0.2 / alt          # fx(640px,1.295rad) * R / slant
         hit = _centred_hit(marker_id)
         return PadHit(cx=hit.cx, cy=hit.cy, marker_id=hit.marker_id,
                       radius_px=exp, confidence=0.9, corners=(), pad_side_px=0.0)
