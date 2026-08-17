@@ -43,24 +43,22 @@ site:
   center_lon: 100.5116267
   ground_alt_m: 15         # rooftop pitch surface above street level
 
-# Controlled airspace = the practice geo-fence: the user-briefed 60 x 44 m
-# rotated rectangle centred on the pitch centre circle (2,640 m^2 — inside
-# the 2,400-2,800 m^2 brief; pitch only, NOT the running track). Uploaded to
-# PX4 as an inclusion fence and watched by orchestrator/safety.py; leaving it
+# Controlled airspace = the practice geo-fence. Uploaded to PX4 as an
+# inclusion fence and watched by orchestrator/safety.py; leaving it
 # mid-mission is a disqualification-grade violation. Vertices [lat, lon], CCW.
-# ENU offsets from site.center in comments (gen_geo field frame s∈[-30,30],
-# t∈[-22,22]).
+# ENU offsets from site.center in comments (gen_geo field frame).
 controlled_airspace:
   # GROUND-SURVEYED 2026-08-17 (tools/survey_logger.py, walked with the aircraft's
   # own GPS over a cable — docs/FIELD_SURVEY.md). Replaces the satellite tracing.
   # This is the pitch PLUS the strip of running track the mission uses: L&R and
   # the ingress waypoint sit ~9 m outside the grass, and a fence that excludes
   # them makes preflight.py FAIL "home is OUTSIDE the geofence" before takeoff.
-  # 103.0 x 75.9 m. Vertices [lat, lon].
-  - [13.8228085, 100.5115568]   # ENU (-7.6, +0.6)     track side, L&R end
-  - [13.8220630, 100.5121274]   # ENU (+54.1, -81.9)   track side, far end
-  - [13.8224735, 100.5126889]   # ENU (+114.8, -36.5)  far corner of the grass
-  - [13.8232190, 100.5121182]   # ENU (+53.1, +46.0)   near corner of the grass
+  # 113.0 x 85.9 m = the surveyed 103.0 x 75.9 extent + a 5 m offset all around
+  # for the KMUTNB test flights (operator 2026-08-17). Vertices [lat, lon].
+  - [13.8228177, 100.5114920]   # ENU (-14.6, +1.6)    track side, L&R end
+  - [13.8219999, 100.5121181]   # ENU (+53.1, -88.9)   track side, far end
+  - [13.8224643, 100.5127535]   # ENU (+121.8, -37.5)  far corner of the grass
+  - [13.8232822, 100.5121274]   # ENU (+54.1, +53.0)   near corner of the grass
 
 # Search area = where the pads are placed: the NW 30 x 40 m of the airspace
 # (field frame s∈[-28,+2], t∈[-20,+20] — midfield to short of the NW goal).

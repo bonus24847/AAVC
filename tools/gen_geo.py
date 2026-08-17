@@ -65,11 +65,15 @@ GROUND_ALT_M = 15.0            # rooftop pitch surface above street level
 # The airspace is the pitch PLUS the strip of track the mission actually uses.
 # It is not symmetric about the pitch: L&R and the ingress waypoint sit ~9 m
 # outside the grass, and PX4 reads a fence the aircraft starts outside of as a
-# breach — preflight.py FAILs "home is OUTSIDE the geofence" before that. The
-# +5 m beyond L&R matches safety.py's own geofence_margin_m, so the aircraft is
-# not sitting inside the proximity-warning band while it spools up.
-AIRSPACE_S = (-51.5, 51.5)     # 103.0 m
-AIRSPACE_T = (-37.9, 37.9)     #  75.9 m
+# breach — preflight.py FAILs "home is OUTSIDE the geofence" before that.
+# 2026-08-17 (operator): +5 m offset ALL AROUND for the KMUTNB test flights,
+# on top of the surveyed bounds (±51.5, ±37.9) whose own +5 m past L&R matched
+# safety.py's geofence_margin_m — L&R now sits ~10 m inside the fence, clear of
+# the proximity-warning band while it spools up. Practice slack only: the fence
+# is the line the watchdog and the FC act on, so every breach now triggers 5 m
+# later. The AAVC field gets its own survey and its own bounds.
+AIRSPACE_S = (-56.5, 56.5)     # 113.0 m = surveyed 103.0 + 5 m each end
+AIRSPACE_T = (-42.9, 42.9)     #  85.9 m = surveyed  75.9 + 5 m each side
 # Search = the measured grass, all of it (operator 2026-08-17: "บินค้นหาทั้งสนาม").
 # ⚠ This is a 946 m / 10-leg sweep, ~345 s before a single egg is delivered —
 # more than the 7500 mAh pack can carry alongside four deliveries. That is a
