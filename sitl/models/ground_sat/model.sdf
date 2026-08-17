@@ -3,7 +3,7 @@
      stitched by tools/fetch_sat.py). Plane size/pose and the georeference all
      come from tools/gen_geo.py: 250 (east) x 220 (north) m centred on the
      pitch centre circle, world ENU (-14.17, +19.37) about the L&R origin
-     13.8224940 / 100.5122771 (see worlds/kmutnb_skyfield.sdf). North-up, no
+     13.8228032 / 100.5116267 (see worlds/kmutnb_skyfield.sdf). North-up, no
      yaw: image width -> +X (east), height -> +Y (north). Visual only - it
      sits a hair above the plain ground_plane, which keeps the collision.
      KEEP IN SYNC: this <size> == fetch_sat PLANE_W/PLANE_H == the include

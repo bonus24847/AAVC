@@ -13,7 +13,7 @@
   rectangle centred on the pitch (field only — NOT the running track).
 
   Coordinate origin (spherical_coordinates) is the LAUNCH & RECOVERY point:
-  13.8224940 N, 100.5122771 E — on the pitch long axis, field-frame s=+24 m
+  13.8228032 N, 100.5116267 E — the GROUND-SURVEYED L&R on the running track m
   (toward the SE goal) from the centre circle. elevation 15 = the rooftop
   pitch surface; world z=0 IS that surface. Local ENU: +X east, +Y north.
   ALL numbers below come from tools/gen_geo.py — the geometry invariant
@@ -39,8 +39,8 @@
     <!-- World origin = L&R point (== config site.center == PX4_HOME_*). -->
     <spherical_coordinates>
       <surface_model>EARTH_WGS84</surface_model>
-      <latitude_deg>13.8224940</latitude_deg>
-      <longitude_deg>100.5122771</longitude_deg>
+      <latitude_deg>13.8228032</latitude_deg>
+      <longitude_deg>100.5116267</longitude_deg>
       <elevation>15</elevation>
       <heading_deg>0</heading_deg>
     </spherical_coordinates>

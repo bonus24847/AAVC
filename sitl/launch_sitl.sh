@@ -151,8 +151,8 @@ export PX4_GZ_WORLD="kmutnb_skyfield"
 # Spawn position = the Launch & Recovery point at IAAI KMITL (rules V1.3) — the
 # world origin: sitl/aavc_config.yaml site.center == ground_operation.launch_recovery
 # == the world <spherical_coordinates>. Keep all four in sync.
-export PX4_HOME_LAT="13.8224940"
-export PX4_HOME_LON="100.5122771"
+export PX4_HOME_LAT="13.8228032"
+export PX4_HOME_LON="100.5116267"
 export PX4_HOME_ALT="15"
 
 # Spawn height. The vehicle is spawned by an <include> that does NOT inherit the

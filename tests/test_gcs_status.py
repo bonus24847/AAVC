@@ -18,7 +18,7 @@ from pathlib import Path
 from orchestrator.gcs_status import GcsMissionStatus
 from orchestrator.target_tracker import TargetState
 
-_LAT0, _LON0 = 13.8224940, 100.5122771   # KMUTNB L&R (gen_geo)
+_LAT0, _LON0 = 13.8228032, 100.5116267   # KMUTNB L&R (gen_geo)
 _R = 6_378_137.0
 
 

@@ -31,6 +31,12 @@ AIRCRAFT_POS = (-0.516, 0.161, 0.048)
 AIRCRAFT_QUAT = (0.0, 0.0, -0.119, 0.993)          # ~13.7 deg of yaw
 BOX3_PARENT_REL = (-17.013, 28.174, 0.052)
 PAD_LAT, PAD_LON = 13.822779465026745, 100.51218122797816   # truth, marker 1
+# ⚠ HISTORICAL, NOT LIVE GEOMETRY — do not "update" this when the field moves.
+# It is the ENU origin THAT flight flew from, and every offset above is measured
+# against it. The 2026-08-17 ground survey moved the live origin to the L&R on
+# the running track; pointing these recorded poses at the new origin puts the box
+# 78 m from its pad, which is a frame mistake of precisely the kind this file
+# exists to catch. Live geometry belongs in sitl/aavc_config.yaml.
 SITE_LAT, SITE_LON = 13.822494, 100.5122771
 
 

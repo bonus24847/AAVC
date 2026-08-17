@@ -15,20 +15,20 @@ geofence:
   # Controlled airspace boundary — [lat, lon]. Leaving it = disqualification.
   # (Vertex order preserved from aavc_config.yaml controlled_airspace, CCW.)
   controlled_airspace:
-    - [13.8227703, 100.5118179]   # field (s-30, t-22)
-    - [13.8223327, 100.5121457]   # field (s+30, t-22)
-    - [13.8225676, 100.5124741]   # field (s+30, t+22)
-    - [13.8230053, 100.5121463]   # field (s-30, t+22)
+    - [13.8228085, 100.5115568]   # track side, L&R end
+    - [13.8220630, 100.5121274]   # track side, far end
+    - [13.8224735, 100.5126889]   # far corner of the grass
+    - [13.8232190, 100.5121182]   # near corner of the grass
   # Search area (pads live here) — [lat, lon]
   search_area:
-    - [13.8227665, 100.5118438]   # field (s-28, t-20)
-    - [13.8225476, 100.5120077]   # field (s+2,  t-20)
-    - [13.8227612, 100.5123062]   # field (s+2,  t+20)
-    - [13.8229800, 100.5121423]   # field (s-28, t+20)
+    - [13.8228640, 100.5116806]
+    - [13.8221410, 100.5122341]
+    - [13.8224735, 100.5126889]
+    - [13.8231965, 100.5121353]
   # Local ENU origin = the Launch & Recovery point (world origin / PX4 home /
   # aavc_config site.center). The mission's local-frame detected pads convert
   # to lat/lon about here on the map.
-  local_origin: [13.8224940, 100.5122771]
+  local_origin: [13.8228032, 100.5116267]
 
 # Default pads to service (operator overrides live in the GCS UI). AAVC:
 # choose any subset of the 6 ArUco pads (dictionary 4x4, IDs 1-6).
@@ -36,9 +36,9 @@ aruco_assignment: [1, 2, 3, 4]
 
 # Mandatory transit route P1->P2->P3 (map overlay reference).
 transit_waypoints:
-  - {id: 1, lat: 13.8225057, lon: 100.5121995}   # P1 launch-side / RTH hold
-  - {id: 2, lat: 13.8225573, lon: 100.5121151}   # P2 intermediate
-  - {id: 3, lat: 13.8226544, lon: 100.5121570}   # P3 search-area ingress/egress
+  - {id: 1, lat: 13.8224803, lon: 100.5118659}   # P1 surveyed — RTH hold
+  - {id: 2, lat: 13.8225125, lon: 100.5119578}   # P2 surveyed — field entrance
+  - {id: 3, lat: 13.8225828, lon: 100.5120772}   # P3 derived — inside the grass
 
 # Payload-release servos — the manual "ปล่อย servo" buttons on the GCS.
 # KMUTNB rig (user spec 2026-08-11): FOUR independent latch servos in a

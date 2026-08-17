@@ -36,20 +36,54 @@ sys.path.insert(0, str(_SITL))
 from spawn_targets import _local_enu_to_latlon, _wgs84_m_per_deg  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Measured field anchors (Google z20 tiles, ~0.145 m/px, fetched 2026-08-11)
+# GROUND SURVEY 2026-08-17 — walked with the aircraft's OWN GPS over a cable
+# (docs/FIELD_SURVEY.md), replacing the Google z20 tile tracing of 2026-08-11.
+# The point of measuring with the receiver that flies: its 1-2.5 m bias lands
+# in BOTH the map and the aircraft's idea of where it is, so the two cancel.
+# Tracing from imagery put the bias between them instead — which is exactly
+# the width of a geofence error.
+#
+# How good the walk was: the four field corners came out as a rectangle whose
+# diagonals differ by 0.3 m in 116 m, and the axis landed within 0.6 deg of the
+# traced value. So the imagery had the SHAPE right; what it had wrong was the
+# SIZE — it framed the pitch alone and cut the running track off, and the
+# aircraft takes off from the track.
+#
+# ⚠ A SECOND ROUND IS NOT FREE. The corners were re-walked once (survey_track2)
+# and a tie point re-occupied at NW measured the between-round bias at 8.9 m —
+# enough that the 11 m the corners appeared to move outward was really 5 m. The
+# numbers below therefore come from ROUND ONE ONLY, one continuous recording,
+# one bias. Never merge rounds without a re-occupied tie point, and prefer not
+# to merge them at all.
 # ---------------------------------------------------------------------------
-FIELD_CENTER_LAT = 13.822669   # pitch centre circle
-FIELD_CENTER_LON = 100.512146
-AXIS_DEG = 143.8               # pitch long-axis true heading (NW goal -> SE goal)
+FIELD_CENTER_LAT = 13.8226410   # centre of the CONTROLLED AIRSPACE (not the pitch)
+FIELD_CENTER_LON = 100.5121228
+AXIS_DEG = 143.2               # measured long axis (traced value was 143.8)
 GROUND_ALT_M = 15.0            # rooftop pitch surface above street level
 
 # Field-frame layout (s along axis from C, t across; metres) ----------------
-AIRSPACE_S = (-30.0, 30.0)     # 60 m — user brief: field only, no track
-AIRSPACE_T = (-22.0, 22.0)     # 44 m
-SEARCH_S = (-28.0, 2.0)        # NW two-thirds: pads + boustrophedon sweep
-SEARCH_T = (-20.0, 20.0)
-LNR_ST = (24.0, 0.0)           # Launch & Recovery, on-axis near the SE edge
-TRANSIT_ST = ((18.0, -6.0), (8.0, -10.0), (2.0, 0.0))  # P1, P2, P3 (ingress)
+# The airspace is the pitch PLUS the strip of track the mission actually uses.
+# It is not symmetric about the pitch: L&R and the ingress waypoint sit ~9 m
+# outside the grass, and PX4 reads a fence the aircraft starts outside of as a
+# breach — preflight.py FAILs "home is OUTSIDE the geofence" before that. The
+# +5 m beyond L&R matches safety.py's own geofence_margin_m, so the aircraft is
+# not sitting inside the proximity-warning band while it spools up.
+AIRSPACE_S = (-51.5, 51.5)     # 103.0 m
+AIRSPACE_T = (-37.9, 37.9)     #  75.9 m
+# Search = the measured grass, all of it (operator 2026-08-17: "บินค้นหาทั้งสนาม").
+# ⚠ This is a 946 m / 10-leg sweep, ~345 s before a single egg is delivered —
+# more than the 7500 mAh pack can carry alongside four deliveries. That is a
+# known and accepted cost: the first flights are system tests ("ได้แค่ไหนก็เอา
+# แค่นั้น") and a larger pack is planned. The energy gate will stop the flight
+# on its own terms; it is not being tuned to hide the gap.
+SEARCH_S = (-48.4, 51.5)
+SEARCH_T = (-23.5, 37.9)
+LNR_ST = (-46.5, -32.2)        # surveyed takeoff/landing spot on the track
+# P1/P2 are surveyed: the holding waypoint off the track and the gap the
+# aircraft flies through to enter the field. P3 is DERIVED — 15 m inside the
+# grass on the same line — so the corridor ends inside the search area rather
+# than on its boundary.
+TRANSIT_ST = ((-2.4, -32.9), (0.7, -22.8), (2.2, -7.8))  # P1, P2, P3 (ingress)
 
 # Baseline pads: (marker_id, s, t, yaw_deg).  Two columns x three rows,
 # min pairwise separation 14.5 m (>= 12 m rule), >= 4.5 m inside the search
