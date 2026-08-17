@@ -170,59 +170,32 @@ single sortie" is history, not current design.)
   flight and cannot be detected mode-side. Lesson worth keeping: the readback
   gate **passed** the whole time — it proves a value was stored, never that the
   value means what the caller thinks.
-- **One motor out** (2026-08-16): the hexa's rotor redundancy — the stated
-  reason for six motors — was never actually ENABLED. PX4 1.17 ships both
-  halves off: `CA_FAILURE_MODE=0` (allocator ignores the failure, so the mixer
-  keeps solving for six healthy rotors) and `COM_ACT_FAIL_ACT=0` (warning
-  only). Both are now pinned + readback-confirmed alongside the geofence /
-  RC / datalink / battery pins (`DroneCommander.set_motor_failure_failsafe`,
-  config `failsafes.ca_failure_mode: 1` / `act_fail_act: 2` = **Land in
-  place**, not Return — a crippled airframe should not fly a transit leg over
-  the crew). Companion backstop: `safety.py::_check_motor_health` reads
-  per-motor `esc_current_a` and LANDs when exactly ONE rotor sits under
-  `dead_frac` of the median while the median shows real load, sustained 3 s
-  (30x the FC's `FD_ACT_MOT_TOUT` so the two layers cannot race). It fails
-  OPEN on every uncertain input — no/short/stale/NaN ESC data, an unloaded
-  rotor set, or >1 quiet motor (ESC_STATUS arrives 4 channels per message, so
-  a dropped block zeroes a PAIR — indistinguishable from two failures).
-  ⚠ **THE WHOLE CHAIN HINGES ON ESC CURRENT TELEMETRY**, both layers: PX4's
-  `FD_ACT_EN` detects by watching current-per-throttle, and the companion
-  reads the same signal over ESC_STATUS. **SITL cannot exercise any of it** —
-  `esc_status` is *never published* (verified 2026-08-16 on sihsim_hex:
-  `failure motor off -i 3` set `motor_stop_mask=4` and left
-  `motor_failure_mask=0`, `handled_motor_failure_mask=0`, `failsafe=False`
-  while `unallocated_torque` yaw climbed to 0.25 — the motor was off and
-  nothing in the chain noticed). This is a **G5 bench item, not a SITL one**.
-  🔴 **THE BENCH ANSWERED IT 2026-08-17, AND THE ANSWER IS NO: this airframe has
-  no ESC telemetry and cannot get any without new hardware.** Operator, on the
-  bench: *"ESC ผมไม่มีสาย UART หรือ TELEM ครับ มีแต่ PWM"* — the ESCs are
-  PWM-only, no telemetry lead exists. Measured the same session over the NOMAD
-  link with the motor map restored and all six rotors verified spinning:
-  `DSHOT_TEL_CFG=0` and **zero `ESC_STATUS`** during a motor test even after a
-  `SET_MESSAGE_INTERVAL(ESC_STATUS)` the FC ACCEPTED. ⇒ Both detectors above are
-  permanently blind: `FD_ACT_EN` has no current to watch, and
-  `_check_motor_health` fails OPEN forever (correctly — it refuses to decide
-  without data, so the failure mode is SILENCE, not an alarm). The pins
-  `CA_FAILURE_MODE=1` / `COM_ACT_FAIL_ACT=2` stay correct and stay pinned, but
-  **nothing can ever trigger them on this aircraft**; they are armed for a
-  detection that does not exist. Treat one-motor-out as a PILOT procedure, not
-  an automatic one (see the yaw paragraph directly below — the aircraft stays
-  flyable and starts spinning, which is a human-recoverable state on POSCTL).
-  Do NOT re-open this as a parameter question: no value on any board creates a
-  signal that is not wired.
-  ⚠ Read that 0.25 correctly: it was measured with the allocator still solving
-  for six rotors (`handled_motor_failure_mask=0`), so it says that **even with
-  no detection at all, a hexa on five motors still holds roll/pitch/thrust and
-  gives up only YAW** — PX4's sequential desaturation mixes roll/pitch/thrust
-  first and calls `mixYaw()` last by construction
+- **One motor out — REMOVED 2026-08-17, not deferred.** This airframe's ESCs
+  are **PWM-only with no telemetry lead** (operator, at the bench: "ESC ผมไม่มี
+  สาย UART หรือ TELEM ครับ มีแต่ PWM"), measured the same day with the motor
+  map restored and all six rotors verified spinning: `DSHOT_TEL_CFG=0` and
+  **zero `ESC_STATUS`** during a motor test even after a
+  `SET_MESSAGE_INTERVAL(ESC_STATUS)` the FC ACCEPTED — the FC has nothing to
+  send, rather than the link failing to carry it. Per-motor current is the
+  ONLY signal either detector can use (PX4's `FD_ACT_EN` watches
+  current-per-throttle; the companion read the same over ESC_STATUS), so both
+  layers were machinery that could never fire. Deleted rather than left dead:
+  `DroneCommander.set_motor_failure_failsafe`, `safety.py::_check_motor_health`,
+  the `failsafes.ca_failure_mode` / `act_fail_act` and `motor_health:` config
+  blocks, and their tests. `esc_current_a` survives as a dashboard display
+  field only — no flight path reads it. **Restoring this starts with buying
+  telemetry-capable ESCs, not with a parameter.** What the aircraft has
+  instead is the safety pilot, and that is enough to fly: PX4's sequential
+  desaturation mixes roll/pitch/thrust before `mixYaw()`
   (`ControlAllocationSequentialDesaturation.cpp`; `CA_METHOD` defaults to
-  Automatic, which selects it for every multirotor). So these pins do NOT
-  "recover an uncontrollable aircraft" — they re-solve the mix without the dead
-  rotor and, more importantly, DECIDE TO COME DOWN. That decision is the point:
-  with yaw uncontrolled the body-fixed nadir camera spins, and both the ArUco
-  decode and `vision/projection.py`'s attitude-composed pixel→lat/lon fall
-  apart — the aircraft can still fly, but it can no longer do the mission,
-  which is why the action is Land and not Return.
+  Automatic, which selects it for every multirotor), so a hexa on five rotors
+  holds attitude and thrust and gives up only YAW — measured in SITL as
+  `unallocated_torque` yaw climbing to 0.25 with the allocator still solving
+  for six (2026-08-16, sihsim_hex `failure motor off -i 3`). It keeps flying
+  and starts spinning, which is human-recoverable on POSCTL but ends the
+  mission either way: with yaw uncontrolled the body-fixed nadir camera spins,
+  and both the ArUco decode and `vision/projection.py`'s attitude-composed
+  pixel->lat/lon fall apart.
 - **System-ID + Autotune** is the ONE deliberately re-added exception (`tuning/`,
   `dashboard/tuner.py`, `orchestrator/sysid_sweep.py`): an OFFLINE pre-flight /
   SITL tuning aid (numpy-only FRF + `pyulog`) that designs/compares PID gains to
@@ -500,7 +473,7 @@ make lint           # ruff + mypy
 | G2 pads spawn | `make spawn-targets` places 6 ArUco pads (ids 1-6, varied yaw — 4 get committee-assigned per team, 2 stay permanent distractors); camera bridge feeds frames |
 | G3 detect | `find_landing_pads` decodes a SITL pad id at sweep altitude; projections sane |
 | G4 SITL mission | `make run --assigned-ids …`: FLIGHT(s) ⊃ DELIVERIES — transit both ways per flight, land-ON each assigned pad, release after touchdown (`payload_id` 0..eggs_aboard-1 → AUX 4/1/2/3), land+disarm at L&R, window < 20 min; `tools/verify_flight.py` PASSES. All evidence below **predates the 2026-07-24 briefing** and validated the then-current one-egg-per-flight model (`eggs_aboard=1` — behaviourally the SAME loop today, per the regression pin `test_delivery_mission.py::test_eggs_aboard_1_is_one_delivery_per_flight`): **PASSED on the hexacopter 2026-07-22** on the model rebuilt from `Power-System-Guide-1.pdf` (1.000 m wheelbase, 7.17 kg, 18" props, 37.65 N/motor): 4/4 delivered id-correct, release 0.13-0.25 m from truth, transit 8/8 in order, 14.8 min, 19 checks / 0 warnings — `docs/evidence/G4_hexacopter_corrected-model_2026-07-22.txt`. Re-run with the sysid gains: 19/0, releases 0.11-0.27 m, 882 s (`G4_hexacopter_tuned-gains_2026-07-22.txt`). Three runs — guessed geometry, corrected geometry, corrected+tuned — all pass and agree within scatter. ✅ **G4′ CLOSED 2026-07-25**: the briefing default (`eggs_aboard=4` — ONE flight, four deliveries, 6-pad field) **PASSED 14 checks / 0 warnings** on the 2-pack aircraft (AUW 8.22 kg): 4/4 delivered id-correct, releases **0.15–0.21 m** from truth, transit 6/6 in order, max altitude 19.69 m, landed 2.6 m from L&R, **457 s of the 1200 s window** — `docs/evidence/G4prime_multiegg_2packs_2026-07-25.txt`. That run was also the first on the flight clock and the progress-based leg guard (§8). ⚠ It ran at host RTF **0.95** (headless), so it confirms no regression but does NOT re-create the ~0.20 RTF that caused the 2026-07-25 `sweep_leg_timeout_wp0` — that condition is covered by unit tests, not by this flight. |
-| G5 HW bench | 6X + CM4 bench (props off): ✅ **6-motor map DONE 2026-08-17** (`PWM_MAIN_FUNC1..6` = 101..106 restored + readback, `ACTUATOR_TEST` M1..M6 individually — all six spin, correct order and direction, operator-observed; `SYS_AUTOSTART=6001` / `CA_ROTOR_COUNT=6` untouched). battery calibration on the **post-PM03D** wiring — `BAT1_V_DIV` ✅ closed 2026-08-16 (multimeter vs GCS on this wiring); still open: **`BAT1_CAPACITY=-1`**, `BAT1_N_CELLS=6`, and `BAT1_V_EMPTY`/`BAT1_V_CHARGED` confirmed against the pack, since they are now the entire gauge (§2), TFmini-S port + `listener distance_sensor`, camera `fov_deg` measured (no gimbal ⇒ it rides on top of the tilt term), egg-release servo verified. ⚠ **NEW 2026-08-16 — `listener esc_status` must show per-motor CURRENT on all 6 rotors.** Both halves of the one-motor-out net (§2) read that one signal, and SITL never publishes it, so this bench check is the ONLY place it can be proven. If the Tekko32 telemetry lead is not landed on an FC UART, a dead motor produces a log line and nothing else — and the presentation script's "เสีย 1 ตัวยังควบคุมลงจอดได้" is not true of the aircraft as built. **ORDER MATTERS and this check is LAST**: with `PWM_MAIN_FUNC1..6` still at 0 (the regression above) the motors are not bound to outputs, so there is no throttle, hence no ESC current, hence nothing for `esc_status` to report — an "empty" reading right now proves NOTHING about the telemetry wiring. Sequence: restore `PWM_MAIN_FUNC1..6` (+ `CA_ROTOR*`) → `ACTUATOR_TEST` each motor to confirm the arm mapping → **only then** read `esc_status`. (Sequencing flagged by the parallel session holding the airframe, 2026-08-16; the `PWM_MAIN_FUNC` half is independently recorded in §2.) 🔴 **RUN 2026-08-17, IN THAT ORDER, AND IT CAME BACK EMPTY.** With the motor map restored and all six rotors verified spinning, `DSHOT_TEL_CFG` reads **0** (no UART assigned to DShot ESC telemetry) and **zero `ESC_STATUS` messages** arrive during a motor test — including after an explicit `SET_MESSAGE_INTERVAL(ESC_STATUS)` that the FC **ACCEPTED**, so this is "the FC has nothing to send", not "the link does not carry it". The precondition that made an empty reading meaningless is gone; the reading now means what it says. ⇒ **The one-motor-out net (§2) is BLIND on both layers as the aircraft is built**: PX4's `FD_ACT_EN` has no current-per-throttle to watch, and `safety.py::_check_motor_health` fails OPEN forever on absent ESC data (by design — it never decides without data, so this shows up as silence, not an alarm). Until an ESC telemetry lead is landed on an FC UART **and** `DSHOT_TEL_CFG` points at that port, the presentation line "เสีย 1 ตัวยังควบคุมลงจอดได้" is NOT true of this airframe, and `CA_FAILURE_MODE=1` / `COM_ACT_FAIL_ACT=2` (which are still correctly pinned) can never be triggered by anything. **CAUSE CONFIRMED BY THE OPERATOR THE SAME DAY: the ESCs are PWM-only — there is no UART/TELEM lead on them at all.** So this is not a config gap to close, it is a property of the airframe as wired: `DSHOT_TEL_CFG` is irrelevant (the ESCs are not on DShot), and no parameter on any board can produce a signal that is not wired. Getting detection back needs HARDWARE — ESCs with a telemetry pad landed on an FC UART — and that is a build decision, not a bench check. **Do not re-open this as a params item.** What the aircraft actually has instead is the safety pilot: per the yaw analysis in §2 a hexa on five rotors keeps roll/pitch/thrust and loses only yaw, so it stays flyable but starts spinning — the recovery path is a human on POSCTL, and the presentation script's "เสีย 1 ตัวยังควบคุมลงจอดได้" must be reworded to say so rather than implying the FC does it. ✅ **egg-release servos DONE 2026-08-15** (`ACTUATOR_TEST` per pin, all four corners; one latch needs `PWM_AUX_MAX=2100`, `docs/SERVO_AUX_MAPPING.md`) |
+| G5 HW bench | 6X + CM4 bench (props off): ✅ **6-motor map DONE 2026-08-17** (`PWM_MAIN_FUNC1..6` = 101..106 restored + readback, `ACTUATOR_TEST` M1..M6 individually — all six spin, correct order and direction, operator-observed; `SYS_AUTOSTART=6001` / `CA_ROTOR_COUNT=6` untouched). battery calibration on the **post-PM03D** wiring — `BAT1_V_DIV` ✅ closed 2026-08-16 (multimeter vs GCS on this wiring); still open: **`BAT1_CAPACITY=-1`**, `BAT1_N_CELLS=6`, and `BAT1_V_EMPTY`/`BAT1_V_CHARGED` confirmed against the pack, since they are now the entire gauge (§2), TFmini-S port + `listener distance_sensor`, camera `fov_deg` measured (no gimbal ⇒ it rides on top of the tilt term), egg-release servo verified. ✅ **ESC telemetry: CLOSED NEGATIVE 2026-08-17 — do not re-run this check.** It was run in the required order (motor map restored, all six rotors verified spinning, so an empty reading finally meant something) and came back empty: `DSHOT_TEL_CFG=0`, zero `ESC_STATUS` even after a `SET_MESSAGE_INTERVAL` the FC ACCEPTED. Cause is physical — the ESCs are PWM-only with no telemetry lead — so the one-motor-out layers were deleted rather than left inert (§2). Nothing on this bench can change that; new ESCs can. ✅ **egg-release servos DONE 2026-08-15** (`ACTUATOR_TEST` per pin, all four corners; one latch needs `PWM_AUX_MAX=2100`, `docs/SERVO_AUX_MAPPING.md`) |
 | ~~G6 HW tethered~~ | **DROPPED 2026-08-16** (operator): the aircraft has already flown 3-4 real flights, so a tether proves nothing new. ⚠ What was NOT dropped are the two G6 items that are measurements, not ceremony — **camera `fov_deg` calibration** (moved to G5, ground procedure) and the **first land-ON + release over a printed pad** (folded into G7's first flight) |
 | G7 HW mission | Full mission flown **at the KMUTNB sky field** — the practice field standing in for KMITL. This IS the "fly the mission for real" step, not a hurdle before it |
 | G8 Dress rehearsal | Full mission + live egg deliveries within the 20-min window |

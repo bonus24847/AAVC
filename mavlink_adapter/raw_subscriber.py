@@ -24,13 +24,12 @@ the dashboard needs. Every SAFETY-ACTING check in the watchdog reads
 MAVSDK-populated fields (battery_percent, datalink_rssi, gps_fix_type, …), so a
 pymavlink failure cannot ground a healthy aircraft.
 
-⚠ ONE EXCEPTION since 2026-08-16: the motor-health check
-(`orchestrator/safety.py::_check_motor_health`) reads `esc_current_a` from
-here, because per-motor current is the only signal that tells a dead rotor from
-a live one and MAVSDK does not expose it. That check is built to fail OPEN — no
-listener, no pymavlink, a stale `esc_monotonic`, or an all-zero list are each
-"do nothing" — precisely so this module keeps its "cannot affect safety"
-property in the only direction that matters.
+That property is unconditional again as of 2026-08-17. A motor-health check
+read `esc_current_a` from here for one day (2026-08-16 to 08-17); it went away
+when the bench showed this airframe's ESCs are PWM-only with no telemetry lead,
+so `esc_current_a` never fills on this aircraft. The field stays for the
+dashboard to display whatever a future telemetry-capable ESC would send —
+nothing in the flight path reads it.
 """
 
 from __future__ import annotations
