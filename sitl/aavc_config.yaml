@@ -602,20 +602,32 @@ failsafes:
 # G4/G4' run flew) -> 1x17000 Perpetual Wings semi-solid on 2026-08-14 -> ONE
 # 7500 now. Note this is HALF the validated pair, not the pair.
 #
-# The numbers below are DERIVED, not measured, using this file's own rule that
-# hover current scales with mass^1.5 — the rule reproduces the 43 A that the
-# 17000 note recorded (8.22 kg/35.6 A -> 9.41 kg gives 43.6 A), so it is the
-# same arithmetic, not a new guess. Dropping one ~0.95 kg pack off the 8.22 kg
-# pair aircraft gives ~7.27 kg flying with 4 boxes and ~29.6 A hover, i.e.
-# x0.69 of the 17000-era seeds.
+# ⚠ WEIGHED 2026-08-17 (operator: "ชั่งแล้วครับ 7 โล ใช้แบต 7500"):
+# **7.0 kg on the scale, aircraft as it stands with ONE 7500 pack fitted, no
+# eggs.** That is a measurement and it outranks every calculated figure below
+# it — including this repo's own BOM sum (7.17 kg) and the 8.00 kg a parallel
+# session held from a 2026-08-14 weighing. The three disagreed for a whole
+# afternoon because each recorded a NUMBER without recording WHAT WAS ON THE
+# AIRCRAFT: 2026-08-14 predates the CM4 (fitted 08-15) and the PM03D removal
+# (08-16), so it was a different machine. RULE FROM THAT: never write a mass
+# without the aircraft state beside it — pack count, PM03D in/out, CM4 in/out,
+# eggs in/out.
 #
-# Endurance sanity: 5625 mAh usable / 29.6 A = ~11.4 min to the reserve, against
-# the 7.6 min (457 s) the four-delivery G4' flight actually took. It fits, but
-# the whole margin now rides on an ESTIMATED pack mass — reweigh and re-derive.
+# Flying mass = 7.0 + 4 x 90 g of egg boxes = 7.36 kg. Hover follows this file's
+# own mass^1.5 rule from the 8.22 kg / 35.6 A anchor: 35.6 x (7.36/8.22)^1.5 =
+# ~30.1 A, which is within 2 % of the 29.6 A the seeds below were derived at, so
+# the weighing CONFIRMS them rather than moving them. (The rule reproduces the
+# 43 A the 17000-pack note recorded, so it is the same arithmetic, not a new
+# guess.)
+#
+# Endurance: 5625 mAh usable / 30.1 A = ~11.2 min to the reserve, against the
+# 7.6 min (457 s) the four-delivery G4' flight actually took. A four-delivery
+# flight budgets 4700 mAh of 5625 — roughly 900 mAh of slack, which is real
+# margin rather than the 25 mAh deficit an 8.0 kg aircraft would have had.
 # ⚠ NOT changed here, on purpose: the SITL model mass (8.169 kg) and
 # MPC_THR_HOVER still describe the 2-pack aircraft, and they are shared with the
-# parallel session's repo. They move together, after a real weighing, with that
-# session pinged first.
+# parallel session's repo. They move together, deliberately, not as a side
+# effect of this note.
 battery:
   capacity_mah: 7500        # ONE 6S 7500 mAh pack (half the validated pair)
   cells: 6
