@@ -111,13 +111,18 @@ Goal: validate the orchestrator ↔ real-FC seam + the actuators, motors **off t
         a wide cone. Confirm no FPV antenna, lens or bracket enters it — a mast in
         frame costs decode area exactly where pads are searched for. Check on a
         real frame, not by eye.
-- [ ] **Camera stream (OV9281):** `make camera-real BACKEND=v4l2 GRAB_ARGS="--nadir-device 0
-      --fourcc GREY --fps 50"` — confirm 1280×720 mono frames land in /tmp
-      (preflight's camera-age critical passes) and the dashboard shows the feed.
-- [ ] **Detector:** hold a **printed landing pad** (1×1 m, or a scaled print at the matching
-      distance — bake one with `tools/gen_pads.py`) under the nadir camera; confirm
-      `find_landing_pads` decodes the right id (dashboard camera view) — on the REAL
-      mono frames, not a colour webcam.
+- [x] **Camera stream (OV9281): DONE 2026-08-17** — real grabber (`make camera-real
+      BACKEND=v4l2`, default args) wrote fresh 1280×720 mono→BGR frames to
+      /tmp on the CM4 continuously through the bench session. Final
+      `--fourcc/--fps` values still bench-pickable if needed.
+- [x] **Detector: DONE 2026-08-17** — operator held an ArUco marker (phone screen —
+      harsher than paper: backlight + refresh) under the real nadir camera indoors
+      over noisy terrazzo; `find_landing_pads` on the live frame decoded
+      **id 1 at confidence 0.95** — operator confirmed id 1 was the marker
+      shown (picture-to-picture, both directions of the evidence) — (radius
+      45 px, tilted view, pure-ArUco path —
+      `pad_side_px=0` as expected with no white pad in frame). The field-pad
+      variant (full 1×1 m print at sweep distance) folds into G7's first flight.
 - [ ] **Downward rangefinder (Benewake TFmini-S, 0.1-12 m):** wire it to a free serial
       port, set `SENS_TFMINI_CFG` to that port (the value is deliberately NOT pinned in
       config — picking the wrong port steals one the CM4 or GPS needs), then confirm
