@@ -309,20 +309,6 @@ def test_not_armed_skips_all_triggers() -> None:
     assert cmd.rth_calls == 0 and cmd.land_calls == 0
 
 
-def test_tuning_mode_skips_geofence_and_time() -> None:
-    # enforce_mission_limits=False (the System-ID/Autotune tool) must not RTH on
-    # a geofence breach or the time floor — it flies the drone itself.
-    t = _flying_telemetry()
-    t.lat = 14.6600                    # outside the box
-    state = OrchestratorState(mode=OrchestratorMode.OFFLINE, plan=_dummy_plan(), telemetry=t)
-    cmd = _FakeCommander()
-    wd = SafetyWatchdog(state, cmd, AIRSPACE, enforce_mission_limits=False)  # type: ignore[arg-type]
-    state.operation_window_s = 10.0
-    asyncio.run(_check_and_settle(wd))
-    assert state.terminal == TerminalState.RUNNING
-    assert cmd.rth_calls == 0
-
-
 # ── escalation ──────────────────────────────────────────────────────────────
 
 

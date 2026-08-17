@@ -27,7 +27,7 @@ two indices exactly as ``orchestrator/mission.py`` and
 
 Exit code 0 = all checks pass; 1 = violations (each printed, prefixed FAIL).
 Warnings (WARN) don't fail the run. Pass --ulog <file> for an optional PX4
-log deep-dive (needs pyulog, the [tuning] extra) — report-only.
+log deep-dive (needs pyulog: `pip install pyulog`) — report-only.
 
 Usage:
     .venv/bin/python tools/verify_flight.py runs/<mission_id>/audit.jsonl \
@@ -568,7 +568,7 @@ def _ulog_report(path: Path) -> None:
     try:
         from pyulog import ULog
     except ImportError:
-        print("WARN ulog: pyulog not installed (pip install -e '.[tuning]') — skipped")
+        print("WARN ulog: pyulog not installed (pip install pyulog) — skipped")
         return
     try:
         ulog = ULog(str(path), ["vehicle_local_position"])

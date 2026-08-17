@@ -149,7 +149,6 @@ class SafetyWatchdog:
         terrain_breach_threshold_s: float = 2.0,
         on_rth: Callable[[], None] | None = None,
         on_abort: Callable[[], None] | None = None,
-        enforce_mission_limits: bool = True,
     ) -> None:
         self.state = state
         self.commander = commander
@@ -176,11 +175,12 @@ class SafetyWatchdog:
         self.ceiling_breach_threshold_s = ceiling_breach_threshold_s
         self.search_floor_m = search_floor_m
         self._ceiling_breach_since: float | None = None
-        # Mission-only limits: geofence (breach RTH + proximity warn) and the
-        # mission-window "time's up → RTH". Disabled for the System-ID/Autotune
-        # tuning tool — it flies the drone itself with no mission window, and the
-        # SITL home spawns ~5 m from the field edge, so these would abort sweeps.
-        self.enforce_mission_limits = enforce_mission_limits
+        # (An enforce_mission_limits switch used to be able to turn the geofence,
+        # no-fly, ceiling and time checks OFF for the System-ID/Autotune tool.
+        # That tool was deleted 2026-08-15 and nothing set the flag afterwards,
+        # so the whole disable path went with it on 2026-08-17. These checks are
+        # not optional any more, which is the state they should always have been
+        # in for a mission build.)
         # Terrain-clearance (3D geofence) — opt-in: active ONLY when a DEM is loaded
         # (AAVC_TERRAIN_MAP). dem=None → the check below is skipped → behavior unchanged.
         self.dem = dem
@@ -282,8 +282,7 @@ class SafetyWatchdog:
         # can't spuriously end the mission. PREFLIGHT is exempt: the RC-GO
         # hold has the pilot arming in POSCTL on the ground BEFORE the
         # OFFBOARD flip that launches the flight.
-        if (self.enforce_mission_limits
-                and st.phase != MissionPhase.PREFLIGHT
+        if (st.phase != MissionPhase.PREFLIGHT
                 and t.flight_mode in _PILOT_MODES):
             now = asyncio.get_running_loop().time()
             if self._manual_mode_since is None:
@@ -396,8 +395,8 @@ class SafetyWatchdog:
         else:
             self._gps_lost_since = None
 
-        # 4. Geofence (mission-only — skipped for the tuning tool)
-        if self.enforce_mission_limits and not math.isnan(t.lat) and not math.isnan(t.lon):
+        # 4. Geofence
+        if not math.isnan(t.lat) and not math.isnan(t.lon):
             if not _point_in_polygon(t.lat, t.lon, self.controlled_airspace):
                 # FLIGHT-BEHAVIOR CHANGE (re-validate SITL G2/G4): a breach now
                 # triggers RTH — return INSIDE the field, matching PX4
@@ -428,7 +427,7 @@ class SafetyWatchdog:
         # rules-violation-grade event: RTH out immediately (RTL_RETURN_ALT=20
         # keeps the return at the ceiling; the L&R side of the field is clear
         # of the published SE zone).
-        if self.enforce_mission_limits and not math.isnan(t.lat) and not math.isnan(t.lon):
+        if not math.isnan(t.lat) and not math.isnan(t.lon):
             for zi, zone in enumerate(self.no_fly_zones):
                 if len(zone) >= 3 and _point_in_polygon(t.lat, t.lon, zone):
                     logger.critical(
@@ -445,7 +444,7 @@ class SafetyWatchdog:
         # past ceiling+breach forces RTH. The search FLOOR is advisory-only:
         # the descent over the pad (LOCALIZE/DROP/LAND) is the rules' one
         # legal sub-floor flight, and TAKEOFF passes through it by definition.
-        if self.enforce_mission_limits and not math.isnan(t.relative_alt_m):
+        if not math.isnan(t.relative_alt_m):
             alt = t.relative_alt_m
             if alt > self.altitude_ceiling_m + self.ceiling_breach_m:
                 now = asyncio.get_running_loop().time()
@@ -520,7 +519,7 @@ class SafetyWatchdog:
         else:
             self._datalink_lost_since = None
 
-        # 6. Time budget (mission-only — skipped for the tuning tool)
+        # 6. Time budget
         #
         # DROP is exempt alongside TRANSIT_EGRESS/LAND/RTH (M1, review
         # 2026-07-24): tactical_align enters MissionPhase.DROP only AFTER the
@@ -531,8 +530,7 @@ class SafetyWatchdog:
         # right response to "we are on the ground" — it would try to fly an
         # already-landed, possibly still-armed-with-an-open-hold aircraft.
         if (
-            self.enforce_mission_limits
-            and st.time_remaining_s() < self.min_time_remaining_s
+            st.time_remaining_s() < self.min_time_remaining_s
             and st.phase not in (MissionPhase.TRANSIT_EGRESS, MissionPhase.LAND,
                                  MissionPhase.DROP, MissionPhase.RTH)
         ):

@@ -196,10 +196,18 @@ single sortie" is history, not current design.)
   mission either way: with yaw uncontrolled the body-fixed nadir camera spins,
   and both the ArUco decode and `vision/projection.py`'s attitude-composed
   pixel->lat/lon fall apart.
-- **System-ID + Autotune** is the ONE deliberately re-added exception (`tuning/`,
-  `dashboard/tuner.py`, `orchestrator/sysid_sweep.py`): an OFFLINE pre-flight /
-  SITL tuning aid (numpy-only FRF + `pyulog`) that designs/compares PID gains to
-  bake into the deterministic mission. NOT run during the scored sortie.
+- **System-ID + Autotune: GONE.** It was the one deliberately re-added
+  exception (`tuning/`, `dashboard/tuner.py`, `orchestrator/sysid_sweep.py` — an
+  offline numpy-FRF tuning aid). The sweep, the dashboard tool and the tests went
+  on 2026-08-15 (PX4's own autotune replaces them); the leftovers went on
+  2026-08-17 — the empty `tuning/` package, its `pyproject` entry,
+  `sitl/launch_tuning.sh` (it launched a `--mode tuning` the orchestrator no
+  longer has), and `SafetyWatchdog(enforce_mission_limits=…)`. That last one is
+  the reason to care: it was a switch that turned the geofence, no-fly, ceiling
+  and mission-clock checks OFF, kept alive for a tool that no longer existed and
+  called by nothing. **Those checks are not optional any more.** `pyulog` stays
+  an optional import in `tools/verify_flight.py` (`pip install pyulog`) — there
+  is no `[tuning]` extra to install.
 - **No LLM, no cloud, no network in flight.** The mission is deterministic
   (`orchestrator/mission.py::run_delivery_mission`). AAVC bans internet/4G (= DQ).
 - **EFT X6100 hexacopter + Pixhawk 6X + Raspberry Pi CM4** (airframe swapped
@@ -286,7 +294,7 @@ orchestrator/    main.py (per-sortie gate factory, --assigned-ids), mission.py
                  safety.py (+ceiling/no-fly/floor + battery-NaN escalation),
                  constants.py (shared envelope thresholds), state.py (sortie fields,
                  start_window), audit.py (id-scored truth compare), preflight.py,
-                 sysid_sweep.py, target_tracker.py (marker-id-keyed pad registry),
+                 target_tracker.py (marker-id-keyed pad registry),
                  time_policy.py (sortie + serve reserves),
                  energy_policy.py (pack budget: usable mAh, per-sortie cost,
                  GO refusal + swap detection)
@@ -297,8 +305,6 @@ mavlink_adapter/ commands.py (DroneCommander/MAVSDK; drop_payload_count
                  raw_subscriber.py (ESC/servo/consumed-mAh for the dashboard)
 vision/          detectors/aruco.py (find_landing_pads + PadHit + render_pad_bgr)
                  + base.py, projection.py (pixel -> lat/lon)
-tuning/          sysid.py (numpy FRF), engine/synthesis/plant/schemas/calibration
-                 — pre-flight tuning aid (§2)
 dashboard/       FastAPI server (server/routes/commands/tuner/payloads/realtime/
                  command_proxy.py) + Svelte web/ (integration.py = the seam, §5)
 sitl/            launch_sitl.sh (PX4_HOME = KMITL L&R), spawn_targets.py (6 pads,
@@ -324,7 +330,7 @@ docs/            RULES_AAVC2026.md, FLIGHT.md (G5+ real bird), HITL.md (runbook)
 tests/           test_pad_detector.py, test_delivery_mission.py, test_live_plan.py,
                  test_tactical_align.py (land-ON + id gate), test_target_tracker.py,
                  test_preflight.py, test_safety.py, test_time_policy.py,
-                 test_truth_audit.py, test_sysid_*.py, test_tuning_synthesis.py, …
+                 test_truth_audit.py, test_commands.py, test_hardware_gates.py, …
 ```
 
 ## 4. What was DROPPED vs the reference (`../aavc-2026`) and why
@@ -340,9 +346,10 @@ tests/           test_pad_detector.py, test_delivery_mission.py, test_live_plan.
 | httpx / rich / pillow / lxml / pre-commit / hypothesis | Unused by the lean core |
 | supine-human detector + land-beside geometry (2026-07-03) | V1.1 target is the ArUco pad; land-ON |
 
-**Re-added (scoped, 2026-06-06):** `tuning/` + `dashboard/tuner.py` +
-`orchestrator/sysid_sweep.py` — the pre-flight System-ID + Autotune module (§2).
-`pyulog` is a `[tuning]` extra, not a flight-core dep.
+**Re-added 2026-06-06, then dropped again 2026-08-15/17:** `tuning/` +
+`dashboard/tuner.py` + `orchestrator/sysid_sweep.py`, the pre-flight System-ID +
+Autotune module — PX4's own autotune replaces it (§2). `pyulog` is an optional
+import in `tools/verify_flight.py`, never a flight-core dep.
 
 Build files reflect this: `pyproject.toml` deps = mavsdk, pymavlink,
 opencv-python-headless, numpy, pydantic, loguru, pyyaml, fastapi, uvicorn only;
@@ -654,7 +661,7 @@ standard OpenCV.)
 | Image-based UAV position & velocity estimation using a monocular camera · *Control Eng. Practice* | [/abs/…S0967066123000291](https://www.sciencedirect.com/science/article/abs/pii/S0967066123000291) | Monocular state estimate — sanity-check for the pixel→ground projection |
 | A review of UAV autonomous navigation in GPS-denied environments · *Robotics & Auton. Syst.* | [✅ OA /pii/…S0921889023001720](https://www.sciencedirect.com/science/article/pii/S0921889023001720) | Survey backing the "cameras own the final metre, not GPS" no-RTK rationale |
 
-### D. Control + offline System-ID / Autotune → `tuning/`, `orchestrator/sysid_sweep.py`, `mavlink_adapter/`
+### D. Control + offline System-ID / Autotune → `mavlink_adapter/` (the `tuning/` module itself was removed 2026-08-15/17 — these stay as design references for the PX4-autotune gains we bake in)
 
 | Paper · Journal | Link | How it applies here |
 |---|---|---|
