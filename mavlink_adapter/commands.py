@@ -230,6 +230,12 @@ _INT_PARAMS = frozenset({
     "MNT_MODE_IN", "MNT_MODE_OUT", "MNT_DO_STAB", "MNT_MAN_PITCH",
 })
 
+# Vertex-match tolerance when reading the onboard geofence back (deg). PX4 stores
+# fence points as int32 at 1e-7 deg, so this is ~11x the storage quantisation and
+# ~0.11 m on the ground — tight enough that a WRONG fence cannot pass, loose
+# enough that a correctly stored one cannot fail. See _verify_geofence.
+_FENCE_TOL_DEG = 1e-6
+
 # The pins whose PX4 DEFAULT is out of the competition envelope, i.e. the ones a
 # silent apply-failure turns into a rules bust or a broken egg. verify_envelope_pins
 # reads these back after the tuning block is pushed. Keep the list short: it is
@@ -930,6 +936,21 @@ class DroneCommander:
 
         ``polygon`` is a list of (lat, lon) vertices (≥ 3). Clears any prior
         fence first so a stale geofence from a previous mission can't linger.
+
+        ⚠ READS THE FENCE BACK AND RAISES IF IT IS NOT THERE (2026-08-17).
+        PX4 does NOT fail closed on a missing fence: ``Geofence::
+        isInsidePolygonOrCircle`` opens with ``if (isEmpty()) { /* Empty fence
+        -> accept all points */ return true; }``, so an upload that silently
+        did not land leaves the FC accepting every point on earth. That used to
+        be masked by ``GF_MAX_HOR_DIST`` — the radius fence, which is a stored
+        param and needs no upload — but the operator removed it on 2026-08-17
+        ("ตั้งผิดเมื่อไหร่ = ภารกิจตายทันที": a radius is a circle over a rotated
+        rectangle, so it either clips legal airspace or leaks outside it, and a
+        wrong one kills the mission mid-transit — which is exactly what a live
+        ``GF_MAX_HOR_DIST=15`` did that day). With the radius gone this polygon
+        is the ONLY FC-level fence, so "uploaded" has to mean verified, not
+        attempted. An unverifiable fence counts as no fence and raises: callers
+        must treat that as do-not-fly, not as a warning.
         """
         from mavsdk.geofence import FenceType, GeofenceData, Point, Polygon
 
@@ -943,11 +964,51 @@ class DroneCommander:
         except Exception as e:
             logger.debug(f"[mavlink] geofence clear pre-upload: {e}")
         await self.system.geofence.upload_geofence(data)
+        await self._verify_geofence(polygon, ftype)
         logger.info(
-            f"[mavlink] uploaded {ftype.name} geofence ({len(points)} vertices) — "
-            "pair with set_geofence_action_rtl() for FC-level breach RTL"
+            f"[mavlink] uploaded {ftype.name} geofence ({len(points)} vertices), "
+            "read back from the FC and verified — the aircraft is fenced"
         )
         return len(points)
+
+    async def _verify_geofence(self, polygon: list[tuple[float, float]], ftype: object) -> None:
+        """Download the fence the FC actually holds and compare it to what we
+        sent. Raises RuntimeError on any discrepancy — see ``upload_geofence``.
+
+        Vertices are matched by proximity rather than by index: PX4 stores fence
+        points as int32 at 1e-7 deg, and the order a fence comes back in is not
+        contractual, but the SET of corners is. ``_FENCE_TOL_DEG`` (1e-6 deg,
+        ~0.11 m) is far below any airspace boundary error that matters and far
+        above the storage quantisation.
+        """
+        try:
+            back = await self.system.geofence.download_geofence()
+        except Exception as e:
+            raise RuntimeError(
+                f"geofence uploaded but could NOT be read back ({e}) — an "
+                "unverified fence is treated as no fence, refusing to fly"
+            ) from e
+
+        polys = [p for p in (getattr(back, "polygons", None) or [])
+                 if getattr(p, "fence_type", None) == ftype]
+        if len(polys) != 1:
+            raise RuntimeError(
+                f"geofence readback holds {len(polys)} {getattr(ftype, 'name', ftype)} "
+                f"polygon(s), expected exactly 1 — the FC is not fenced as commanded"
+            )
+        got = [(float(pt.latitude_deg), float(pt.longitude_deg)) for pt in polys[0].points]
+        if len(got) != len(polygon):
+            raise RuntimeError(
+                f"geofence readback has {len(got)} vertices, uploaded {len(polygon)} "
+                "— the FC is holding a different fence"
+            )
+        for lat, lon in polygon:
+            if not any(abs(g_lat - lat) <= _FENCE_TOL_DEG and abs(g_lon - lon) <= _FENCE_TOL_DEG
+                       for g_lat, g_lon in got):
+                raise RuntimeError(
+                    f"geofence vertex ({lat:.7f},{lon:.7f}) is absent from the FC's "
+                    "own readback — the fence on the aircraft is not the one we drew"
+                )
 
     async def set_geofence_action_rtl(self) -> None:
         """Make PX4 RETURN on geofence breach (vs the default warn-only).

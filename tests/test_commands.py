@@ -193,6 +193,89 @@ def test_geofence_action_raises_when_readback_wrong():
         asyncio.run(_commander_with_param(p).set_geofence_action_rtl())
 
 
+# ── onboard geofence: "uploaded" is not the same as "fenced" (2026-08-17) ──
+
+# The real KMUTNB controlled airspace (gcs/kmutnb_field.yaml), so a reader can
+# see these are field corners and not arbitrary numbers.
+_AIRSPACE = [
+    (13.8227703, 100.5118179),
+    (13.8223327, 100.5121457),
+    (13.8225676, 100.5124741),
+    (13.8230053, 100.5121463),
+]
+
+
+class _FakeGeofence:
+    """Stands in for the MAVSDK geofence plugin. ``stored`` decides what the FC
+    is holding AFTER the upload — the whole point of the readback, since PX4
+    answers a missing fence with "accept all points" instead of an error."""
+
+    def __init__(self, stored: str = "as-uploaded") -> None:
+        self.uploaded: object | None = None
+        self.cleared = False
+        self._stored = stored
+
+    async def clear_geofence(self) -> None:
+        self.cleared = True
+
+    async def upload_geofence(self, data: object) -> None:
+        self.uploaded = data
+
+    async def download_geofence(self) -> object:
+        from mavsdk.geofence import FenceType, GeofenceData, Point, Polygon
+
+        if self._stored == "download-fails":
+            raise RuntimeError("MISSION_REQUEST_LIST timed out")
+        if self._stored == "empty":
+            return GeofenceData([], [])          # the upload silently did not land
+        if self._stored == "other-field":        # a fence — just not this field's
+            pts = [Point(lat + 0.01, lon) for lat, lon in _AIRSPACE]
+            return GeofenceData([Polygon(pts, FenceType.INCLUSION)], [])
+        return self.uploaded
+
+
+def _commander_with_geofence(gf: _FakeGeofence) -> DroneCommander:
+    c = DroneCommander.__new__(DroneCommander)
+    c.system = type("_Sys", (), {"geofence": gf})()  # type: ignore[assignment]
+    return c
+
+
+def test_upload_geofence_returns_vertex_count_when_the_fc_confirms_it():
+    gf = _FakeGeofence()
+    assert asyncio.run(_commander_with_geofence(gf).upload_geofence(_AIRSPACE)) == 4
+    assert gf.cleared, "a stale fence from a previous mission must be cleared first"
+
+
+def test_upload_geofence_raises_when_the_fc_holds_no_fence():
+    """The failure this exists for: PX4 does NOT fail closed on a missing fence.
+
+    Geofence::isInsidePolygonOrCircle opens with
+    `if (isEmpty()) { /* Empty fence -> accept all points */ return true; }`,
+    so an upload that didn't land leaves the aircraft accepting every point on
+    earth — and from the caller's side that is indistinguishable from success.
+    With GF_MAX_HOR_DIST retired (2026-08-17) nothing sits underneath this, so
+    an unverified upload has to be an error, not a warning.
+    """
+    with pytest.raises(RuntimeError):
+        asyncio.run(_commander_with_geofence(_FakeGeofence("empty")).upload_geofence(_AIRSPACE))
+
+
+def test_upload_geofence_raises_when_the_fc_holds_another_field():
+    """Counting items is not verifying them: on 2026-08-15 an orchestrator
+    connected to the wrong PX4 and uploaded the wrong field's fence. The vertex
+    count matched; the airspace did not. Compare coordinates, not lengths."""
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            _commander_with_geofence(_FakeGeofence("other-field")).upload_geofence(_AIRSPACE))
+
+
+def test_upload_geofence_raises_when_the_readback_itself_fails():
+    """No readback means no evidence, and no evidence means no fence."""
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            _commander_with_geofence(_FakeGeofence("download-fails")).upload_geofence(_AIRSPACE))
+
+
 # ── one-motor-out (CA_FAILURE_MODE / COM_ACT_FAIL_ACT, 2026-08-16) ──
 
 

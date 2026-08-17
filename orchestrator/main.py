@@ -698,12 +698,30 @@ async def run(args: argparse.Namespace) -> int:
         # which was the only flight this stack ever made that wanted them off;
         # that module was removed 2026-08-15 (PX4's own autotune replaces it),
         # and with it the only reason this code could ever disarm a failsafe.
+        # The fence is FAIL-CLOSED (2026-08-17). It used to record an anomaly and
+        # fly on, which was survivable only while GF_MAX_HOR_DIST held a radius
+        # fence underneath it — that one is a stored param, so it is in force
+        # whether or not an upload succeeds. The operator retired the radius that
+        # day: a circle cannot describe a rotated-rectangle field (it either
+        # clips legal airspace or leaks outside it), and a wrong one kills the
+        # mission outright — a live GF_MAX_HOR_DIST=15 would have RTL'd us ~7 m
+        # past P1. So this polygon is now the ONLY FC-level fence, and PX4 treats
+        # a missing one as "accept all points" rather than as an error
+        # (Geofence::isInsidePolygonOrCircle). An unverified upload therefore
+        # means no airspace limit on the aircraft at all, with only the companion
+        # left holding the rule — the exact single-layer state the GF_ACTION fix
+        # existed to end. Refuse the flight; the operator re-runs on a good link.
         if geofence and len(geofence) >= 3:
             try:
                 await commander.upload_geofence(geofence)
                 await commander.set_geofence_action_rtl()
             except Exception as e:
+                logger.error(f"[main] FC geofence NOT verified ({e}) — refusing to "
+                             "fly: PX4 reads a missing fence as 'accept all points', "
+                             "so this would launch with no airspace limit on board")
                 state.record_anomaly(f"geofence setup failed: {e}")
+                state.set_terminal(TerminalState.FAILED, MissionPhase.ABORT)
+                return 4
         try:
             await commander.set_datalink_loss_rtl(profile.datalink_loss_threshold_s)
         except Exception as e:
