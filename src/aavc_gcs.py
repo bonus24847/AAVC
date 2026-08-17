@@ -2943,17 +2943,27 @@ function renderToasts(s){
 var SUMSHOWN=false,WASLIVE=false;
 function renderSummary(s){
  var ms=s.mission||{},stale=ms.age_s!=null&&ms.age_s>45;
- var liveNow=!stale&&ms.phase&&ms.phase!=='done';
+ // Early homecoming (operator 2026-08-18: "อยากให้ขึ้นตอนกลับ home เหมือน
+ // กราฟฟิกตอนทำ mission เสร็จ"): a live mission that is DISARMED on the
+ // ground while carrying a home_reason has ended, even though the phase
+ // never reached 'done' — pop the same card, headlined by the reason.
+ var endedEarly=!stale&&ms.home_reason&&s.armed===false;
+ var liveNow=!stale&&ms.phase&&ms.phase!=='done'&&!endedEarly;
  if(liveNow){WASLIVE=true;SUMSHOWN=false;return}
- if(ms.phase==='done'&&WASLIVE&&!SUMSHOWN&&!stale){
+ if((ms.phase==='done'||endedEarly)&&WASLIVE&&!SUMSHOWN&&!stale){
   SUMSHOWN=true;WASLIVE=false;
   var dlv=(ms.delivered||[]),asg=(ms.assigned||[]);
   var t=ms.mission_time!=null
     ?Math.floor(ms.mission_time/60)+':'+('0'+Math.floor(ms.mission_time%60)).slice(-2):'–';
   var batt=(s.batt&&s.batt.pct!=null)?s.batt.pct+'%':'–';
-  var ok=asg.length>0&&dlv.length>=asg.length;
+  var ok=asg.length>0&&dlv.length>=asg.length&&!ms.home_reason;
+  var early=!ok&&ms.home_reason;
+  document.getElementById('sumcardc').style.borderColor=early?'#9e6a03':'';
   document.getElementById('sumcardc').innerHTML=
-   '<h3>'+(ok?'✅ ภารกิจสำเร็จ':'🏁 จบภารกิจ')+'</h3>'
+   (early
+    ?'<h3 style="color:#e3b341">🏠 กลับบ้านก่อนจบภารกิจ</h3>'
+     +'<div style="font-size:14px;color:#e3b341;margin:2px 0 8px">'+ms.home_reason+'</div>'
+    :'<h3>'+(ok?'✅ ภารกิจสำเร็จ':'🏁 จบภารกิจ')+'</h3>')
   +'<div style="font-size:13px;color:#8b98a5">'+(s.mission_current||'')+'</div>'
   +'<div class=sumgrid>'
   +'<div class=sumcell><b>'+dlv.length+'/'+asg.length+'</b><span>ส่งสำเร็จ</span></div>'
