@@ -6,12 +6,20 @@
 #   cm4/launch_gcs_real.sh <user@cm4-host> [console_port=8000]
 #   e.g. cm4/launch_gcs_real.sh aavc@10.42.0.12
 #
-# What it starts (Ctrl-C stops both):
-#   1) cm4/status_sync.sh  — pulls captures/ from the CM4 every 2 s so the
-#      console's stepper + pad ✓ stay live whenever WiFi reaches the aircraft
-#   2) the AAVC GCS console with the REAL-flight settings:
+# What it starts — the console ONLY, RADIO-PURE (operator 2026-08-17: "อันไหน
+# ที่ใช้วิทยุไม่ได้ เอาออกเลย"). Every in-flight readout arrives over the NOMAD
+# radio: telemetry + the lidar stream from the FC, and the beacon's camera
+# health, mission summary and pad coordinates from the CM4. The WiFi puller
+# (cm4/status_sync.sh — frame IMAGE + rich mission_status detail, the two
+# things the radio physically cannot carry) is NOT started any more, so a WiFi
+# dropout can never freeze a panel mid-flight and be mistaken for the
+# aircraft. Run it BY HAND for bench debugging if the frame view is wanted:
+#     bash cm4/status_sync.sh <user@cm4-host>
+#
+#   the AAVC GCS console with the REAL-flight settings:
 #        --field    gcs/kmutnb_field.yaml    (KMUTNB geofence/pads overlay)
-#        --captures captures                 (the dir status_sync fills)
+#        --captures captures                 (pad_assignment.json queue — a
+#                                             LOCAL file, not a WiFi feed)
 #        --url      เลือกเอง (cm4/pick_telemetry_link.sh): วิทยุ NOMAD ที่เสียบ
 #                   USB ก่อน (serial @460800) ไม่พบค่อยใช้ udpin:0.0.0.0:14550
 #                   (Nomad backpack / mavlink-router). AAVC_URL/AAVC_BAUD สั่งทับได้
@@ -48,11 +56,8 @@ fi
 . "$REPO_ROOT/cm4/pick_telemetry_link.sh"
 pick_telemetry_link
 
-echo "[real-gcs] status sync + console → http://127.0.0.1:$PORT  (Ctrl-C stops both)"
+echo "[real-gcs] console → http://127.0.0.1:$PORT  (radio-pure — no WiFi pull)"
 echo "[real-gcs] telemetry link: $LINK_DESC"
-bash "$REPO_ROOT/cm4/status_sync.sh" "$HOST" "$DIR" &
-SYNC_PID=$!
-trap 'kill "$SYNC_PID" 2>/dev/null' EXIT INT TERM
 
 /usr/bin/python3 "$GCS" \
     --field "$REPO_ROOT/gcs/kmutnb_field.yaml" \
