@@ -178,7 +178,13 @@
     <include>
       <name>ground_sat</name>
       <uri>model://ground_sat</uri>
-      <pose>-14.17 19.37 0.002 0 0 0</pose>
+      <!-- pose == gen_geo GEO.sat_center_enu (pitch centre, ENU about the
+           surveyed L&R origin). MISSED in the 2026-08-17 survey migration —
+           the old-frame pose left the whole photo ~77 m adrift, parking the
+           drone visually mid-pitch while its coordinates sat on the track
+           (caught by the operator, 2026-08-18). gen_geo's report now prints
+           this line — paste from there, never hand-derive. -->
+      <pose>53.64 -17.95 0.002 0 0 0</pose>
     </include>
 
     <!-- Resupply set-dressing: 4 static cargo-box dummies staged on the east

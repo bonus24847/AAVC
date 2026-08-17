@@ -212,6 +212,9 @@ class Geo:
         add(f"LAT0, LON0 = {self.lnr_lat:.7f}, {self.lnr_lon:.7f}")
         add(f"CENTER_E, CENTER_N = {self.sat_center_enu[0]}, {self.sat_center_enu[1]}")
         add(f"PLANE_W, PLANE_H = {SAT_PLANE_W}, {SAT_PLANE_H}")
+        add("world ground_sat include pose (MUST match — a frame move that skips "
+            "this line parks the whole photo in the old frame, 2026-08-18):")
+        add(f"  <pose>{self.sat_center_enu[0]} {self.sat_center_enu[1]} 0.002 0 0 0</pose>")
         m_lat, m_lon = _wgs84_m_per_deg(self.lnr_lat)
         add(f"(m/deg lat {m_lat:.4f}, m/deg lon {m_lon:.4f})")
         add("")
