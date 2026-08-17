@@ -17,6 +17,15 @@ dependencies = [
     # ships 3.15.x); the 2.x battery 0..100 contract is unchanged in 3.x.
     "mavsdk>=3,<4",
     "pymavlink>=2.4.41",
+    # pymavlink imports pyserial LAZILY — inside mavutil.mavlink_connection(),
+    # and only for a serial URL. So a venv without it passes every UDP-based test
+    # and then dies the moment something opens /dev/ttyACM0. That is exactly what
+    # happened on 2026-08-17, at the desk, minutes before the ground survey:
+    # tools/survey_logger.py is a CABLE tool now (laptop -> Pixhawk over USB; the
+    # CM4 route was removed), so the serial path is not optional for this repo any
+    # more. Declared here rather than discovered as `pip install pyserial` at the
+    # field, where there may be no network.
+    "pyserial",
 
     # Vision (deterministic OpenCV — ArUco landing-pad decode + projection)
     "opencv-python-headless",

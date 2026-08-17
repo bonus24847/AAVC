@@ -27,6 +27,14 @@ env -u PYTHONPATH .venv/bin/python tools/survey_logger.py \
 - พอร์ตอาจเป็น `/dev/ttyACM1` หรือ `/dev/ttyUSB0` — เช็กด้วย `ls /dev/ttyACM* /dev/ttyUSB*`
 - **ปิด QGC / AAVC GCS / mavlink-router ก่อน**: โปรแกรมพวกนี้จับพอร์ต serial ไว้ แล้ว
   logger จะขึ้น `no heartbeat` ทั้งที่สายเสียบอยู่ดี ๆ
+- **`ModuleNotFoundError: No module named 'serial'`** (เจอจริง 2026-08-17 ก่อนออก
+  สนาม): venv ขาด `pyserial` — pymavlink อิมพอร์ตมันแบบ lazy เฉพาะตอนเปิดพอร์ต
+  serial เท่านั้น เทสทั้งชุดจึงเขียวได้โดยที่มันหายไป แก้ด้วย
+  `.venv/bin/pip install pyserial` (ประกาศไว้ใน `pyproject.toml` แล้ว — `make
+  install` รอบใหม่จะได้เอง) ⚠ **ต้องแก้ที่บ้านที่มีเน็ต ไม่ใช่ที่สนาม**
+- **`could not open port /dev/ttyACM0: No such file or directory`** = สายยังไม่ได้
+  เสียบ หรือโดรนยังไม่เปิดไฟ (คนละอาการกับ `no heartbeat` ซึ่งแปลว่าพอร์ตเปิดได้
+  แต่ไม่มีใครพูด) เช็กด้วย `ls /dev/ttyACM* /dev/ttyUSB*` ต้องเห็นอย่างน้อยหนึ่งตัว
 - ลองรันสั้น ๆ ลง `/tmp/survey_test.jsonl` ที่โต๊ะก่อนออกจากบ้าน จะได้รู้ว่าสายกับพอร์ตใช้ได้
 
 ใบเช็กคำสั่งทีละขั้นสำหรับวันเดินจริง: `docs/FIELD_SURVEY_CHECKLIST.html`
