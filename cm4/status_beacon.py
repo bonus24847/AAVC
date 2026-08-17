@@ -110,6 +110,13 @@ def compose_lines(status: dict | None, frame_age_s: float | None) -> list[tuple[
     else:
         lines.append((_SEV_INFO, "AAVC p=idle (no mission yet)"))
 
+    # WHY the aircraft came home unfinished — an ascii code the console maps
+    # back to operator text (operator 2026-08-18). One short WARN line, only
+    # while a reason stands; gcs_status clears it at every FLIGHT START.
+    why = (status or {}).get("home_reason_code")
+    if why:
+        lines.append((_SEV_WARN, f"AAVC why={why}"[:_MAX_TEXT]))
+
     if frame_age_s is None:
         lines.append((_SEV_WARN, "AAVC cam=NONE no frame file"))
     elif frame_age_s > _CAM_DEAD_S:

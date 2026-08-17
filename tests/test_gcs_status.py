@@ -131,3 +131,38 @@ def test_events_feed_for_console_toasts(tmp_path: Path) -> None:
     assert any("ผ่านจุด P2" in t for t in texts)
     assert any("วางแล้ว pad 3" in t for t in texts)
     assert ev[-1]["warn"] is True              # takeover flagged as warning
+
+
+def test_home_reason_surfaces_first_cause_and_clears_on_next_flight(
+        tmp_path: Path) -> None:
+    """Operator 2026-08-18: 'ผมจะได้รู้ว่ากลับ home เพราะอะไร'. The audit's own
+    words become a persistent reason field: the FIRST terminal cause of a
+    flight sticks (the energy refusal that FOLLOWS a budget abort must not
+    overwrite it), and the next FLIGHT START wipes it."""
+    p = tmp_path / "mission_status.json"
+    g = GcsMissionStatus(p, _LAT0, _LON0, assigned=[1, 2, 3, 4])
+    assert _read(p)["home_reason"] is None
+
+    g.on_audit("t=568.0s DELIVERY abort: flight 1 skipping remaining "
+               "ids=3,4 (remaining=632s batt=36%) — returning with the egg(s)")
+    doc = _read(p)
+    assert doc["home_reason_code"] == "budget"
+    assert "กลับพร้อมไข่" in doc["home_reason"]
+
+    g.on_audit("t=627.3s sortie 2 refused (energy reserve)")
+    assert _read(p)["home_reason_code"] == "budget"   # first cause sticks
+
+    g.on_audit("t=700.0s FLIGHT 2 START eggs=2 ids=3,4 remaining=500s")
+    doc = _read(p)
+    assert doc["home_reason"] is None and doc["home_reason_code"] is None
+
+
+def test_home_reason_maps_watchdog_kinds(tmp_path: Path) -> None:
+    """The safety watchdog's audited anomaly kinds land as operator text —
+    including the 2026-08-17 GPS policy (loss -> LAND in place)."""
+    p = tmp_path / "mission_status.json"
+    g = GcsMissionStatus(p, _LAT0, _LON0, assigned=[1])
+    g.on_audit("t=120.0s gps_loss_sustained")
+    doc = _read(p)
+    assert doc["home_reason_code"] == "gps"
+    assert "ลงจอด" in doc["home_reason"]

@@ -92,6 +92,14 @@ class GcsMissionStatus:
         self._eta_s: int | None = None
         self._search_t0: float | None = None   # mission_time when search began
         self._events: list[dict[str, Any]] = []  # rolling, newest last, max 10
+        # WHY the aircraft came home / landed with the mission unfinished
+        # (operator request 2026-08-18: "ผมจะได้รู้ว่ากลับ home เพราะอะไร").
+        # First cause wins for the flight — the later consequences (an energy
+        # refusal after a budget abort) don't overwrite the reason the
+        # operator actually needs. Cleared at every FLIGHT START.
+        # `code` is ASCII for the radio beacon; `reason` is the operator text.
+        self._home_reason: str | None = None
+        self._home_reason_code: str | None = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -205,8 +213,59 @@ class GcsMissionStatus:
                                  "text": text, "warn": warn})
             del self._events[:-10]
 
+    # WHY-did-it-come-home table: (audit substring, ascii code for the radio
+    # beacon, operator text). Ordered — first match in an entry wins. These
+    # substrings are the audit grammar's own words (safety.py anomaly kinds +
+    # the mission's decision lines), so a wording change there must land here.
+    _HOME_REASONS = (
+        ("DELIVERY abort", "budget",
+         "งบเวลา/แบตไม่พอก่อนส่ง — กลับพร้อมไข่ที่เหลือ"),
+        ("refused (energy reserve)", "energy",
+         "พลังงานไม่พอสำหรับเที่ยวถัดไป — สลับแบตก่อนกด GO"),
+        ("gps_loss_sustained", "gps",
+         "GPS หลุดต่อเนื่อง — ลงจอด ณ จุดที่อยู่"),
+        ("battery_critical_", "batt-crit",
+         "แบตวิกฤต — ลงจอดทันที ณ จุดที่อยู่"),
+        ("battery_low_", "batt-low",
+         "แบตต่ำกว่าเกณฑ์ — กลับบ้าน (RTH)"),
+        ("battery_telemetry_nan_sustained", "batt-nan",
+         "อ่านค่าแบตไม่ได้ต่อเนื่อง — กลับบ้าน (RTH)"),
+        ("geofence_breach", "fence",
+         "หลุดรั้ว geofence — กลับบ้าน (RTH)"),
+        ("no_fly_zone_breach", "nofly",
+         "เข้าเขตห้ามบิน — กลับบ้าน (RTH)"),
+        ("altitude_ceiling_breach_sustained", "ceiling",
+         "ทะลุเพดานบินค้าง — กลับบ้าน (RTH)"),
+        ("telemetry_stale_sustained", "telem",
+         "telemetry ขาดต่อเนื่อง — กลับบ้าน (RTH)"),
+        ("datalink_loss_sustained", "datalink",
+         "ลิงก์สั่งการหลุด — กลับบ้าน (RTH)"),
+        ("time_budget_exhausted", "time",
+         "หมดงบเวลา — กลับบ้าน (RTH)"),
+        ("PILOT TAKEOVER", "pilot",
+         "นักบินยึดเครื่องคืน — ระบบหยุดสั่งแล้ว"),
+    )
+
     def on_audit(self, entry: str) -> None:
         """Audit-sink tee: delivered ticks + the operator-event feed."""
+        # A new flight wipes the previous flight's homecoming reason…
+        if "FLIGHT" in entry and "START" in entry and "DELIVERY" not in entry:
+            with self._lock:
+                self._home_reason = None
+                self._home_reason_code = None
+            self._write()
+        else:
+            # …and the FIRST terminal cause of this flight sticks (later
+            # consequences — e.g. the energy refusal after a budget abort —
+            # must not overwrite the reason the operator actually needs).
+            for needle, code, text in self._HOME_REASONS:
+                if needle in entry:
+                    with self._lock:
+                        if self._home_reason_code is None:
+                            self._home_reason = text
+                            self._home_reason_code = code
+                    self._write()
+                    break
         m = _RELEASE.search(entry)
         if m is not None:
             pad = int(m.group("pad"))
@@ -264,6 +323,8 @@ class GcsMissionStatus:
                     "progress_label": self._progress_label,
                     "eta_s": self._eta_s,
                     "events": list(self._events),
+                    "home_reason": self._home_reason,
+                    "home_reason_code": self._home_reason_code,
                     "updated": time.time(),
                 }
                 if self._mission_time is not None:

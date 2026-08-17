@@ -103,3 +103,22 @@ def test_no_mapped_pads_means_no_pads_line() -> None:
               "pads_mapped": {}}
     assert not [t for t in _texts(beacon.compose_lines(status, 0.5))
                 if t.startswith("AAVC pads")]
+
+
+def test_home_reason_code_rides_the_radio_as_a_warning() -> None:
+    """The WHY of an unfinished homecoming must reach the operator over the
+    radio too — as an ascii code (STATUSTEXT is ascii on the wire; the console
+    maps it back to Thai), WARN severity, one packet."""
+    status = {"phase": "RTH", "assigned": [1, 2, 3, 4], "delivered": [1, 2],
+              "pads_mapped": {}, "home_reason_code": "budget"}
+    lines = beacon.compose_lines(status, 0.5)
+    whys = [(sev, t) for sev, t in lines if t.startswith("AAVC why=")]
+    assert whys == [(_SEV_WARN, "AAVC why=budget")]
+    assert whys[0][1].isascii() and len(whys[0][1]) <= 50
+
+
+def test_no_reason_means_no_why_line() -> None:
+    status = {"phase": "SERVE", "assigned": [1], "delivered": [],
+              "pads_mapped": {}}
+    assert not [t for _, t in beacon.compose_lines(status, 0.5)
+                if t.startswith("AAVC why=")]
