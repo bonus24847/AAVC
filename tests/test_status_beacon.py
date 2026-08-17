@@ -74,3 +74,32 @@ def test_camera_threshold_sits_above_the_grabber_rate_not_at_it() -> None:
     assert 2.0 < beacon._CAM_DEAD_S <= 10.0
     assert "cam=OK" in beacon.compose_lines(None, beacon._CAM_DEAD_S - 0.1)[1][1]
     assert "cam=DEAD" in beacon.compose_lines(None, beacon._CAM_DEAD_S + 0.1)[1][1]
+
+
+def test_pad_coordinates_ride_the_radio_in_one_packet_chunks() -> None:
+    """Operator 2026-08-17: the map's pad markers must survive WiFi loss, so
+    the beacon relays pads_mapped ENU verbatim — chunked so no line ever
+    exceeds one STATUSTEXT packet even with all six pads mapped at the far
+    corner of the field (worst-case digit count)."""
+    pads = {str(i): [-112.3 + i, 87.6 - i] for i in range(1, 7)}
+    status = {"phase": "SERVE", "assigned": [1, 2, 3, 4], "delivered": [],
+              "pads_mapped": pads}
+    plines = [t for t in _texts(beacon.compose_lines(status, 0.5))
+              if t.startswith("AAVC pads")]
+    assert plines, "no pads lines emitted"
+    for t in plines:
+        assert len(t) <= 50 and t.isascii(), t
+    entries = " ".join(t[len("AAVC pads "):] for t in plines).split()
+    assert sorted(e.split(":")[0] for e in entries) == sorted(pads)
+    pid, en = entries[0].split(":")
+    e, n = (float(v) for v in en.split(","))
+    assert abs(e - pads[pid][0]) <= 0.05 and abs(n - pads[pid][1]) <= 0.05
+
+
+def test_no_mapped_pads_means_no_pads_line() -> None:
+    """Before the sweep finds anything there is nothing to place — an empty
+    pads line would just burn a packet on the narrow link."""
+    status = {"phase": "recon", "assigned": [1, 2], "delivered": [],
+              "pads_mapped": {}}
+    assert not [t for t in _texts(beacon.compose_lines(status, 0.5))
+                if t.startswith("AAVC pads")]

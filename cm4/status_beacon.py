@@ -9,13 +9,16 @@ freeze. Telemetry, meanwhile, rides the NOMAD radio the whole way.
 
 So put the *summary* on the radio and leave the *detail* on WiFi:
 
-    AAVC p=SERVE f=1/1 d=2/4 ok=1,3        ~31 bytes
+    AAVC p=SERVE d=2/4 m=3 ok=1,3           ~30 bytes
+    AAVC pads 1:12.3,-8.1 3:5.0,14.2        ~35 bytes (chunked, <=50 each)
     AAVC cam=OK 0.9s                        ~16 bytes
 
-That is ~30 B/s against ~250 KB/s for the frame pull — about 8000x cheaper —
-and it answers the two questions the operator actually asked: *which pads are
-done* and *is the camera alive or dead*. The frame itself stays on WiFi for
-whoever is near the L&R point.
+That is well under 100 B/s against ~250 KB/s for the frame pull — and it
+answers the three questions the operator actually asked: *which pads are done*,
+*WHERE the mapped pads are* (ENU about the field origin, 0.1 m — the map draws
+the same marker with WiFi or without it; operator 2026-08-17), and *is the
+camera alive or dead*. The frame IMAGE stays on WiFi for whoever is near the
+L&R point — the radio physically cannot carry it.
 
 HOW IT REACHES THE GROUND: this sends into the CM4's mavlink-router, which
 routes to the FC over TELEM2. STATUSTEXT carries no target field, so it is a
@@ -85,6 +88,25 @@ def compose_lines(status: dict | None, frame_age_s: float | None) -> list[tuple[
         lines.append((_SEV_INFO,
                       f"AAVC p={phase} d={len(delivered)}/{len(assigned)} "
                       f"m={seen} ok={_fmt_ids(delivered)}"[:_MAX_TEXT]))
+        # Pad COORDINATES over the radio (operator 2026-08-17: "เอาแค่พิกัดพอ
+        # ที่ใช้วิทยุ") — ~13 chars per pad, chunked so every line stays one
+        # STATUSTEXT packet. Values are relayed verbatim from mission_status's
+        # pads_mapped (ENU metres about the field yaml's local_origin), so the
+        # console draws the SAME marker with WiFi or without it. 0.1 m
+        # resolution: an order finer than the no-RTK GPS the fix came from.
+        pads = status.get("pads_mapped") or {}
+        entries = [f"{pid}:{en[0]:.1f},{en[1]:.1f}"
+                   for pid, en in sorted(
+                       pads.items(),
+                       key=lambda kv: (not str(kv[0]).isdigit(), str(kv[0])))]
+        line = "AAVC pads"
+        for ent in entries:
+            if len(line) + 1 + len(ent) > _MAX_TEXT:
+                lines.append((_SEV_INFO, line))
+                line = "AAVC pads"
+            line += " " + ent
+        if line != "AAVC pads":
+            lines.append((_SEV_INFO, line))
     else:
         lines.append((_SEV_INFO, "AAVC p=idle (no mission yet)"))
 
