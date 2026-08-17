@@ -2,7 +2,7 @@
 and triggers RTH / ABORT when a threshold is breached.
 
 Safety triggers (in order of severity):
-  1. No GPS 3D fix sustained > gps_loss_threshold_s in-flight → RTH
+  1. No GPS 3D fix sustained > gps_loss_threshold_s in-flight → LAND in place
   2. Battery < 30% → RTH
   3. Battery < 20% → LAND in place (insufficient for RTH)
   4. Geofence proximity < 5 m → warn
@@ -374,11 +374,16 @@ class SafetyWatchdog:
                 )
                 st.record_anomaly("battery_telemetry_nan_sustained")
 
-        # 3. GPS health — a SUSTAINED loss of the 3D fix escalates to RTH (the
-        # deterministic companion backstop; PX4's own GPS failsafe is the FC
-        # layer). Debounced like the datalink check so a brief glitch — common
-        # outdoors — doesn't ground the mission. (The watchdog docstring used to
-        # claim GPS→RTH while the code only recorded it; this makes it true.)
+        # 3. GPS health — a SUSTAINED loss of the 3D fix → LAND IN PLACE, not
+        # RTH (operator 2026-08-17: "เพื่อ safe ลง land เลย"). The physics
+        # agrees: with no flow module and no GPS the horizontal estimate dies
+        # in seconds, and RTL is a command that cannot navigate — it would
+        # drift wherever the wind takes it before PX4 degrades to a blind
+        # descent anyway. PX4's LAND needs no horizontal position (baro +
+        # TFmini still own the vertical), so commanding it immediately puts
+        # the aircraft on the ground closest to where it was last known to
+        # be, inside the fence. Debounced so a brief glitch — common outdoors
+        # — doesn't ground the mission.
         if t.gps_fix_type < 3:
             now = asyncio.get_running_loop().time()
             if self._gps_lost_since is None:
@@ -387,10 +392,10 @@ class SafetyWatchdog:
             elif now - self._gps_lost_since > self.gps_loss_threshold_s:
                 logger.critical(
                     f"[safety] no GPS 3D fix for >{self.gps_loss_threshold_s:.0f}s "
-                    "— triggering RTH"
+                    "— LAND in place (RTH cannot navigate without a position)"
                 )
                 st.record_anomaly("gps_loss_sustained")
-                await self._trigger_rth()
+                await self._trigger_abort()
                 return
         else:
             self._gps_lost_since = None

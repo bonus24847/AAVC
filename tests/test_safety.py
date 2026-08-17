@@ -216,7 +216,10 @@ def test_battery_recovery_resets_the_nan_timer() -> None:
 # ── GPS ─────────────────────────────────────────────────────────────────────
 
 
-def test_gps_sustained_loss_triggers_rth() -> None:
+def test_gps_sustained_loss_lands_in_place() -> None:
+    """LAND, not RTH (operator 2026-08-17): with no flow module, no GPS means
+    no horizontal estimate — an RTL could not navigate home anyway. LAND is
+    the one response that still works without a position."""
     t = _flying_telemetry()
     t.gps_fix_type = 0                 # no fix
     wd, state, cmd = _make_wd(t)
@@ -231,8 +234,8 @@ def test_gps_sustained_loss_triggers_rth() -> None:
         await _check_and_settle(wd)
 
     asyncio.run(run())
-    assert state.terminal == TerminalState.LANDED_RTH
-    assert cmd.rth_calls == 1
+    assert state.terminal == TerminalState.ABORTED
+    assert cmd.land_calls == 1 and cmd.rth_calls == 0
 
 
 def test_gps_recovery_resets_the_timer() -> None:
