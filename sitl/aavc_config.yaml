@@ -113,19 +113,18 @@ ground_operation:
 # /tmp/aavc_targets.json — used ONLY for the post-flight --truth-json audit and
 # tools/verify_flight.py, NEVER for planning.
 search:
-  sweep_alt_m: 4.5         # RAISED 4.0 -> 4.5 on 2026-08-18: the MEASURED 74.2°
-                           # lens shrank the swath ~0.66x, and the 4.0 m sweep
-                           # (26 legs, ~380 s) drained the 7500 pack to 37%
-                           # before the first egg — the delivery gate then
-                           # correctly refused all four (SITL, audit t=557).
-                           # At 4.5 m: marker ≈ 75 px (decode-trivial), swath
-                           # 6.8 m, and 0.5 m stays under the 5 m ceiling for
-                           # the per-arm altitude wander. Legal band
-                           # [search_floor_m 2.5, ceiling 5].
-  overlap_frac: 0.3        # spacing = swath*(1-overlap) ≈ 4.8 m -> ~20 legs
-                           # (was 0.4/26 legs). Along-track footprint at 4.5 m
-                           # grows to ~3.8 m, so votes-per-pass IMPROVE even
-                           # with the thinner cross-track overlap.
+  sweep_alt_m: 8.0         # RAISED AGAIN 4.5 -> 8.0 on 2026-08-18 with the
+                           # ceiling now 10 m (operator): the measured 74.2°
+                           # lens at 4.x m needed 20-26 legs and drained the
+                           # 7500 pack before the eggs (0/4 then 2/4 in SITL).
+                           # At 8 m the swath is 12.1 m -> ~9 legs; the 400 mm
+                           # marker is ~42 px, comfortably above the detector's
+                           # validated 18 px floor; 2 m stays under the 10 m
+                           # ceiling for the per-arm wander. Legal band
+                           # [search_floor_m 2.5, ceiling 10].
+  overlap_frac: 0.3        # spacing = swath*(1-overlap) ≈ 8.5 m. Along-track
+                           # footprint at 8 m is ~6.8 m — plenty of frames per
+                           # pass for the confirm votes.
   margin_m: 5.0            # search-area inset (pads sit >=4 m inside; GPS is coarse)
                            # RAISED 4.0 -> 5.0 on 2026-08-16, executing the
                            # trigger the 2026-08-12 peer note wrote down: at 4.0
@@ -190,9 +189,15 @@ search:
 # Mission parameters (V1.3 delivery flight + the 2026-07-24 event-briefing's
 # FLIGHT ⊃ DELIVERY split — docs/RULES_AAVC2026.md "Event-briefing override")
 mission:
-  altitude_ceiling_m: 5             # hard AGL ceiling (user brief; matches the
-                                    # kmutnb_skyfield profile)
-  transit_alt_m: 4.0                # transit legs AT 4 m (1 m under the ceiling —
+  # ⚠ ceiling/transit here are DOCUMENTATION ONLY — the values the orchestrator
+  # actually flies come from mission_brain/profile.py (kmutnb_skyfield profile;
+  # discovered the hard way 2026-08-18 when an edit here changed nothing).
+  # Keep both in sync; change the PROFILE to change the flight.
+  altitude_ceiling_m: 10            # hard AGL ceiling — RAISED 5 -> 10 (operator
+                                    # 2026-08-18); the FC's OWN altitude fence
+                                    # sits at 20 m (GF_MAX_VER_DIST, per the
+                                    # competition rules) as the outer net
+  transit_alt_m: 9.0                # transit legs AT 9 m (1 m under the ceiling —
                                     # same headroom ratio the 20 m rules flew)
   search_floor_m: 2.5               # search >= 2.5 m; below only over the pad
   # DELIVERIES (pads to serve), not flights, despite the name: this predates
@@ -475,9 +480,13 @@ px4_tuning:
                             # (KMUTNB: 10 -> 4, scaled into the 5 m band)
   MPC_LAND_ALT2: 2.0        # final crawl speed below 2 m AGL (was 5)
   # Any failsafe RTL (geofence, datalink loss, watchdog) climbs to RTL_RETURN_ALT
-  # first — PX4's default 60 m would smash through the 5 m ceiling. Emergency
+  # first — PX4's default 60 m would smash through the 10 m ceiling. Emergency
   # egress is a direct line home just under ceiling height.
-  RTL_RETURN_ALT: 4.5       # failsafe return altitude (m AGL); PX4 default 60
+  RTL_RETURN_ALT: 9.0       # failsafe return altitude (m AGL); PX4 default 60
+  # FC-level ALTITUDE fence at the competition rules' 20 m (operator
+  # 2026-08-18) — the outer net above the watchdog's 10 m ceiling (warn 10.5 /
+  # RTH 12). Additive to the polygon fence; same GF_ACTION=3 (Return).
+  GF_MAX_VER_DIST: 20.0     # metres above home; PX4 default disabled
   # ── DOWNWARD RANGEFINDER (Benewake TFmini-S, 0.1-12 m) ──
   # The no-RTK GPS wanders ~0.5-1.5 m vertically; the rangefinder pins AGL for
   # the delivery descent and the on-pad touchdown. EKF2_RNG_CTRL is already 1 by

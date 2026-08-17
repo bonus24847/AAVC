@@ -131,8 +131,14 @@ PRODUCTION = MissionProfile(
 KMUTNB_SKYFIELD = COMPETITION.model_copy(update={
     "name": "kmutnb_skyfield",
     "altitude_floor_m": 1.0,
-    "altitude_ceiling_m": 5.0,
-    "transit_alt_m": 4.0,
+    # RAISED 5 -> 10 / 4 -> 9 (operator 2026-08-18): the measured 74.2° lens
+    # made low sweeps unaffordable on the 7500 pack, and a 10 m ceiling lets
+    # the sweep fly at 8 m (12 m swath, ~9 legs). The FC's own altitude fence
+    # sits at the rules' 20 m (GF_MAX_VER_DIST) as the outer net.
+    # ⚠ THIS is the envelope the orchestrator flies — the config's mission:
+    # block does NOT override these (2026-08-18: an edit there flew nothing).
+    "altitude_ceiling_m": 10.0,
+    "transit_alt_m": 9.0,
     "search_floor_m": 2.5,
 })
 

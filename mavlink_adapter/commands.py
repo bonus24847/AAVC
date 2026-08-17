@@ -181,8 +181,14 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     "MPC_LAND_ALT2": 2.0,       # final crawl speed below 2 m AGL
     # Any failsafe RTL (geofence breach, datalink loss, watchdog) climbs to
     # RTL_RETURN_ALT first — the PX4 default is 60 m, which would smash through
-    # the KMUTNB 5 m ceiling. Pin it just under the ceiling.
-    "RTL_RETURN_ALT": 4.5,      # failsafe return altitude (m); PX4 default 60
+    # the KMUTNB 10 m ceiling. Pin it just under the ceiling.
+    "RTL_RETURN_ALT": 9.0,      # failsafe return altitude (m); PX4 default 60
+    # FC-level ALTITUDE fence at the competition rules' 20 m (operator
+    # 2026-08-18) — the outer net ABOVE the companion watchdog's 10 m
+    # ceiling (warn 10.5 / RTH 12). Purely additive to the polygon fence
+    # (unlike GF_MAX_HOR_DIST, which masked it and was removed); breach
+    # response is the same pinned GF_ACTION=3 (Return).
+    "GF_MAX_VER_DIST": 20.0,    # metres above home; PX4 default disabled
     # Downward rangefinder (Benewake TFmini-S) aids height through the delivery
     # descent and touchdown; 1 is already the 6X default but pin it so a param
     # reset cannot silently drop height aiding. The serial port assignment
@@ -242,6 +248,7 @@ _FENCE_TOL_DEG = 1e-6
 # "what must be true to fly", not "what we tuned".
 _ENVELOPE_PINS = (
     "RTL_RETURN_ALT",     # default 60 m vs the 20 m ceiling — busts it on any RTL
+    "GF_MAX_VER_DIST",    # the FC's 20 m altitude fence (rules) — default disabled
     "MPC_Z_V_AUTO_DN",    # default 1.5 m/s vs 0.4 validated onto the pad
     "COM_DISARM_LAND",    # default 2 s auto-disarms ON the pad mid-sortie
     # The ceiling under which the rangefinder is allowed to join the height
