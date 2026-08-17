@@ -18,6 +18,7 @@ import argparse
 import json
 import math
 import os
+import re
 import socket
 import struct
 import subprocess
@@ -114,7 +115,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 def _default_captures():
     """Auto-share files with the touch-and-go mission if it's a sibling repo, else a local
     captures/ — so live use needs no --captures (the mission's captures is found for you)."""
-    for c in (os.path.join(_HERE, "..", "..", "touch_and_go_for_race", "captures"),
+    for c in (os.path.join(_HERE, "..", "..", "mission_AAVC", "captures"),
+              os.path.join(_HERE, "..", "..", "touch_and_go_for_race", "captures"),
               os.path.join(_HERE, "..", "captures")):
         if os.path.isdir(c):
             return os.path.abspath(c)
@@ -123,6 +125,9 @@ def _default_captures():
 
 AAVC_CAPTURES = _default_captures()                        # overridden by --captures
 AAVC_FIELD = os.path.join(_HERE, "..", "aavc_field.yaml")  # overridden by --field
+# Ground-side "black box": last-known-position trail written on the LAPTOP (survives a
+# lost aircraft, unlike the FMU SD-card ulog which needs the drone recovered to read).
+BLACKBOX_DIR = os.path.abspath(os.path.join(_HERE, "..", "blackbox"))
 
 
 def _read_vendor(name):
@@ -166,9 +171,31 @@ def load_zones():
         return pts
 
     out = {"airspace": poly("controlled_airspace"), "search": poly("search_area")}
+    if gf.get("transit_waypoints"):
+        out["transit"] = [[float(a), float(b)] for a, b in gf["transit_waypoints"]]
     if gf.get("local_origin"):
         out["home"] = [float(gf["local_origin"][0]), float(gf["local_origin"][1])]
     return out
+
+
+# Radio "AAVC why=<code>" -> operator text (mirror of the repo's
+# gcs_status._HOME_REASONS table — the WiFi path carries the Thai text
+# directly in mission_status.home_reason; the radio carries only the code).
+WHY_TH = {
+    "budget": "งบเวลา/แบตไม่พอก่อนส่ง — กลับพร้อมไข่ที่เหลือ",
+    "energy": "พลังงานไม่พอสำหรับเที่ยวถัดไป — สลับแบตก่อนกด GO",
+    "gps": "GPS หลุดต่อเนื่อง — ลงจอด ณ จุดที่อยู่",
+    "batt-crit": "แบตวิกฤต — ลงจอดทันที ณ จุดที่อยู่",
+    "batt-low": "แบตต่ำกว่าเกณฑ์ — กลับบ้าน (RTH)",
+    "batt-nan": "อ่านค่าแบตไม่ได้ต่อเนื่อง — กลับบ้าน (RTH)",
+    "fence": "หลุดรั้ว geofence — กลับบ้าน (RTH)",
+    "nofly": "เข้าเขตห้ามบิน — กลับบ้าน (RTH)",
+    "ceiling": "ทะลุเพดานบินค้าง — กลับบ้าน (RTH)",
+    "telem": "telemetry ขาดต่อเนื่อง — กลับบ้าน (RTH)",
+    "datalink": "ลิงก์สั่งการหลุด — กลับบ้าน (RTH)",
+    "time": "หมดงบเวลา — กลับบ้าน (RTH)",
+    "pilot": "นักบินยึดเครื่องคืน — ระบบหยุดสั่งแล้ว",
+}
 
 
 def read_mission_status():
@@ -198,6 +225,231 @@ def default_assignment():
     return list(PAD_IDS)
 
 
+def selected_pads():
+    """Pads the operator EXPLICITLY saved (pad_assignment.json), or [] if none yet.
+    Unlike default_assignment() this does NOT fall back to the field/all-IDs default —
+    it is the interlock signal for 'has a drop been chosen?' (gates the servo release)."""
+    try:
+        p = os.path.join(AAVC_CAPTURES, "pad_assignment.json")
+        if os.path.exists(p):
+            return [int(x) for x in json.load(open(p)).get("ids", [])]
+    except Exception:
+        pass
+    return []
+
+
+# ── GCS-triggered mission launch (operator request 2026-08-12) ────────────────
+# `--mission-cmd` hands the console ONE spawnable command template; {ids} is
+# replaced with the operator's SAVED pad selection (selected_pads()). SITL
+# points it at the mission repo's sitl/run_mission.sh; the real bird points it
+# at ssh into the CM4 (the orchestrator runs THERE, never on the GCS laptop).
+# No template configured -> the 🚀 button stays hidden and /api/mission/start
+# refuses. While the spawned process is alive the UI locks pad editing.
+MISSION_CMD = None
+MISSION_LABEL = ""            # "SIM"/"REAL" badge on the 🚀 button (--mission-label)
+MISSION_LOG = "/tmp/aavc_mission.log"
+RESET_CMD = None              # SIM-only field reset template (--reset-cmd)
+RESET_LOG = "/tmp/aavc_reset.log"
+_MISSION_LOCK = threading.Lock()
+_MISSION_PROC = None
+_RESET_PROC = None
+
+
+# ── in-UI mission switcher (operator request 2026-08-13) ─────────────────────
+# missions.yaml (next to the repo root) lists every mission this console can
+# command; the dropdown in the Mission card re-points field/captures/🚀 at
+# runtime. Entries missing field/mission_cmd show as "not ready" (contract
+# pending) and cannot be selected.
+MISSIONS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "missions.yaml")
+MISSIONS = {}
+CURRENT_MISSION = None
+# True when this console was wired to a REAL aircraft at startup (its
+# --mission-cmd ssh'es into the CM4). The registry holds laptop-local SIM
+# commands, so switching templates there would silently replace the real
+# ssh GO with a simulator one — refused (operator question 2026-08-14:
+# "AAVC GCS สลับไปรัน mission ข้างบ้านได้ไหม" — on the real bird it must not).
+REAL_CONSOLE = False
+
+
+def load_missions():
+    global MISSIONS
+    try:
+        doc = yaml.safe_load(open(MISSIONS_PATH)) or {}
+        MISSIONS = doc.get("missions") or {}
+    except Exception:
+        MISSIONS = {}
+
+
+def mission_registry_snapshot():
+    out = []
+    for name, m in MISSIONS.items():
+        m = m or {}
+        out.append({"name": name, "label": m.get("label") or name,
+                    "available": bool(m.get("field")) and bool(m.get("mission_cmd"))})
+    return out
+
+
+def apply_mission(name):
+    """Re-point the console at a registry mission; returns an error string or
+    None. Refused while a mission/reset is running — the aircraft must never
+    be mid-flight under one mission while the UI points at another."""
+    global AAVC_FIELD, AAVC_CAPTURES, MISSION_CMD, MISSION_LABEL, RESET_CMD
+    global CURRENT_MISSION
+    m = MISSIONS.get(name) or {}
+    if not m:
+        return f"ไม่รู้จัก mission: {name}"
+    if REAL_CONSOLE:
+        return ("🔒 console นี้ผูกกับเครื่องจริง (ปุ่ม 🚀 ssh ไป CM4) — "
+                "สลับ template ไม่ได้ เพราะ template ในรายการเป็นคำสั่งฝั่ง "
+                "SIM บนโน้ตบุ๊ก; ถ้าจะบิน mission อื่นบนเครื่องจริง ต้อง "
+                "deploy repo นั้นขึ้น CM4 แล้วเปิด console ใหม่ด้วย "
+                "--mission-cmd ของ repo นั้น")
+    if not m.get("field") or not m.get("mission_cmd"):
+        return (f"mission '{name}' ยังไม่พร้อม — repo นั้นยังไม่มี "
+                "field yaml / entry สั่งบิน (รอ contract)")
+    if mission_running() or reset_running():
+        return "🔒 mission กำลังทำงาน — สลับไม่ได้ รอให้จบก่อน"
+    AAVC_FIELD = os.path.expanduser(m["field"])
+    AAVC_CAPTURES = os.path.expanduser(m["captures"])
+    MISSION_CMD = m["mission_cmd"]
+    MISSION_LABEL = m.get("mission_label") or ""
+    RESET_CMD = m.get("reset_cmd") or None
+    CURRENT_MISSION = name
+    return None
+
+
+# ── CM4 reachability (operator request 2026-08-14) ───────────────────────────
+# When the 🚀 command is an ssh into the CM4, probe that host's ssh port in the
+# background: the button LOCKS while the CM4 is unreachable (better than an
+# error after the press), and the sensor board gets a CM4 chip. A local
+# mission_cmd (SIM) has no host — probe result None, no gating, chip n/a.
+_CM4_OK = None
+
+
+def _mission_cmd_ssh_host(cmd):
+    if not cmd or "ssh" not in cmd:
+        return None
+    for tok in str(cmd).replace("'", " ").replace('"', " ").split():
+        if "@" in tok and not tok.startswith("-"):
+            return tok.split("@", 1)[1]
+    return None
+
+
+def _mission_cmd_remote_dir(cmd):
+    """The repo dir the ssh GO runs on the CM4 (e.g. ~/mission) — shown on the
+    real-console mission card so the operator can SEE which mission is loaded
+    (operator 2026-08-14: restart-based switching is fine 'แต่ต้องบอกด้วย')."""
+    if not cmd:
+        return None
+    for tok in str(cmd).replace("'", " ").replace('"', " ").split():
+        if "run_mission.sh" in tok:
+            parts = tok.split("/")
+            return "/".join(parts[:-2]) if len(parts) >= 3 else tok
+    return None
+
+
+def _cm4_probe_loop():
+    global _CM4_OK
+    while True:
+        host = _mission_cmd_ssh_host(MISSION_CMD)
+        if not host:
+            _CM4_OK = None
+        else:
+            try:
+                c = socket.create_connection((host, 22), timeout=2)
+                c.close()
+                _CM4_OK = True
+            except OSError:
+                _CM4_OK = False
+        time.sleep(4)
+
+
+def mission_running():
+    """True while the console-spawned mission process is still alive."""
+    global _MISSION_PROC
+    with _MISSION_LOCK:
+        if _MISSION_PROC is not None and _MISSION_PROC.poll() is None:
+            return True
+        _MISSION_PROC = None
+        return False
+
+
+def reset_running():
+    """True while the console-spawned field reset is still working."""
+    global _RESET_PROC
+    with _MISSION_LOCK:
+        if _RESET_PROC is not None and _RESET_PROC.poll() is None:
+            return True
+        _RESET_PROC = None
+        return False
+
+
+def start_mission(ids):
+    """Spawn MISSION_CMD with {ids} filled in. Returns (ok, detail).
+
+    An immediate non-zero exit (the launcher's own prechecks, e.g. the SITL
+    dirty-field refusal) is caught here and its last log line returned, so
+    the operator sees WHY in the browser instead of a silent no-fly."""
+    global _MISSION_PROC
+    cmd = MISSION_CMD.replace("{ids}", ",".join(str(i) for i in ids))
+    with _MISSION_LOCK:
+        if _MISSION_PROC is not None and _MISSION_PROC.poll() is None:
+            return False, "mission กำลังบินอยู่แล้ว"
+        logf = open(MISSION_LOG, "ab", buffering=0)
+        logf.write(f"\n===== GCS mission start ids={ids} =====\n".encode())
+        # start_new_session: the flight must survive a console restart/crash.
+        _MISSION_PROC = subprocess.Popen(cmd, shell=True, stdout=logf,
+                                         stderr=logf, start_new_session=True)
+        proc = _MISSION_PROC
+    time.sleep(1.5)                       # long enough for a precheck refusal
+    if proc.poll() is not None and proc.returncode != 0:
+        try:
+            with open(MISSION_LOG, "rb") as fh:
+                lines = [ln for ln in
+                         fh.read()[-500:].decode(errors="replace").splitlines()
+                         if ln.strip()]
+            detail = lines[-1] if lines else f"launcher exit {proc.returncode}"
+        except Exception:
+            detail = f"launcher exit {proc.returncode}"
+        with _MISSION_LOCK:
+            if _MISSION_PROC is proc:
+                _MISSION_PROC = None
+        return False, detail
+    return True, cmd
+
+
+def start_reset():
+    """Spawn the SIM-only field reset (RESET_CMD). Returns (ok, detail)."""
+    global _RESET_PROC
+    with _MISSION_LOCK:
+        if _RESET_PROC is not None and _RESET_PROC.poll() is None:
+            return False, "กำลังรีเซ็ตสนามอยู่แล้ว"
+        logf = open(RESET_LOG, "wb", buffering=0)
+        _RESET_PROC = subprocess.Popen(RESET_CMD, shell=True, stdout=logf,
+                                       stderr=logf, start_new_session=True)
+    return True, RESET_CMD
+
+
+def load_payload_servos():
+    """Payload-release servo map from the field yaml (payload_servos:), with safe
+    placeholder defaults. Each entry -> a DO_SET_ACTUATOR slot (see _servo_send:
+    output 9..12 = AUX channel → actuator-set index num-8; 1..6 = the index)."""
+    try:
+        cfg = (yaml.safe_load(open(AAVC_FIELD)) or {}).get("payload_servos", {}) or {}
+    except Exception:
+        cfg = {}
+    outs = cfg.get("outputs", [1, 2, 3, 4]) or []
+    rel = int(cfg.get("released_us", 2000))
+    held = int(cfg.get("held_us", 1000))
+    # labels: which CORNER of the airframe that pin opens. The loom decides
+    # this, not the drop order — an operator staring at the aircraft needs the
+    # corner, and "servo 1" alone has caused enough confusion already.
+    labels = {str(k): str(v) for k, v in (cfg.get("labels") or {}).items()}
+    return [{"num": int(n), "released_us": rel, "held_us": held,
+             "label": labels.get(str(n), "")} for n in outs]
+
+
 class Link:
     """Owns the MAVLink connection: a background reader + thread-safe senders."""
 
@@ -206,6 +458,10 @@ class Link:
         self.url = url
         self.baud = baud
         self.send_lock = threading.Lock()
+        # ACTUATOR_TEST holds an output only while commands keep arriving (PX4
+        # drops the override at its timeout), so a latch that must STAY open on
+        # the bench needs a keep-alive per channel: {num: threading.Event}
+        self._servo_hold: dict[int, threading.Event] = {}
         self.lock = threading.Lock()
         self.s = {
             "link": False, "last_hb": 0.0, "armed": False, "mode": "-",
@@ -222,7 +478,7 @@ class Link:
             # AAVC: EKF/GPS origin (lat/lon of local 0,0) + drone local NED, to convert
             # the mission's local-frame detected pads to lat/lon for the OSM map.
             "origin": {"lat": None, "lon": None},
-            "local": {"n": None, "e": None},
+            "local": {"n": None, "e": None, "z": None},
             # GPS hardware diagnostics: GPS_1_CONFIG port + any boot detect line
             "gps_detect": {"config": None, "config_str": None,
                            "last_msg": None, "busy": False},
@@ -238,6 +494,8 @@ class Link:
             "geofence": {"hor": None, "ver": None, "action": None, "busy": False},
             # polygon (rectangle) fence uploaded via the mission protocol
             "fence": {"pts": [], "action": None, "count": None, "busy": False},
+            # AAVC payload-release servos: {output: {num, released, pwm}} (DO_SET_SERVO)
+            "servos": {},
             "batt": {"volt": None, "pct": None},
             "rc": {"rssi": 0, "throttle": None, "roll": None, "pitch": None,
                    "yaw": None, "count": 0},
@@ -248,6 +506,9 @@ class Link:
                     "sides": {}, "done": False, "failed": False},
             "cm4": {"online": False, "ip": None, "flying": False},
             "logpull": {"busy": False, "msg": ""},
+            # ground-side black box: last position we recorded to the laptop CSV
+            "blackbox": {"file": None, "lat": None, "lon": None, "alt": None,
+                         "t": None, "rows": 0},
             "messages": [],
         }
         self._stop = False
@@ -302,6 +563,7 @@ class Link:
         threading.Thread(target=self._reader, daemon=True).start()
         threading.Thread(target=self._heartbeat, daemon=True).start()
         threading.Thread(target=self._poll_calparams, daemon=True).start()
+        threading.Thread(target=self._blackbox_writer, daemon=True).start()
 
     def _heartbeat(self):
         # A GCS heartbeat is required for the FMU to allow arming.
@@ -326,15 +588,19 @@ class Link:
         #    sends spaced out, and the periodic re-request stretched to 60 s (below).
         # ids: 0=HEARTBEAT 1=SYS_STATUS 24=GPS_RAW 33=GLOBAL_POS 65=RC 245=EXT_SYS
         #      30=ATTITUDE (horizon/heading) 375=ACTUATOR_OUTPUT_STATUS (motor bars)
+        #      132=DISTANCE_SENSOR 1 Hz (lidar chip): PX4's default stream is
+        #      0.5 Hz — only 0.9 s under the chip's staleness limit, so any
+        #      delivery hiccup (RTF dip, second GCS on the port) flapped the
+        #      chip. This RAISES an existing stream, net +0.5 msg/s.
         for mid, us in ((0, 1000000), (1, 1000000), (24, 1000000),
                         (33, 1000000), (65, 1000000), (245, 2000000),
-                        (30, 500000), (375, 1000000)):
+                        (30, 500000), (375, 1000000), (132, 1000000)):
             try:
                 with self.send_lock:
                     self.m.mav.command_long_send(
                         1, 1, mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
                         0, mid, us, 0, 0, 0, 0, 0)
-                time.sleep(0.05)   # space the 8 sends: a burst congests the narrow
+                time.sleep(0.05)   # space the 9 sends: a burst congests the narrow
                                    # ELRS uplink and can stall the whole link
             except Exception:
                 pass
@@ -430,6 +696,11 @@ class Link:
                 if main == 4 and sub in AUTO_SUB:
                     name = "AUTO." + AUTO_SUB[sub]
                 self.s["mode"] = name
+            elif t == "DISTANCE_SENSOR":
+                # downward lidar (TFmini-S / SITL lidar): freshness drives the
+                # Lidar chip in the sensor board (operator request 2026-08-14)
+                self.s["lidar"] = {"t": time.time(),
+                                   "m": round(msg.current_distance / 100.0, 2)}
             elif t == "SYS_STATUS":
                 pres, hl = (msg.onboard_control_sensors_present,
                             msg.onboard_control_sensors_health)
@@ -474,6 +745,7 @@ class Link:
             elif t == "LOCAL_POSITION_NED":         # AAVC: drone local NED (origin fallback)
                 self.s["local"]["n"] = round(msg.x, 2)
                 self.s["local"]["e"] = round(msg.y, 2)
+                self.s["local"]["z"] = round(msg.z, 2)   # NED down (alt above origin = -z)
             elif t == "ATTITUDE":
                 a = self.s["att"]
                 a["roll"] = round(msg.roll * 57.29578, 1)
@@ -506,13 +778,70 @@ class Link:
                     self.s["in_air"] = True
             elif t == "STATUSTEXT":
                 txt = msg.text.strip()
+                if txt.startswith("AAVC "):
+                    self._parse_beacon(txt)
+                else:
+                    buf = self.s["messages"]
+                    buf.append({"t": time.strftime("%H:%M:%S"), "txt": txt})
+                    del buf[:-40]
+                    self._parse_cal(txt)
+                    # capture GPS driver boot lines ("GPS 1: u-blox …", "GPS: …")
+                    if "gps" in txt.lower():
+                        self.s["gps_detect"]["last_msg"] = txt
+
+    def _parse_beacon(self, txt):
+        """cm4/status_beacon.py summaries over the RADIO (STATUSTEXT, sysid 1 /
+        comp 191) — the mission + camera health that otherwise only ride WiFi:
+
+            AAVC cam=OK 0.9s | AAVC cam=DEAD 7s stale | AAVC cam=NONE no frame file
+            AAVC p=<phase> d=<got>/<want> m=<seen> ok=1,3|-  |  AAVC p=idle (…)
+
+        Parsed into radio_* state (with the receive time) rather than appended
+        to the message log: at 2 lines / 5 s the raw ticks would drown the
+        40-line log. Camera state TRANSITIONS still get logged so a mid-flight
+        death leaves a visible trace."""
+        now = time.time()
+        if txt.startswith("AAVC pads"):
+            # pad coordinates (ENU m about the field origin), chunked lines:
+            #   "AAVC pads 1:12.3,-8.1 3:5.0,14.2"
+            pads = self.s.setdefault("radio_pads", {})
+            for ent in txt[len("AAVC pads"):].split():
+                try:
+                    pid, en = ent.split(":", 1)
+                    e, n = en.split(",", 1)
+                    pads[pid] = {"t": now, "en": [float(e), float(n)]}
+                except ValueError:
+                    continue
+            return
+        m = re.match(r"AAVC why=([\w-]+)", txt)
+        if m:
+            # homecoming reason code — beacon repeats it every tick while the
+            # reason stands; gcs_status clears it at the next FLIGHT START
+            self.s["radio_why"] = {"t": now, "code": m.group(1)}
+            return
+        m = re.match(r"AAVC cam=(\w+)(?:\s+([\d.]+)s)?", txt)
+        if m:
+            prev = (self.s.get("radio_cam") or {}).get("state")
+            self.s["radio_cam"] = {"t": now, "state": m.group(1),
+                                   "age": float(m.group(2)) if m.group(2) else None}
+            if prev is not None and prev != m.group(1):
                 buf = self.s["messages"]
                 buf.append({"t": time.strftime("%H:%M:%S"), "txt": txt})
                 del buf[:-40]
-                self._parse_cal(txt)
-                # capture GPS driver boot lines ("GPS 1: u-blox …", "GPS: …")
-                if "gps" in txt.lower():
-                    self.s["gps_detect"]["last_msg"] = txt
+            return
+        m = re.match(r"AAVC p=(.+?) d=(\d+)/(\d+) m=(\d+) ok=(\S+)$", txt)
+        if m:
+            ok = [int(x) for x in m.group(5).split(",") if x.isdigit()]
+            self.s["radio_mission"] = {
+                "t": now, "phase": m.group(1), "delivered_n": int(m.group(2)),
+                "assigned_n": int(m.group(3)), "mapped_n": int(m.group(4)),
+                "ok": ok}
+            return
+        m = re.match(r"AAVC p=(.+)$", txt)     # "p=idle (no mission yet)"
+        if m:
+            self.s["radio_mission"] = {"t": now, "phase": m.group(1),
+                                       "delivered_n": 0, "assigned_n": 0,
+                                       "mapped_n": 0, "ok": []}
 
     ACC_SIDES = ["down", "up", "left", "right", "front", "back"]
 
@@ -793,6 +1122,37 @@ class Link:
             g["hor"], g["ver"], g["action"] = h, v, a
         self._note(f"[fence] ✅ ตั้ง geofence: รัศมี {h} m · เพดาน {v} m · "
                    f"เกิน→{GF_ACTIONS.get(a, a)}")
+
+    # ---- AAVC: set EKF local origin = current position (local NED 0,0 = here) ----
+    def set_local_origin_async(self):
+        """Send SET_GPS_GLOBAL_ORIGIN at the drone's current global position so
+        local NED (0,0) = 'here' (anchors the AAVC pad/mission coordinate frame).
+        ADD-only: new sender, does not touch the existing Link/command paths."""
+        if self.demo:
+            return
+        threading.Thread(target=self._set_local_origin_worker, daemon=True).start()
+
+    def _set_local_origin_worker(self):
+        with self.lock:
+            g = dict(self.s.get("gps") or {})
+        lat, lon, alt = g.get("lat"), g.get("lon"), g.get("alt")
+        if lat is None or lon is None:
+            self._note("[origin] ❌ ยังไม่มีตำแหน่ง GPS — ตั้ง origin (0,0) ที่นี่ไม่ได้")
+            return
+        lat_e7, lon_e7 = int(round(lat * 1e7)), int(round(lon * 1e7))
+        alt_mm = int(round((alt if alt is not None else 0.0) * 1000))   # AMSL mm
+        for _ in range(3):
+            try:
+                with self.send_lock:
+                    try:
+                        self.m.mav.set_gps_global_origin_send(
+                            1, lat_e7, lon_e7, alt_mm, int(time.time() * 1e6))
+                    except TypeError:                       # older pymavlink: no time_usec field
+                        self.m.mav.set_gps_global_origin_send(1, lat_e7, lon_e7, alt_mm)
+            except Exception:
+                pass
+            time.sleep(0.4)
+        self._note(f"[origin] ✅ ตั้ง origin (0,0) = ที่นี่ ({lat:.6f}, {lon:.6f})")
 
     # ---- polygon (rectangle) geofence via the mission protocol ----------
     def upload_fence_async(self, pts, action, alt=None):
@@ -1184,6 +1544,142 @@ class Link:
             self.set_mode(4, 6)            # AUTO.LAND
             time.sleep(0.1)
 
+    # ---- AAVC payload-release servos (DO_SET_ACTUATOR) ---------------------
+    # ADD-ONLY: a brand-new command path for the payload latches. It reuses the
+    # existing _cmd() sender but does NOT touch any existing command method. The
+    # "must pick pads first" interlock is enforced in do_POST before we get here.
+    def release_servos(self, which=None):
+        """Drive payload servos to their RELEASED pwm (drop). which=None -> all."""
+        self._servo_move(which, released=True)
+
+    def reset_servos(self, which=None):
+        """Drive them back to HELD/closed so the latch is ready for another test."""
+        self._servo_move(which, released=False)
+
+    def _servo_move(self, which, released):
+        servos = load_payload_servos()
+        if which is not None:
+            want = set(int(x) for x in which)
+            servos = [s for s in servos if s["num"] in want]
+        key = "released_us" if released else "held_us"
+        with self.lock:                      # update state (shown in UI) — demo too
+            st = self.s.setdefault("servos", {})
+            for s in servos:
+                st[str(s["num"])] = {"num": s["num"], "released": released,
+                                     "pwm": int(s[key])}
+        if not self.demo:                    # only a live link actually moves a servo
+            pairs = [(s["num"], int(s[key])) for s in servos]
+            threading.Thread(target=self._servo_send, args=(pairs, released),
+                             daemon=True).start()
+        verb = "ปล่อย" if released else "ปิดกลับ"
+        nums = ", ".join(f"AUX {s['num']}"
+                         + (f" ({s['label']})" if s.get("label") else "")
+                         for s in servos) or "-"
+        with self.lock:
+            armed = bool(self.s.get("armed"))
+        # say WHICH path was used: the two are mutually exclusive in PX4, so an
+        # operator who sees nothing move needs to know which door was knocked on
+        how = "DO_SET_ACTUATOR (armed)" if armed else "ACTUATOR_TEST (bench)"
+        self._note(f"[servo] {verb} {nums} — {how} ✅")
+
+    def _servo_send(self, pairs, released=True):
+        # 2026-08-12: PX4 has NO handler for MAV_CMD_DO_SET_SERVO (183) — the old
+        # send was a silent no-op on SITL AND the real Pixhawk. The only path PX4
+        # implements is MAV_CMD_DO_SET_ACTUATOR (187): param7 (index) = 0,
+        # param1..6 = values [-1..1] for output functions "Peripheral via
+        # Actuator Set 1..6" (301..306), NaN = leave that slot untouched.
+        # Latches: PWM_AUX_FUNC1..4 = 301..304 (AUX ch 9..12) on the real bird,
+        # SIM_GZ_SV_FUNC1..4 in SITL. Output numbers in the field yaml may be
+        # the AUX channel (9..12 → set index num-8) or the set index itself
+        # (1..6). pwm→value: (pwm-1500)/500, so 1900 = +0.8 / 1100 = -0.8.
+        # Send a few times each — best-effort over a possibly-narrow radio.
+        #
+        # BENCH vs FLIGHT (2026-08-15): PX4 MASKS every servo output while the
+        # vehicle is disarmed, so DO_SET_ACTUATOR on a bench does nothing at
+        # all — the button looked broken because the aircraft was, correctly,
+        # refusing to move a latch on a disarmed vehicle. PX4 has a second
+        # path for exactly this: MAV_CMD_ACTUATOR_TEST (310), which is the
+        # MIRROR IMAGE — Commander denies it while ARMED (and with the safety
+        # switch on) and requires COM_MOT_TEST_EN=1. So:
+        #     disarmed → ACTUATOR_TEST  (bench: no arming, no props spinning)
+        #     armed    → DO_SET_ACTUATOR (in flight / on the pad)
+        # ACTUATOR_TEST params (Commander.cpp handleCommandActuatorTest):
+        #   param1 = value −1..1, param2 = timeout s (≤0 releases control),
+        #   param5 = function, where values ≥1000 mean "raw output function
+        #   + 1000" → our latches (Peripheral via Actuator Set n = 300+n)
+        #   are 1301..1304. Below 1000 it would be read as a motor/servo index.
+        nan = float("nan")
+        # pymavlink 2.4.49 dropped the MAV_CMD_DO_SET_ACTUATOR constant from its
+        # dialects — the command id is 187 and PX4 v1.17 still handles it.
+        cmd = getattr(mavutil.mavlink, "MAV_CMD_DO_SET_ACTUATOR", 187)
+        cmd_test = getattr(mavutil.mavlink, "MAV_CMD_ACTUATOR_TEST", 310)
+        with self.lock:
+            armed = bool(self.s.get("armed"))
+        for num, pwm in pairs:
+            idx = int(num) - 8 if int(num) >= 9 else int(num)
+            if not 1 <= idx <= 6:
+                self._note(f"[servo] output {num} ไม่ map เข้า actuator set 1-6 ❌")
+                continue
+            val = max(-1.0, min(1.0, (float(pwm) - 1500.0) / 500.0))
+            if armed:
+                vals = [nan] * 6
+                vals[idx - 1] = val
+                for _ in range(3):
+                    self._cmd(cmd, *vals, 0)
+                    time.sleep(0.05)
+            elif released:
+                self._servo_test_hold(idx, val)
+            else:
+                self._servo_test_stop(idx)
+
+    # ── bench (disarmed) latch control via ACTUATOR_TEST ──
+    #
+    # ACTUATOR_TEST is a WATCHDOGGED override, not a switch: PX4 only overrides
+    # an output while it is "in test mode", and that mode ends the moment the
+    # command's timeout expires (mixer_module/actuator_test.cpp — _next_timeout
+    # is armed only when timeout_ms > 0, and Commander turns any param2 ≤ 0
+    # into RELEASE_CONTROL, so "hold forever" cannot be expressed in one
+    # command). Sending it once therefore gives a latch that springs back by
+    # itself. To make the console button behave like the ON/OFF switch an
+    # operator expects, we re-send while the latch should stay open — the same
+    # thing QGC's actuator sliders do — and stop on the reset button.
+
+    _TEST_PERIOD_S = 0.4        # resend interval (PX4 ignores frames > 100 ms old)
+    _TEST_TIMEOUT_S = 1.5       # per-command timeout: > period, so no flicker;
+                                # short enough that a dead console releases fast
+
+    def _servo_test_hold(self, idx, value):
+        """Hold actuator-set `idx` at `value` until _servo_test_stop()."""
+        cmd_test = getattr(mavutil.mavlink, "MAV_CMD_ACTUATOR_TEST", 310)
+        with self.lock:
+            old = self._servo_hold.pop(idx, None)
+        if old:
+            old.set()                        # replace any previous keep-alive
+        stop = threading.Event()
+        with self.lock:
+            self._servo_hold[idx] = stop
+
+        def _loop():
+            while not stop.is_set():
+                # param1 value, param2 timeout s, param5 = 1000 + output function
+                self._cmd(cmd_test, value, self._TEST_TIMEOUT_S, 0, 0,
+                          1000 + 300 + idx, 0, 0)
+                stop.wait(self._TEST_PERIOD_S)
+
+        threading.Thread(target=_loop, daemon=True).start()
+
+    def _servo_test_stop(self, idx):
+        """Stop holding and hand the output back to PX4 (→ its disarmed value)."""
+        cmd_test = getattr(mavutil.mavlink, "MAV_CMD_ACTUATOR_TEST", 310)
+        with self.lock:
+            stop = self._servo_hold.pop(idx, None)
+        if stop:
+            stop.set()
+        time.sleep(self._TEST_PERIOD_S)       # let the keep-alive die first
+        for _ in range(3):                    # param2 = 0 → RELEASE_CONTROL
+            self._cmd(cmd_test, 0.0, 0.0, 0, 0, 1000 + 300 + idx, 0, 0)
+            time.sleep(0.05)
+
     def cal_accel(self):
         # PREFLIGHT_CALIBRATION param5=1 -> accelerometer (6-orientation).
         with self.lock:
@@ -1251,13 +1747,70 @@ class Link:
         # --- AAVC additions: file-based + derived, read-only (never touches the link) ---
         snap["pads"] = PAD_IDS
         snap["assignment"] = default_assignment()
+        # which servos exist + the airframe corner each one opens
+        snap["servo_cfg"] = [{"num": s["num"], "label": s.get("label", "")}
+                             for s in load_payload_servos()]
+        snap["pads_selected"] = bool(selected_pads())                   # interlock signal
+        snap["mission_cmd"] = bool(MISSION_CMD)          # 🚀 GO button available?
+        snap["mission_label"] = MISSION_LABEL            # SIM/REAL badge on 🚀
+        snap["mission_running"] = mission_running()      # edit-lock while flying
+        snap["reset_cmd"] = bool(RESET_CMD)              # 🧹 button (SIM only)
+        snap["reset_running"] = reset_running()
+        snap["missions"] = mission_registry_snapshot()   # in-UI switcher list
+        snap["mission_current"] = CURRENT_MISSION
+        snap["cm4_ok"] = _CM4_OK                         # None = local cmd (SIM)
+        snap["real_console"] = REAL_CONSOLE              # template switch locked
+        snap["real_host"] = _mission_cmd_ssh_host(MISSION_CMD)   # CM4 shown on the card
+        snap["real_dir"] = _mission_cmd_remote_dir(MISSION_CMD)  # repo dir on the CM4
+        lid = snap.get("lidar") or {}
+        snap["lidar_age"] = (round(time.time() - lid["t"], 1)
+                             if lid.get("t") else None)
+        try:                                             # nadir camera feed age
+            snap["cam_age"] = round(
+                time.time() - os.path.getmtime("/tmp/aavc_nadir.png"), 1)
+        except OSError:
+            snap["cam_age"] = None
+        # Camera health over the RADIO (status_beacon): measured ON the CM4,
+        # next to the camera — trusted over the local-file age whenever fresh,
+        # because the file here only mirrors reality when WiFi sync is up.
+        rc = self.s.get("radio_cam")
+        snap["cam_radio"] = ({"state": rc["state"], "age": rc.get("age")}
+                             if rc and time.time() - rc["t"] <= 15 else None)
+        # which pipe carries the telemetry this console is showing — drives
+        # the "วิทยุ" chip in the sensor strip (a serial --url = the NOMAD)
+        snap["link_kind"] = "radio" if str(self.url).startswith("/dev/") else "udp"
         snap["zones"] = load_zones()
         origin = self._aavc_origin(snap)
         mission = read_mission_status()
-        if self.demo and mission is None:
-            mission, origin = self._demo_mission(snap, origin)
+        rm = self.s.get("radio_mission")
+        if (rm and time.time() - rm["t"] <= 15          # <= 3 beacon ticks lost
+                and not rm["phase"].startswith("idle")
+                and (mission is None or (mission.get("age_s") or 0) > 45)):
+            # WiFi feed dead but the radio beacon is alive: run the readouts on
+            # the summary the beacon carries — phase + counts + delivered ids +
+            # the pad coordinates from the "AAVC pads" lines (same ENU-about-
+            # origin numbers mission_status carries, so the map draws the same
+            # markers). A pad the beacon stops re-sending for 20 s (4 ticks)
+            # drops off, matching the stale-pads rule for the WiFi feed.
+            asg = snap.get("assignment") or []
+            rp = self.s.get("radio_pads") or {}
+            live_pads = {pid: v["en"] for pid, v in rp.items()
+                         if time.time() - v["t"] <= 20}
+            rw = self.s.get("radio_why")
+            why = (WHY_TH.get(rw["code"], rw["code"])
+                   if rw and time.time() - rw["t"] <= 15 else None)
+            mission = {"phase": rm["phase"], "delivered": rm["ok"],
+                       "assigned": asg if len(asg) == rm["assigned_n"] else [],
+                       "pads_mapped": live_pads, "mapped_n": rm["mapped_n"],
+                       "home_reason": why,
+                       "age_s": round(time.time() - rm["t"], 1), "src": "radio"}
+        if self.demo and (mission is None or (mission.get("age_s") or 0) > 45):
+            mission, origin = self._demo_mission(snap, origin)   # demo: always show a live mission
         snap["origin"] = origin
         snap["mission"] = mission
+        bb = snap.get("blackbox") or {}
+        bb["age_s"] = (round(time.time() - bb["t"], 1)
+                       if bb.get("t") else None)   # seconds since last recorded fix
         return snap
 
     def _aavc_origin(self, snap):
@@ -1280,10 +1833,22 @@ class Link:
         g = snap.get("gps") or {}
         if origin.get("lat") is None and g.get("lat") is not None:
             origin = {"lat": g["lat"], "lon": g["lon"]}     # demo: origin = drone position
-        mission = {"phase": "SEARCH (demo)",
-                   "pads_mapped": {"3": [12.0, 20.0], "5": [-15.0, 35.0]},
-                   "assigned": default_assignment(), "delivered": [],
-                   "mission_time": 128.0, "updated": time.time(), "age_s": 0.0}
+        asg = default_assignment() or [1, 2, 3]
+        found = asg[:max(1, len(asg) - 1)]           # demo: "found" all assigned but the last
+        mapped = {str(pid): [10.0 + 8 * i, 14.0 + 6 * i] for i, pid in enumerate(found)}
+        mission = {"phase": "deliver (drop)", "pads_mapped": mapped,
+                   "assigned": asg, "delivered": asg[:1],   # demo: already "dropped" the 1st assigned
+                   "mission_time": 128.0, "updated": time.time(), "age_s": 0.0,
+                   # awareness-pack fields (2026-08-14) so --demo previews the
+                   # %-bar + timeline exactly as a live mission renders them
+                   "progress": 64,
+                   "progress_label": f"ส่งของ pad {asg[1] if len(asg) > 1 else asg[0]} (2/{len(asg)})",
+                   "eta_s": 260,
+                   # fixed t keys — a fresh time.time() per snapshot made every
+                   # tick look like a NEW event and the toasts replayed forever
+                   "events": [{"t": 1, "text": "✅ ผ่านจุด P3", "warn": False},
+                              {"t": 2, "text": f"🎯 เจอ pad {found[-1]}!", "warn": False},
+                              {"t": 3, "text": f"📦 วางแล้ว pad {asg[0]}", "warn": False}]}
         return mission, origin
 
     def _link_kind(self):
@@ -1300,6 +1865,63 @@ class Link:
         if "ttyUSB" in u or "CP2102" in u or "Silicon_Labs" in u:
             return "radio"                       # NOMAD/ELRS (narrow, flaky)
         return "other"
+
+    def _blackbox_writer(self):
+        """Ground-side black box. Once a second, while the link is up and we have a
+        GPS fix, append the last-known position + attitude to a CSV on the LAPTOP.
+        Purely a *reader* of self.s — never sends on the link, so it cannot disturb
+        flight (honours the ADD-only rule). When the link drops the timestamp stops
+        advancing, so the last row = the last place we heard from the aircraft: walk
+        there to find it. One file per session; the file is created lazily on the
+        first real fix, so bench sessions with no GPS leave no empty files."""
+        fh = None
+        path = None
+        last_write = 0.0
+        while not self._stop:
+            time.sleep(1.0)
+            try:
+                with self.lock:
+                    link = self.s.get("link")
+                    g = dict(self.s.get("gps") or {})
+                    a = dict(self.s.get("att") or {})
+                    v = dict(self.s.get("vel") or {})
+                    b = dict(self.s.get("batt") or {})
+                    mode = self.s.get("mode")
+                    armed = self.s.get("armed")
+                    in_air = self.s.get("in_air")
+                lat, lon = g.get("lat"), g.get("lon")
+                # only log a fresh, real fix while the link is alive (a dropped link
+                # freezes the record at the last-known point — exactly what we want)
+                if not link or lat is None or lon is None or (g.get("fix") or 0) < 2:
+                    continue
+                now = time.time()
+                if now - last_write < 1.0:
+                    continue
+                if fh is None:
+                    os.makedirs(BLACKBOX_DIR, exist_ok=True)
+                    path = os.path.join(
+                        BLACKBOX_DIR, time.strftime("flight_%Y%m%d_%H%M%S.csv"))
+                    fh = open(path, "a", buffering=1)
+                    fh.write("iso,unix,lat,lon,alt_msl,rel_alt,roll,pitch,yaw,"
+                             "heading,vx,vy,vz,vbatt,batt_pct,mode,armed,in_air\n")
+                    self._note(f"[blackbox] 🛰 บันทึกกล่องดำ → {os.path.basename(path)}")
+                    with self.lock:
+                        self.s["blackbox"]["file"] = os.path.basename(path)
+                row = [time.strftime("%Y-%m-%dT%H:%M:%S"), f"{now:.0f}",
+                       lat, lon, g.get("alt"), g.get("rel_alt"),
+                       a.get("roll"), a.get("pitch"), a.get("yaw"), a.get("heading"),
+                       v.get("vx"), v.get("vy"), v.get("vz"),
+                       b.get("volt"), b.get("pct"), mode,
+                       1 if armed else 0, 1 if in_air else 0]
+                fh.write(",".join("" if x is None else str(x) for x in row) + "\n")
+                last_write = now
+                alt = g.get("rel_alt") if g.get("rel_alt") is not None else g.get("alt")
+                with self.lock:
+                    bb = self.s["blackbox"]
+                    bb["lat"], bb["lon"], bb["alt"], bb["t"] = lat, lon, alt, now
+                    bb["rows"] = bb.get("rows", 0) + 1
+            except Exception:
+                pass                              # never let the black box break the GCS
 
 
 class CM4:
@@ -1494,39 +2116,142 @@ header{padding:10px 16px;background:#161b22;font-weight:600;font-size:23px;
  display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .dot{height:11px;width:11px;border-radius:50%;display:inline-block;margin-right:6px}
 .ok{color:#3fb950}.bad{color:#f85149}.warn{color:#d29922}
-.status{display:flex;gap:8px;flex-wrap:wrap;padding:10px 16px;background:#10151c;border-bottom:1px solid #222b36}
-.pill{display:flex;flex-direction:column;background:#161b22;border:1px solid #222b36;border-radius:10px;padding:8px 14px;min-width:96px}
-.pill b{font-size:26px;font-weight:700;line-height:1.25}
-.pill span{font-size:15px;color:#8b98a5;text-transform:uppercase;letter-spacing:.04em}
+.status{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px;max-width:404px;align-content:start}
+.scbody{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.scinfo{display:flex;flex-direction:column;min-width:200px;flex:1}
+.scinfo .mprogwrap{border-top:none;margin-top:0;padding-top:0}
+.scinfo .mprogwrap+.mprogwrap{border-top:1px solid #222b36;margin-top:6px;padding-top:6px}
+/* ---- collapsible panels: click the ▾ arrow button to fold/unfold ---- */
+.schead,.mapcard>h3,.instr>h3{user-select:none}
+.caret{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;
+ width:24px;height:24px;margin-right:7px;border-radius:6px;border:1px solid #30363d;
+ background:#0d1117;color:#8b98a5;font-size:13px;line-height:1;flex:none;vertical-align:middle}
+.caret:hover{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.mapcard.collapsed>:not(h3),.instr.collapsed>:not(h3){display:none!important}
+.statuscard.collapsed .scbody{display:none}
+.collapse-all{width:100%;cursor:pointer;font-size:14px;font-weight:700;color:#c9d1d9;
+ background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px;margin-bottom:2px}
+.collapse-all:hover{background:#21262d;border-color:#3f6feb}
+/* ---- REDESIGN: minimal translucent on-map status + collapsible right panel ---- */
+.mapstatus{position:fixed;top:74px;right:8px;z-index:20;display:flex;flex-direction:column;gap:7px;
+ padding:9px 12px;border-radius:13px;background:rgba(13,17,23,.58);backdrop-filter:blur(9px);
+ -webkit-backdrop-filter:blur(9px);border:1px solid rgba(255,255,255,.08);max-width:calc(100vw - 16px)}
+.msrow1{display:flex;align-items:center;gap:13px;flex-wrap:wrap}
+.mstitle{font-weight:700;font-size:17px}
+.msrow2{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.msi{display:inline-flex;align-items:center;gap:5px;font-size:15px;color:#c9d1d9;
+ background:rgba(255,255,255,.06);padding:4px 10px;border-radius:9px;white-space:nowrap}
+.msi b{font-weight:700;color:#e6e6e6}
+.msi.mode b{font-size:17px}
+/* on-map flight gauges (attitude + compass), bottom-right, same translucent AAVC tone */
+.mapinst{position:fixed;right:12px;bottom:24px;z-index:20;display:flex;gap:16px;align-items:flex-start;
+ padding:12px 16px;border-radius:14px;background:rgba(13,17,23,.58);backdrop-filter:blur(9px);
+ -webkit-backdrop-filter:blur(9px);border:1px solid rgba(255,255,255,.08)}
+/* 3D hexacopter attitude model — pure CSS 3D (no external lib, offline-safe) */
+.stage{width:100%;height:150px;perspective:640px;display:flex;align-items:center;justify-content:center;margin:0 0 6px}
+.d3cam{transform-style:preserve-3d;transform:rotateX(58deg)}
+.d3att{position:relative;width:0;height:0;transform-style:preserve-3d;transition:transform .12s linear}
+.d3hub{position:absolute;left:-16px;top:-16px;width:32px;height:32px;border-radius:8px;
+ background:linear-gradient(145deg,#2c343f,#161b22);border:1px solid #3a4551;transform:translateZ(5px)}
+.d3hub::after{content:"";position:absolute;left:50%;top:-4px;width:9px;height:13px;margin-left:-4.5px;
+ background:#f0b90b;border-radius:2px;box-shadow:0 0 5px rgba(240,185,11,.6)}
+.d3arm{position:absolute;left:0;top:0;height:5px;width:56px;margin-top:-2.5px;transform-origin:0 50%;
+ background:linear-gradient(90deg,#3a434e,#28303a);border-radius:3px}
+.d3rotor{position:absolute;left:-17px;top:-17px;width:34px;height:34px;border-radius:50%;
+ border:2px solid #58a6ff;background:rgba(88,166,255,.07);transition:border-color .2s}
+.d3rotor::before{content:"";position:absolute;inset:4px;border-radius:50%;
+ border:1px dashed rgba(255,255,255,.30);animation:d3spin 1.05s linear infinite}
+@keyframes d3spin{to{transform:rotate(360deg)}}
+.attread{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 14px;font-size:13px;color:#8b98a5;margin-bottom:6px}
+.attread b{color:#e6e6e6;font-weight:700;font-family:ui-monospace,monospace}
+.sidehead{display:flex;align-items:center;justify-content:space-between;font-size:15px;font-weight:700;
+ color:#c9d1d9;padding:2px 2px 8px;border-bottom:1px solid #222b36;margin-bottom:2px}
+.sidetoggle{cursor:pointer;width:28px;height:28px;border-radius:7px;border:1px solid #30363d;
+ background:#0d1117;color:#8b98a5;font-size:15px;line-height:1;flex:none}
+.sidetoggle:hover{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.colside{transition:transform .22s ease}
+.sidetab{position:absolute;top:50%;left:360px;transform:translateY(-50%);z-index:26;cursor:pointer;
+ width:20px;height:52px;display:flex;align-items:center;justify-content:center;
+ background:#0d1117;color:#9aa7b4;border:1px solid rgba(255,255,255,.12);border-left:none;
+ border-radius:0 9px 9px 0;font-size:13px;box-shadow:2px 0 7px rgba(0,0,0,.35);transition:left .2s ease}
+.sidetab:hover{background:#1f6feb;color:#fff;border-color:#1f6feb}
+body.side-collapsed .sidetab{left:0}
+/* docked layout: map fills the left, control panel docked on the right */
+html,body{height:100%}
+body{display:flex;flex-direction:column;overflow:hidden}
+#msgline{position:static}
+.appwrap{flex:1;display:flex;min-height:0;position:relative}
+#lmap{position:static;inset:auto;flex:1;width:auto;height:100%;display:block!important;z-index:0}
+.colside{position:static;right:auto;top:auto;bottom:auto;width:360px;max-width:82vw;height:100%;
+ overflow-y:auto;background:#0d1117;border-right:1px solid rgba(255,255,255,.09);order:-1;
+ padding:12px;display:flex;flex-direction:column;gap:10px;z-index:auto;
+ transition:width .2s ease,padding .2s ease}
+body.side-collapsed .colside{width:0;padding:0;border-right:none;overflow:hidden;transform:none}
+/* unified tone: cards + controls share the translucent on-map palette */
+.mapcard,.instr{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08)}
+.mapcard>h3,.instr>h3{color:#9aa7b4}
+.sidehead{border-bottom-color:rgba(255,255,255,.09)}
+.caret{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12)}
+.padstatus{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.09)}
+.pill{display:flex;flex-direction:column;background:#161b22;border:1px solid #222b36;border-radius:8px;padding:4px 9px;min-width:0;overflow:hidden}
+.pill b{font-size:21px;font-weight:700;line-height:1.15;white-space:nowrap}
+.pill.wide{grid-column:span 2}   /* Flight Mode: 2 cells wide so STABILIZED/OFFBOARD fit */
+.pill span{font-size:12px;color:#8b98a5;text-transform:uppercase;letter-spacing:.03em}
 .main{display:grid;grid-template-columns:1fr;gap:14px;padding:14px;max-width:1400px;margin:auto}
-@media(min-width:900px){.main{grid-template-columns:1.7fr 1fr}}
-.mapcard,.instr{background:#161b22;border:1px solid #222b36;border-radius:12px;padding:12px}
-.mapcard h3,.instr h3{margin:0 0 8px;font-size:16px;text-transform:uppercase;color:#8b98a5;letter-spacing:.05em}
+.colside{min-width:0;display:flex;flex-direction:column;gap:8px}
+/* map = full-screen background; every control floats in ONE right sidebar */
+.main{display:block;max-width:none;padding:0;margin:0}
+.statuscard{position:fixed;top:74px;left:8px;z-index:20;background:#161b22;border:1px solid #222b36;border-radius:10px;padding:7px 10px;max-width:min(680px,calc(100vw - 16px))}
+.schead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:19px;font-weight:600;margin-bottom:7px}
+#link{display:inline-flex;align-items:center;font-weight:700;font-size:18px}
+/* (removed a stale position-fixed override on the message line — left over from the old
+   fullscreen-map layout, it floated the message bar OVER the docked LEFT panel and covered
+   the top of the sensor section. The message line stays static, per layoutTop() below which
+   measures the real top-bar heights and positions the on-map status just under them.) */
+/* (old floating right-sidebar rule removed — panel is docked LEFT now) */
+.colside>.mapcard,.colside>.instr{background:rgba(20,25,32,.96)}
+.leaflet-top.leaflet-left{top:56px}          /* push zoom buttons below the status bar */
+.mapcard,.instr{background:#161b22;border:1px solid #222b36;border-radius:12px;padding:7px 10px}
+.mapcard h3,.instr h3{margin:0 0 5px;font-size:14px;text-transform:uppercase;color:#8b98a5;letter-spacing:.05em}
 .mapcard{display:flex;flex-direction:column}
-#posmap{background:#0d1117;border:1px solid #30363d;border-radius:8px;width:100%;height:auto;display:block}
+#posmap{display:none}
 .mapinfo{font-size:16px;color:#8b98a5;margin-top:8px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .mapinfo b{color:#c9d1d9;font-family:ui-monospace,monospace}
-.instr{text-align:center}
-.ai{width:190px;height:190px;border-radius:50%;overflow:hidden;position:relative;border:2px solid #4a5568;margin:0 auto}
+.instr{text-align:center;align-self:start;padding:10px}
+.instrtop{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap}
+.instrread{text-align:left;min-width:76px}
+.igauge{display:flex;flex-direction:column;align-items:center;gap:4px}
+.glabel{font-size:12px;color:#8b98a5}.glabel b{font-size:16px;color:#e6e6e6}
+/* heading compass (needle rotates to heading; N marked red) */
+.compass{width:96px;height:96px;border-radius:50%;border:2px solid #4a5568;position:relative;background:#0d1117;flex:none}
+.cdir{position:absolute;font-size:13px;font-weight:700;color:#8b98a5;transform:translate(-50%,-50%)}
+.cn{left:50%;top:15px;color:#f85149}.cs{left:50%;top:calc(100% - 15px)}
+.ce{left:calc(100% - 14px);top:50%}.cw{left:14px;top:50%}
+.cneedle{position:absolute;left:50%;top:13px;bottom:13px;width:5px;margin-left:-2.5px;transform-origin:50% 50%;
+ background:linear-gradient(#f85149 0 50%,#c9d1d9 50% 100%);border-radius:2px;transition:transform .15s linear}
+.chub{position:absolute;left:50%;top:50%;width:13px;height:13px;margin:-6.5px 0 0 -6.5px;border-radius:50%;background:#e6e6e6;border:1px solid #0d1117}
+.ai{width:96px;height:96px;border-radius:50%;overflow:hidden;position:relative;border:2px solid #4a5568;flex:none}
 .ai-inner{position:absolute;left:-50%;top:-50%;width:200%;height:200%;transform-origin:50% 50%;background:linear-gradient(#3a86d6 0%,#3a86d6 50%,#8a6a3a 50%,#8a6a3a 100%)}
 .ai-inner::after{content:"";position:absolute;left:0;right:0;top:50%;height:2px;background:rgba(255,255,255,.7)}
-.ai-mark{position:absolute;left:50%;top:50%;width:54px;height:3px;background:#ffcc00;transform:translate(-50%,-50%);border-radius:2px}
-.ai-mark-c{position:absolute;left:50%;top:50%;width:7px;height:7px;background:#ffcc00;border-radius:50%;transform:translate(-50%,-50%)}
-.hdg{margin-top:10px;font-size:24px}.hdg b{font-size:30px}
-.attxt{font-size:16px;color:#8b98a5;margin-top:2px}
-.mlabel{font-size:16px;color:#8b98a5;margin:18px 0 14px;text-transform:uppercase;letter-spacing:.04em}
-.motors{display:flex;gap:9px;justify-content:center;align-items:flex-end;height:120px;padding-bottom:18px}
-.mbar{width:26px;background:#21262d;border-radius:3px;position:relative;display:flex;flex-direction:column-reverse;height:100%}
-.mbar>i{display:block;background:#3fb950;border-radius:3px;min-height:2px}
-.mbar>b{position:absolute;bottom:-17px;left:0;right:0;font-size:14px;color:#8b98a5;font-weight:400}
-#msgline{padding:8px 16px;font-family:ui-monospace,monospace;font-size:16px;color:#8b98a5;
- background:#0b0e13;border-top:1px solid #222b36;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#lmap{width:100%;height:clamp(320px,55vh,520px);border-radius:8px;display:none}
+.ai-mark{position:absolute;left:50%;top:50%;width:42px;height:4px;background:#ffcc00;transform:translate(-50%,-50%);border-radius:2px}
+.ai-mark-c{position:absolute;left:50%;top:50%;width:9px;height:9px;background:#ffcc00;border-radius:50%;transform:translate(-50%,-50%)}
+.hdg{font-size:18px}.hdg b{font-size:25px}
+.attxt{font-size:14px;color:#8b98a5;margin-top:3px}
+.mlabel{font-size:13px;color:#8b98a5;margin:10px 0 8px;text-transform:uppercase;letter-spacing:.04em}
+.motors{display:flex;flex-direction:column;gap:6px;padding:2px 0}
+.mrow{display:flex;align-items:center;gap:9px;font-size:12px}
+.mrow>span{width:26px;flex:none;color:#8b98a5;font-weight:600}
+.mtrack{flex:1;height:10px;background:#21262d;border-radius:5px;overflow:hidden}
+.mtrack>i{display:block;height:100%;width:0;background:#3fb950;border-radius:5px;transition:width .15s linear,background .15s}
+.mrow>b{width:38px;flex:none;text-align:right;color:#c9d1d9;font-family:ui-monospace,monospace;font-weight:600}
+#msgline{padding:10px 16px;font-family:ui-monospace,monospace;font-size:20px;color:#c9d1d9;
+ background:#0b0e13;border-bottom:1px solid #222b36;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* (old fullscreen fixed map removed — map is a docked flex child now) */
 .dicon{background:none;border:none}
 .dm{color:#f0b90b;font-size:30px;line-height:1;text-align:center;transform-origin:50% 50%;text-shadow:0 0 3px #000}
 .leaflet-container{background:#0d1117}
-.sensors{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin-top:14px}
-.schip{display:flex;align-items:center;gap:6px;font-size:16px;padding:5px 10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#8b98a5}
+.sensors{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px}
+.schip{display:flex;align-items:center;gap:5px;font-size:13px;padding:4px 8px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#8b98a5}
 .schip .sdot{height:9px;width:9px;border-radius:50%;background:#6e7681;flex:none}
 .schip.sok{border-color:#238636;color:#7ee787}.schip.sok .sdot{background:#3fb950}
 .schip.sbad{border-color:#8b2c22;color:#ff9a92}.schip.sbad .sdot{background:#f85149}
@@ -1556,39 +2281,288 @@ header{padding:10px 16px;background:#161b22;font-weight:600;font-size:23px;
  cursor:pointer;text-align:center;font-weight:700;font-size:18px;user-select:none}
 .padbtn.sel{border-color:#238636;background:#0f2417;color:#3fb950}
 .padrow{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:16px;color:#8b98a5}
-.savebtn{margin-top:10px;padding:12px;border:0;border-radius:8px;font-size:18px;font-weight:700;color:#fff;
+.savebtn{margin-top:8px;padding:8px;border:0;border-radius:8px;font-size:15px;font-weight:700;color:#fff;
  background:#1f6feb;cursor:pointer;width:100%}
 .savebtn:disabled{opacity:.5;cursor:not-allowed}
+/* ---- AAVC pad-picker popup ---- */
+.padstatus{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:6px 10px;
+ font-size:15px;color:#3fb950;font-weight:700;text-align:center;margin-bottom:5px}
+.padstatus.none{color:#8b98a5;font-weight:400}
+.padlive{margin:2px 0 4px;display:flex;flex-direction:column;gap:2px}
+.padli{font-size:15px;font-weight:700;padding:1px 2px}
+.padli.off{color:#8b98a5;font-weight:400}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:1000;
+ align-items:center;justify-content:center;padding:16px}
+.modal.show{display:flex}
+.modalbox{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:18px;
+ max-width:430px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.modalbox h3{margin:0 0 12px;font-size:17px;color:#e6e6e6;text-transform:none;letter-spacing:0}
+.modalbtns{display:flex;gap:8px;margin-top:12px}
+.modalbtns>button{flex:1}
+.modalcancel{padding:12px;border:1px solid #30363d;border-radius:8px;background:#21262d;
+ color:#e6e6e6;font-size:17px;font-weight:700;cursor:pointer}
+/* ---- AAVC payload servo release ---- */
+.servobtns{display:flex;gap:8px;margin-top:4px}
+.servobtns>button{flex:1;cursor:pointer;font-size:17px;font-weight:700;border-radius:8px;
+ padding:11px;border:1px solid #a35a00;background:#c47500;color:#fff}
+.servobtns>button.ghost{background:#21262d;border-color:#30363d;color:#e6e6e6}
+.servobtns>button:disabled{opacity:.5;cursor:not-allowed}
+/* small per-servo buttons — deliberately tiny so you don't fat-finger a drop */
+.servomini{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0}
+.servomini>button{padding:5px 2px;border:1px solid #30363d;border-radius:7px;background:#0d1117;
+ color:#8b98a5;font-size:12px;line-height:1.35;cursor:pointer;text-align:center}
+.servomini>button.rel{border-color:#e3a008;background:#2a1f05;color:#f0c040;font-weight:700}
+.servomini>button:disabled{opacity:.45;cursor:not-allowed}
+.servowarn{display:none;background:#3a1d1d;border:1px solid #f85149;color:#ffb3ae;
+ padding:8px 10px;border-radius:8px;font-size:14px;margin-bottom:8px}
+.servowarn.show{display:block}
 .mprog .row{display:flex;justify-content:space-between;padding:3px 0;font-size:17px}
 .mprog b{color:#58a6ff}
-.mclock{font-family:ui-monospace,monospace;font-size:23px;font-weight:700}
-.leg{font-size:14px;color:#8b98a5;margin-top:8px;display:flex;gap:12px;flex-wrap:wrap}
+.mclock{font-family:ui-monospace,monospace;font-size:21px;font-weight:700}
+.mprogwrap{border-top:1px solid #222b36;margin-top:8px;padding-top:6px}
+.mproghead{font-size:12px;color:#8b98a5;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+.statuscard .mprog{max-width:520px}
+.statuscard .mprog .row{font-size:15px;padding:2px 0}
+.leg{font-size:11px;color:#8b98a5;margin-top:5px;display:flex;gap:8px;flex-wrap:wrap}
 .leg i{width:11px;height:11px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:middle}
 .padtip{background:transparent;border:0;box-shadow:none;color:#0d1117;font-weight:700;font-size:12px;text-shadow:0 0 2px #fff}
+/* Landing-pad map marker (2026-08-12): drawn like the REAL pad — white square,
+   black ring, ArUco id in the centre. Status (operator pick 2026-08-12,
+   "เทาจาง → เขียว"): not-yet-dropped pads are MUTED GRAY (in-queue adds a
+   dashed border); a delivered pad turns full colour — white face, green
+   border, green ✓ badge. */
+.padicon{background:transparent;border:0}
+.padbox{width:30px;height:30px;background:#fff;border:3px solid #3fb950;border-radius:5px;
+ box-shadow:0 1px 5px rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;position:relative}
+.padbox::before{content:'';position:absolute;inset:3px;border:2px solid #0d1117;border-radius:50%}
+.padbox span{position:relative;font-weight:800;font-size:13px;color:#0d1117;line-height:1}
+.padbox i{position:absolute;top:-7px;right:-7px;width:15px;height:15px;border-radius:50%;
+ background:#3fb950;color:#fff;font-style:normal;font-size:10px;line-height:15px;text-align:center;
+ box-shadow:0 1px 3px rgba(0,0,0,.5);display:none}
+.padbox.done i{display:block}
+.padbox.todo,.padbox.queue{background:#e4e6ea;border-color:#8b949e}
+.padbox.todo::before,.padbox.queue::before{border-color:#8b949e}
+.padbox.todo span,.padbox.queue span{color:#6e7681}
+.padbox.queue{border-style:dashed}
+/* in-flight edit lock (2026-08-12): เลือก/แก้ไข + 🚀 go gray-out during a mission */
+.savebtn.locked,.savebtn.locked:hover{background:#21262d!important;
+ border-color:#30363d!important;color:#8b949e!important;cursor:not-allowed}
+/* 🚀 upload feedback (2026-08-14): ⏳ waiting = amber; ✅ staged (drone
+   reporting back = upload CONFIRMED end-to-end) = green pulse */
+.savebtn.upwait,.savebtn.upwait:hover{background:#3a2d00!important;
+ border:2px solid #d29922!important;color:#e3b341!important;cursor:progress}
+.savebtn.staged,.savebtn.staged:hover{background:#0f5323!important;
+ border:2px solid #3fb950!important;color:#e6ffe9!important;
+ animation:stagedpulse 1.4s ease-in-out infinite}
+@keyframes stagedpulse{0%,100%{box-shadow:0 0 0 0 rgba(63,185,80,.55)}
+ 50%{box-shadow:0 0 0 8px rgba(63,185,80,0)}}
+/* A2 milestone %-bar (operator pick 2026-08-14) */
+.psegrow{display:flex;gap:10px;align-items:center;margin:10px 0 2px}
+.psegs{flex:1;display:flex;gap:3px}
+.pseg{flex:1;height:13px;border-radius:4px;background:#21262d;position:relative}
+.pseg>i{display:block;height:100%;width:0;background:#238636;border-radius:4px}
+.pseg>b{position:absolute;top:16px;left:50%;transform:translateX(-50%);font-size:10px;color:#8b98a5;font-weight:400;white-space:nowrap}
+.ppct{font-size:23px;font-weight:800;color:#3fb950;min-width:58px;text-align:right}
+.pline{display:flex;justify-content:space-between;font-size:12.5px;margin-top:17px}
+/* compact milestone chips (replaced the tall metro timeline, operator
+   2026-08-14: "กินพื้นที่เยอะไป") — one wrapping row of pills */
+.mchips{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px}
+.mchip{display:inline-flex;align-items:center;padding:2px 9px;border-radius:99px;
+ font-size:11.5px;background:#21262d;color:#6e7681;border:1px solid #30363d;white-space:nowrap}
+.mchip.ok{background:#12351d;color:#3fb950;border-color:#238636}
+.mchip.cur{background:#0d1117;color:#58a6ff;border-color:#58a6ff;font-weight:700;
+ box-shadow:0 0 6px rgba(88,166,255,.5)}
+/* T1 toasts (NO sound — user request) */
+#toasts{position:fixed;top:64px;right:12px;z-index:1200;width:232px}
+.toast{background:#1c2129;border:1px solid #30363d;border-left:4px solid #3fb950;border-radius:8px;
+ padding:8px 10px;font-size:13px;margin-bottom:7px;box-shadow:0 4px 14px rgba(0,0,0,.55);
+ animation:toastin .25s ease}
+.toast.warn{border-left-color:#d29922}
+@keyframes toastin{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
+/* C1 post-flight summary modal */
+#summodal{display:none;position:fixed;inset:0;background:rgba(1,4,9,.72);z-index:1300;
+ align-items:center;justify-content:center}
+#summodal.show{display:flex}
+.sumcard{width:300px;background:#0d1117;border:2px solid #3fb950;border-radius:14px;
+ padding:22px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.7)}
+.sumcard h3{margin:0 0 4px;font-size:20px;color:#3fb950}
+.sumgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}
+.sumcell{background:#161b22;border-radius:8px;padding:9px 4px}
+.sumcell b{display:block;font-size:19px;color:#e6edf3}
+.sumcell span{font-size:11.5px;color:#8b98a5}
+/* real-console mission card (operator 2026-08-14: restart-based switching is
+   fine, but the console must SAY which mission is loaded, with graphics) */
+.mreal{border:2px solid #d29922;background:#241c05;border-radius:10px;padding:9px 11px;cursor:pointer}
+.mreal .t{font-size:14px;font-weight:800;color:#e3b341}
+.mreal .s{font-size:11.5px;color:#c9b072;margin-top:2px;line-height:1.5}
+.mreal .h{font-size:11px;color:#8b98a5;margin-top:5px;border-top:1px dashed #3d3212;padding-top:5px}
+/* D field mode (sunlight) */
+#fmbtn{position:fixed;right:12px;bottom:12px;z-index:1250;width:46px;height:46px;
+ border-radius:50%;border:1px solid #30363d;background:#161b22;color:#e3b341;
+ font-size:20px;cursor:pointer}
+body.fieldmode{background:#000}
+body.fieldmode .colside{width:430px;font-size:117%}
+body.fieldmode .savebtn{font-size:19px;padding:13px;border-radius:10px}
+body.fieldmode .schip{font-size:14px}
+body.fieldmode #fmbtn{background:#238636;color:#fff;border-color:#3fb950}
+/* ===== FLAT MINIMAL — no card boxes; one flowing panel, golden-ratio rhythm ===== */
+.colside{width:360px;max-width:84vw;gap:0;padding:21px 21px 34px;
+ background:#0d1117;border-right:1px solid rgba(255,255,255,.08)}
+.sidehead{font-size:14px;font-weight:700;color:#c9d1d9;letter-spacing:.02em;
+ padding:0 0 13px;margin:0;border-bottom:0}
+/* each group becomes a frameless section, separated only by a hairline */
+.colside>.mapcard,.colside>.instr{
+ background:none!important;border:0!important;border-radius:0!important;
+ border-top:1px solid rgba(255,255,255,.07)!important;
+ padding:21px 0!important;margin:0}
+.colside>.sidehead+.mapcard,.colside>.sidehead+.instr{border-top:0!important;padding-top:6px!important}
+.padblock{margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)}
+/* Mission = horizontal phase timeline (stepper) + stats */
+.mtl{display:flex;align-items:flex-start;margin:2px 0}
+.mtstep{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;min-width:0}
+.mtstep::before{content:"";position:absolute;top:9px;left:-50%;width:100%;height:2px;background:#30363d;z-index:0}
+.mtstep:first-child::before{display:none}
+.mtstep.done::before,.mtstep.cur::before{background:#3fb950}
+.mtstep>i{width:18px;height:18px;border-radius:50%;background:#21262d;border:2px solid #30363d;z-index:1;
+ display:flex;align-items:center;justify-content:center;font:700 11px/1 system-ui,sans-serif;font-style:normal;color:#8b98a5}
+.mtstep.done>i{background:#3fb950;border-color:#3fb950;color:#0d1117}
+.mtstep.cur>i{background:#0d1117;border-color:#58a6ff;box-shadow:0 0 0 3px rgba(88,166,255,.25)}
+.mtstep>span{margin-top:6px;font-size:10px;color:#7d8b99;text-align:center;white-space:nowrap}
+.mtstep.cur>span{color:#58a6ff;font-weight:700}
+.mtstep.done>span{color:#c9d1d9}
+.mtstats{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;margin-top:10px;
+ font-size:13px;color:#c9d1d9;font-family:ui-monospace,monospace}
+.mtstats b{font-weight:700}
+.mtstats .sep{color:#455060}
+.mtwhy{margin-top:5px;padding:4px 8px;border:1px solid #9e6a03;border-radius:6px;background:rgba(187,128,9,.15);color:#e3b341;font-size:13px}
+.mapcard>h3,.instr>h3{font-size:11px;letter-spacing:.10em;color:#7d8b99;
+ margin:0 0 13px;font-weight:700;text-transform:uppercase;text-align:left}
+.instr{text-align:center}
+.instr>h3{text-align:left}
+/* body rhythm */
+.mprog .row{font-size:14px;padding:4px 0}
+.mprog b{color:#58a6ff}
+.padstatus{font-size:14px;padding:8px 11px;background:rgba(255,255,255,.04);
+ border:1px solid rgba(255,255,255,.09);border-radius:8px;margin-bottom:8px}
+.padli{font-size:13px}
+.gfnow,.mapinfo{font-size:13px;color:#8b98a5}
+.gfgrid label{font-size:13px;color:#8b98a5;gap:5px}
+.gfgrid input,.gfgrid select{font-size:14px;padding:8px 10px;border-radius:8px}
+.gfbar>button,.gfrow>button,.gfrow>button.ghost,.savebtn,
+.servobtns>button,.servobtns>button.ghost{font-size:14px;border-radius:8px}
+.gfrow>button{padding:9px 14px}
+.gfhint,.gfwarn{font-size:12px;line-height:1.6}
+.leg{font-size:11px}
+.schip{font-size:12px}
+.mlabel{font-size:11px;margin:12px 0 8px}
+.caret{width:22px;height:22px;margin-right:8px;font-size:12px;
+ background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.10)}
+.sidetab{left:360px}
 </style></head><body>
-<header>
- <span>🛸 AAVC Ground Station</span>
- <span id=mclock class=mclock title="mission time / 20:00 budget">--:--<span style="font-size:14px;color:#8b98a5"> / 20:00</span></span>
- <span id=link><span class=dot style=background:#6e7681></span>connecting…</span>
-</header>
+<div id=msgline>—</div>
 <div id=demobar style="display:none;background:#2a2140;color:#d0bcff;padding:8px 16px;text-align:center;font-size:16px;font-weight:700;border-bottom:1px solid #4a3a6a">🧪 DEMO — ข้อมูลตัวอย่าง ไม่ได้ต่อโดรนจริง · (เสียบ FMU/วิทยุ หรือรัน SITL เพื่อดูข้อมูลจริง)</div>
-<div class=status>
- <div class=pill><b id=mode>–</b><span>Flight Mode</span></div>
- <div class=pill><b id=armstate>–</b><span>Arming</span></div>
- <div class=pill><b id=batt>–</b><span>Voltage</span></div>
- <div class=pill><b id=battpct>–</b><span>Battery %</span></div>
- <div class=pill><b id=gpsfix>–</b><span>GPS</span></div>
- <div class=pill><b id=sats>–</b><span>Sats</span></div>
- <div class=pill><b id=hdgtop>–</b><span>Heading</span></div>
+<div class=mapstatus>
+ <div class=msrow1>
+  <span class=mstitle>🛸 AAVC</span>
+  <span id=link><span class=dot style=background:#6e7681></span>connecting…</span>
+  <!-- mission clock REMOVED (operator 2026-08-18: "เดี๋ยวเขาจับให้เอง" —
+       the committee keeps the official time; a second clock on the console
+       is one more thing to argue with). The flight-side TimePolicy still
+       enforces the window — this was display only. -->
+
+ </div>
+ <div class=msrow2>
+  <span class="msi mode"><b id=mode>–</b></span>
+  <span class=msi><b id=armstate>–</b></span>
+  <span class=msi>🔋 <b id=batt>–</b> <b id=battpct>–</b></span>
+  <span class=msi>📡 <b id=gpsfix>–</b> <b id=sats>–</b></span>
+ </div>
 </div>
-<div class=main>
+<div class=mapinst>
+ <div class=igauge>
+  <div class=ai id=ai><div class=ai-inner id=aiInner></div><div class=ai-mark></div><div class=ai-mark-c></div></div>
+  <div class=glabel>ระดับ</div>
+ </div>
+ <div class=igauge>
+  <div class=compass id=compass>
+   <span class="cdir cn">N</span><span class="cdir ce">E</span><span class="cdir cs">S</span><span class="cdir cw">W</span>
+   <div class=cneedle id=cneedle></div><div class=chub></div>
+  </div>
+  <div class=glabel>หัน <b id=hdgval>–</b>°<span id=hdgcard></span></div>
+ </div>
+</div>
+<div class=appwrap>
+ <div class=sidetab title="พับ/เปิดแผงควบคุม">◀</div>
+ <div id=lmap></div>
+ <div class=colside>
+ <div class=sidehead><span>🛠 แผงควบคุม</span></div>
+ <div class=instr>
+  <h3>เครื่องวัดการบิน</h3>
+  <div class=stage><div class=d3cam><div class=d3att id=d3att></div></div></div>
+  <div class=attread>
+   <span>roll <b id=rollv>–</b>°</span>
+   <span>pitch <b id=pitchv>–</b>°</span>
+   <span>หัน <b id=hdgv2>–</b>°</span>
+   <span>สูง <b id=altv>–</b> m</span>
+  </div>
+  <div class=mlabel>ความเร็ว Motor (%)</div>
+  <div class=motors id=motors></div>
+  <div class=mlabel>สถานะ Sensor</div>
+  <div class=sensors id=sensors></div>
+ </div>
  <div class=mapcard>
-  <h3>🗺️ แผนที่ตำแหน่ง Drone </h3>
-  <div id=lmap></div>
+  <h3>📋 Mission</h3>
+  <div class=mprog id=mprog><span style=color:#8b98a5>idle — ไม่มี mission สด</span></div>
+  <div id=pbarwrap style="display:none">
+   <div class=psegrow>
+    <div class=psegs id=psegs></div>
+    <div class=ppct id=ppct>–</div>
+   </div>
+   <div class=pline><span id=plabel></span><span id=peta style="color:#8b98a5"></span></div>
+  </div>
+  <div id=tline class=mchips style="display:none"></div>
+  <div class=padblock>
+   <div id=miselrow style="display:none;margin-bottom:6px">
+    <div style="font-size:12px;color:#8b98a5;margin-bottom:3px">🗂 Template mission — กดกล่องด้านล่างเพื่อสลับสนาม</div>
+    <select id=misel onchange=selectMission() style="width:100%;background:#161b22;color:#e6edf3;border:2px solid #58a6ff;border-radius:8px;padding:8px;font-size:14px;font-weight:600;cursor:pointer"></select>
+   </div>
+   <div id=mrealcard style="display:none;margin-bottom:6px" onclick=realSwitchHelp()></div>
+   <div class=padstatus id=padstatus>— ยังไม่เลือก pad —</div>
+   <button class=savebtn id=padopen type=button onclick=openPadModal()>✏️ เลือก / แก้ไข pad (ตั้งก่อนบิน offboard)</button>
+   <button class=savebtn id=flybtn type=button onclick=startMission() style="display:none;margin-top:6px">🚀 up ขึ้นโดรน</button>
+   <button class=savebtn id=resetbtn type=button onclick=resetField() style="display:none;margin-top:6px">🧹 รีเซ็ตสนาม [SIM]</button>
+   <div id=savemsg style="font-size:13px;color:#8b98a5;margin-top:6px"></div>
+  </div>
+ </div>
+ <div class=modal id=padmodal>
+  <div class=modalbox>
+   <h3>🎯 เลือก Pad ที่จะส่ง (ID 1-6 · เลือกกี่อันก็ได้)</h3>
+   <div class=padgrid id=padgrid></div>
+   <div class=padrow><span>เลือกแล้ว: <b id=selcount style=color:#3fb950>0</b> / 6</span></div>
+   <div class=modalbtns>
+    <button class=savebtn id=savebtn type=button onclick=savePadModal()>💾 บันทึก</button>
+    <button class=modalcancel type=button onclick=closePadModal()>ยกเลิก</button>
+   </div>
+  </div>
+ </div>
+ <div class=mapcard id=servocard>
+  <h3>📦 ปล่อย Payload (Servo)</h3>
+  <div id=servowarn class=servowarn></div>
+  <div class=servobtns>
+   <button id=servoall type=button onclick=releaseServo(null)>📦 ปล่อยทั้งหมด</button>
+   <button id=servocloseall type=button class=ghost onclick=resetServo(null)>❌ ปิดทั้งหมด</button>
+  </div>
+  <div class=servomini id=servogrid></div>
+  <div id=servomsg style="font-size:15px;color:#8b98a5;margin-top:8px"></div>
+  <div class=leg><span>ปุ่มเล็ก = ปล่อยทีละตัว (กันกดผิด) · ต้องเลือก pad ก่อน</span></div>
+ </div>
+ <div class=mapcard>
+  <h3>🛡️ Geofence · ตำแหน่ง</h3>
   <canvas id=posmap width=680 height=460></canvas>
   <div class=mapinfo><span>ตำแหน่ง: <b id=posll>–</b></span><span id=mapscale></span></div>
   <div class=gfbar>
    <button id=gfbtn type=button>🛡️ Geofence</button>
+   <button id=originbtn type=button title="ส่ง SET_GPS_GLOBAL_ORIGIN — ให้ NED (0,0) = ตำแหน่งปัจจุบัน">📍 ตั้ง 0,0 ที่นี่</button>
    <span class=gfnow>ปัจจุบัน: <b id=gfnow>–</b></span>
   </div>
   <div id=gfpanel class=gfpanel>
@@ -1639,43 +2613,67 @@ header{padding:10px 16px;background:#161b22;font-weight:600;font-size:23px;
    </div>
   </div>
  </div>
- <div class=instr>
-  <h3>เครื่องวัดการบิน</h3>
-  <div class=ai id=ai><div class=ai-inner id=aiInner></div><div class=ai-mark></div><div class=ai-mark-c></div></div>
-  <div class=hdg>หัน <b id=hdgval>–</b>° <span id=hdgcard></span></div>
-  <div class=attxt>roll <b id=rollv>–</b>° · pitch <b id=pitchv>–</b>°</div>
-  <div class=mlabel>ความเร็ว Motor (%)</div>
-  <div class=motors id=motors></div>
-  <div class=mlabel>สถานะ Sensor</div>
-  <div class=sensors id=sensors></div>
- </div>
- <div class=mapcard>
-  <h3>🎯 Pad ที่จะส่ง — ติกเลือก (ID 1-6 · เลือกกี่อันก็ได้)</h3>
-  <div class=padgrid id=padgrid></div>
-  <div class=padrow><span>เลือกแล้ว: <b id=selcount style=color:#3fb950>0</b> / 6</span></div>
-  <button class=savebtn id=savebtn onclick=saveAssign()>💾 บันทึก assignment (ก่อนเริ่ม mission)</button>
-  <div id=savemsg style="font-size:15px;color:#8b98a5;margin-top:8px"></div>
-  <div class=leg>
-   <span><i style=background:#3fb950></i>assigned</span>
-   <span><i style=background:#58a6ff></i>mapped (เจอแล้ว)</span>
-   <span><i style=background:#f85149></i>delivered</span>
-   <span><i style=background:#8b98a5></i>ยังไม่เจอ</span>
-  </div>
- </div>
- <div class=mapcard>
-  <h3>📋 Mission progress</h3>
-  <div class=mprog id=mprog><span style=color:#8b98a5>idle — mission ยังไม่รัน</span></div>
  </div>
 </div>
-<div id=msgline>—</div>
+<div id=toasts></div>
+<div id=summodal><div class=sumcard id=sumcardc></div></div>
+<button id=fmbtn onclick=fmToggle() title="โหมดจอสนาม (กลางแดด)">🔆</button>
 <script>
+// on-screen JS error banner (debug aid 2026-08-13): a runtime error anywhere
+// kills the rest of tick() silently — surface it so operator+dev see the SAME
+// thing instead of "หน้าเว็บเหมือนไม่เปลี่ยน/เพี้ยน" mysteries.
+window.onerror=function(m,src,l,c){try{
+ var el=document.getElementById('jserr');
+ if(!el){el=document.createElement('div');el.id='jserr';
+  el.style.cssText='position:fixed;bottom:6px;left:6px;right:6px;background:#f85149;color:#fff;padding:6px 10px;z-index:9999;font:12px monospace;border-radius:8px;white-space:pre-wrap';
+  document.body.appendChild(el);}
+ el.textContent='⚠ JS ERROR: '+m+'  (บรรทัด '+l+':'+c+') — แคปหน้าจอนี้ส่งให้ Claude ได้เลย';
+}catch(_){}};
 function card16(h){var d=['N','NE','E','SE','S','SW','W','NW'];return d[Math.round(h/45)%8];}
+// stack the fixed top bars (status -> msgline) and start the sidebar below them, measuring real heights
+function layoutTop(){
+ var aw=document.querySelector('.appwrap'),ms=document.querySelector('.mapstatus');
+ var top=aw?Math.max(0,aw.getBoundingClientRect().top):48;
+ if(ms)ms.style.top=(top+8)+'px';
+}
+window.addEventListener('resize',layoutTop);
+window.addEventListener('load',layoutTop);
+// collapsible panels: a ▾ arrow button on each header folds/unfolds it; state saved in localStorage
+var _allBtnRefresh=null;
+function makePanel(panel,header,key){
+ var caret=document.createElement('span');caret.className='caret';caret.title='พับ/ขยาย';
+ var on=false;try{on=localStorage.getItem('col_'+key)==='1';}catch(e){}
+ function paint(){panel.classList.toggle('collapsed',on);caret.textContent=on?'▸':'▾';}
+ function set(v){on=v;paint();try{localStorage.setItem('col_'+key,on?'1':'0');}catch(e){}
+  try{layoutTop()}catch(e){}if(_allBtnRefresh)_allBtnRefresh();}
+ paint();
+ caret.addEventListener('click',function(e){e.stopPropagation();set(!on);});
+ header.insertBefore(caret,header.firstChild);
+ panel._set=set;panel._isOn=function(){return on;};
+}
+function initCollapse(){
+ var i=0;
+ document.querySelectorAll('.colside .mapcard, .colside .instr').forEach(function(card){
+  var h=card.querySelector('h3');if(!h)return;makePanel(card,h,'card'+(i++));});
+ // Google-Maps-style edge tab: click to collapse/expand the left panel
+ var tab=document.querySelector('.sidetab');
+ function setSide(on){document.body.classList.toggle('side-collapsed',on);
+  if(tab)tab.textContent=on?'▶':'◀';
+  try{localStorage.setItem('side_collapsed',on?'1':'0');}catch(e){}
+  try{layoutTop()}catch(e){}
+  setTimeout(function(){try{if(lmap)lmap.invalidateSize()}catch(e){}},240);}
+ if(tab)tab.addEventListener('click',function(){setSide(!document.body.classList.contains('side-collapsed'));});
+ var sv='0';try{sv=localStorage.getItem('side_collapsed')||'0';}catch(e){}
+ setSide(sv==='1');
+}
+window.addEventListener('load',initCollapse);
 var mapHome=null,mapTrack=[];
 var lmap=null,lmarker=null,ltrack=null,lhome=null,lgfcircle=null,gfWant=null,mapReady=false;
 var SEL=[],PADS_INIT=false,lpads={},lzones=[],lhomeMarker=null,MCLOCK={base:null,at:0,done:false};
+var FT={start:null,frozen:null};   // mission budget clock: starts on ARMED+OFFBOARD (telemetry), not the mission file
 var frect=null,fmarkers=[],fcorners=[],lupfence=null;
-var SLAB={gyro:'Gyro',accel:'Accel',mag:'Mag',baro:'Baro',gps:'GPS',rc:'RC',ahrs:'AHRS',battery:'Batt'};
-var SORD=['gyro','accel','mag','baro','gps','rc','ahrs','battery'];
+var SLAB={gyro:'Gyro',accel:'Accel',mag:'Mag',baro:'Baro',gps:'GPS',rc:'RC',ahrs:'AHRS',battery:'Batt',lidar:'Lidar',cam:'กล้องล่าง',radio:'วิทยุ',cm4:'CM4'};
+var SORD=['gyro','accel','mag','baro','gps','rc','ahrs','battery','lidar','cam','radio','cm4'];
 function droneIcon(){return L.divIcon({className:'dicon',html:'<div class=dm>▲</div>',iconSize:[26,26],iconAnchor:[13,13]});}
 function initMap(){
  if(mapReady||typeof L==='undefined')return;
@@ -1685,14 +2683,28 @@ function initMap(){
  lmap=L.map(el,{zoomControl:true,attributionControl:true}).setView([13.736,100.523],16);
  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(lmap);
  ltrack=L.polyline([],{color:'#388bfd',weight:3}).addTo(lmap);
- setTimeout(function(){if(lmap)lmap.invalidateSize()},200);
+ [60,250,600,1200,2500].forEach(function(t){setTimeout(function(){if(lmap)lmap.invalidateSize()},t)});
+ window.addEventListener('resize',function(){if(lmap)lmap.invalidateSize()});
  mapReady=true;
 }
 function renderSensors(s){
  var box=document.getElementById('sensors');if(!box)return;
  var pres=s.present||{},hl=s.health||{},g=s.gps||{},html='';
  for(var i=0;i<SORD.length;i++){var k=SORD[i],p=pres[k],h=hl[k],cls,txt;
-  if(k==='gps'){var fx=g.fix||0;if(fx>=3){cls='sok';txt='3D';}else if(fx>=2){cls='sok';txt='2D';}else{cls='sna';txt='no fix';}}
+  if(k==='lidar'){var la=s.lidar_age;
+   /* 10 s = 10x the 1 Hz request: the NOMAD air link delivers in bursts
+      (measured gaps up to ~6.3 s with the link healthy), so 5 s flapped */
+   if(la!=null&&la<10){cls='sok';txt='OK';}else if(la!=null){cls='sbad';txt='ค้าง '+Math.round(la)+'s';}else{cls='sna';txt='n/a';}}
+  else if(k==='cam'){var cr=s.cam_radio,ca=s.cam_age;
+   if(cr&&cr.state==='OK'){cls='sok';txt='OK 📻';}
+   else if(cr){cls='sbad';txt=(cr.state==='DEAD'?'ค้าง':'ไม่มีเฟรม')+' 📻';}
+   else if(ca!=null&&ca<5){cls='sok';txt='OK';}else if(ca!=null){cls='sbad';txt='ค้าง '+Math.round(ca)+'s';}else{cls='sna';txt='n/a';}}
+  else if(k==='radio'){
+   if(s.link_kind==='radio'){if(s.link){cls='sok';txt='OK';}else{cls='sbad';txt='หลุด';}}
+   else{cls='sna';txt='n/a (UDP)';}}
+  else if(k==='cm4'){
+   if(s.cm4_ok===true){cls='sok';txt='OK';}else if(s.cm4_ok===false){cls='sbad';txt='หลุด';}else{cls='sna';txt='n/a (SIM)';}}
+  else if(k==='gps'){var fx=g.fix||0;if(fx>=3){cls='sok';txt='3D';}else if(fx>=2){cls='sok';txt='2D';}else{cls='sna';txt='no fix';}}
   else if(h){cls='sok';txt='OK';}          // health-first: AHRS is present=False/health=True on PX4
   else if(p){cls='sbad';txt='BAD';}
   else{cls='sna';txt='n/a';}
@@ -1703,6 +2715,11 @@ function renderSensors(s){
 function updateMap(s){
  var g=s.gps||{}, ll=document.getElementById('posll');
  var msc=document.getElementById('mapscale'); if(msc) msc.textContent='แผนที่ OSM (ติดตามสด)';
+ // Field data FIRST, vehicle data after the fix gate (sibling-session bug
+ // report 2026-08-14, hit live: with no telemetry the zones never drew and
+ // the template-switch pan silently no-op'd — zones/home/pads are FIELD
+ // data and must render on a pre-connection console too).
+ aavcMap(s);
  if(g.lat==null||g.lon==null||!(g.fix>=2)){if(ll)ll.textContent='ยังไม่มีตำแหน่ง GPS (sats '+(g.sats==null?0:g.sats)+')';return;}
  var pos=[g.lat,g.lon];
  if(!lhome){lhome=pos;lmap.setView(pos,18);}
@@ -1718,22 +2735,39 @@ function updateMap(s){
  var fp=(s.fence&&s.fence.pts)||[];
  if(fp.length>=3){if(!lupfence){lupfence=L.polygon(fp,{color:'#3fb950',weight:2,fill:false}).addTo(lmap);}else{lupfence.setLatLngs(fp);}}
  else if(lupfence){lmap.removeLayer(lupfence);lupfence=null;}
- aavcMap(s);
  if(ll)ll.textContent=g.lat.toFixed(6)+', '+g.lon.toFixed(6);
+}
+// build the CSS-3D hexacopter once: central hub + 6 arms + 6 rotors around a hexagon
+function build3d(){
+ var att=document.getElementById('d3att');if(!att||att.dataset.built)return;
+ var A=[0,60,120,180,240,300],h='<div class=d3hub></div>';
+ for(var i=0;i<6;i++)h+='<div class=d3arm style="transform:rotate('+A[i]+'deg)"></div>';
+ for(var i=0;i<6;i++)h+='<div class=d3rotor style="transform:rotate('+A[i]+'deg) translateX(52px) translateZ(7px)"></div>';
+ att.innerHTML=h;att.dataset.built='1';
 }
 function renderInsti(s){
  var a=s.att||{};
  var roll=a.roll==null?0:a.roll, pitch=a.pitch==null?0:a.pitch;
  var inner=document.getElementById('aiInner');
- if(inner) inner.style.transform='rotate('+(-roll)+'deg) translateY('+(pitch*1.8)+'px)';
+ if(inner) inner.style.transform='rotate('+(-roll)+'deg) translateY('+(pitch*2.7)+'px)';
  var hv=document.getElementById('hdgval'); if(hv) hv.textContent=a.heading==null?'–':Math.round(a.heading);
- var hc=document.getElementById('hdgcard'); if(hc) hc.textContent=a.heading==null?'':card16(a.heading);
+ var hc=document.getElementById('hdgcard'); if(hc) hc.textContent=a.heading==null?'':(' '+card16(a.heading));
+ var cnl=document.getElementById('cneedle'); if(cnl) cnl.style.transform='rotate('+(a.heading==null?0:a.heading)+'deg)';
  var rv=document.getElementById('rollv'); if(rv) rv.textContent=a.roll==null?'–':a.roll;
  var pv=document.getElementById('pitchv'); if(pv) pv.textContent=a.pitch==null?'–':a.pitch;
+ var hv2=document.getElementById('hdgv2'); if(hv2) hv2.textContent=a.heading==null?'–':Math.round(a.heading);
+ var av=document.getElementById('altv'); if(av){var alt=(s.gps&&s.gps.rel_alt!=null)?s.gps.rel_alt:((s.local&&s.local.z!=null)?-s.local.z:null);av.textContent=alt==null?'–':alt.toFixed(1);}
+ // 3D hexacopter: tilt to live attitude (roll/pitch/yaw) + tint rotors by motor throttle
+ build3d();
+ var d3=document.getElementById('d3att');
+ if(d3) d3.style.transform='rotateY('+roll+'deg) rotateX('+(-pitch)+'deg) rotateZ('+(-(a.heading==null?0:a.heading))+'deg)';
+ var _rr=document.querySelectorAll('#d3att .d3rotor'),_ms=s.motors||[];
+ for(var _i=0;_i<_rr.length;_i++){var _p=Math.round((_ms[_i]||0)*100);
+  _rr[_i].style.borderColor=_p>85?'#f85149':_p>60?'#d29922':'#3fb950';}
  var box=document.getElementById('motors');
  if(box){var ms=s.motors||[];
-  if(box.children.length!==ms.length){box.innerHTML='';for(var i=0;i<ms.length;i++){var d=document.createElement('div');d.className='mbar';d.innerHTML='<i></i><b>M'+(i+1)+'</b>';box.appendChild(d);}}
-  for(var j=0;j<ms.length;j++){var pct=Math.round(ms[j]*100);var bar=box.children[j].firstChild;bar.style.height=pct+'%';bar.style.background=pct>85?'#f85149':pct>60?'#d29922':'#3fb950';box.children[j].title=pct+'%';}}
+  if(box.children.length!==ms.length){box.innerHTML='';for(var i=0;i<ms.length;i++){var d=document.createElement('div');d.className='mrow';d.innerHTML='<span>M'+(i+1)+'</span><div class=mtrack><i></i></div><b>–</b>';box.appendChild(d);}}
+  for(var j=0;j<ms.length;j++){var pct=Math.round(ms[j]*100);var row=box.children[j];var fill=row.querySelector('.mtrack>i');fill.style.width=pct+'%';fill.style.background=pct>85?'#f85149':pct>60?'#d29922':'#3fb950';row.querySelector('b').textContent=pct+'%';row.title='M'+(j+1)+': '+pct+'%';}}
  renderSensors(s);
  drawMap(s);
 }
@@ -1782,55 +2816,431 @@ function renderPads(){
  });
  var sc=document.getElementById('selcount');if(sc)sc.textContent=SEL.length;
 }
-async function saveAssign(){
- var b=document.getElementById('savebtn'),m=document.getElementById('savemsg');b.disabled=true;
+function openPadModal(){
+ window.SEL_BACKUP=SEL.slice();                     // remember, so ยกเลิก can revert
+ var m=document.getElementById('padmodal');if(m)m.className='modal show';
+ renderPads();
+}
+function closePadModal(){
+ SEL=(window.SEL_BACKUP||SEL).slice();               // discard un-saved edits
+ var m=document.getElementById('padmodal');if(m)m.className='modal';
+ renderPads();updateMap(window.LAST||{});
+}
+async function savePadModal(){
+ var b=document.getElementById('savebtn'),m=document.getElementById('savemsg');if(b)b.disabled=true;
  try{var r=await fetch('/api/assign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:SEL})});
   var j=await r.json();
-  m.textContent=j.ok?('✅ บันทึกแล้ว: ['+j.ids.join(', ')+'] — mission จะใช้ค่านี้ตอนเริ่ม'):('❌ '+(j.err||'error'));}
- catch(e){m.textContent='❌ '+e;}
- b.disabled=false;
+  if(j.ok){window.SEL_BACKUP=SEL.slice();
+   var pm=document.getElementById('padmodal');if(pm)pm.className='modal';   // close popup
+   if(m)m.textContent='✅ บันทึกแล้ว: ['+j.ids.join(', ')+'] — mission จะใช้ค่านี้ตอนเริ่ม';}
+  else if(m){m.textContent='❌ '+(j.err||'error');}}
+ catch(e){if(m)m.textContent='❌ '+e;}
+ if(b)b.disabled=false;
+}
+function renderPadStatus(s){
+ var el=document.getElementById('padstatus');if(!el)return;
+ if(s.pads_selected&&(s.assignment||[]).length){
+  el.className='padstatus';el.textContent='🎯 จะส่ง '+s.assignment.length+' pad: '+s.assignment.join(', ');}
+ else{el.className='padstatus none';el.textContent='— ยังไม่เลือก pad —';}
+}
+// 🚀 GO (2026-08-12): start the mission with the SAVED selection, then lock edits
+async function startMission(){
+ var s=window.LAST||{};var ids=s.assignment||[];
+ if(!s.pads_selected||!ids.length){alert('⚠️ เลือก + บันทึก pad ก่อนครับ');openPadModal();return;}
+ if(!confirm('🚀 up mission ขึ้นโดรน: ส่ง pad ['+ids.join(', ')+']\\n(SIM: บินทันที · REAL: โดรนรอ RC ของ safety pilot — arm แล้วสลับ OFFBOARD ถึงจะออกบิน)\\nยืนยันหรือไม่?'))return;
+ var m=document.getElementById('savemsg');if(m)m.textContent='⏳ กำลัง up mission ขึ้นโดรน…';
+ try{var r=await fetch('/api/mission/start',{method:'POST'});var j=await r.json();
+  if(j.ok)window.UPWAIT=Date.now();   // arm the "confirmed" one-shot in renderMissionLock
+  if(m)m.textContent=j.ok?'⏳ ส่งคำสั่งแล้ว — รอโดรนยืนยันว่า mission ขึ้นเครื่อง…':(j.err||'เริ่มไม่สำเร็จ');
+  if(!j.ok&&j.err)alert(j.err);}
+ catch(e){if(m)m.textContent='สั่งไม่สำเร็จ: '+e;}
+}
+// edit-lock while flying (operator spec 2026-08-12): once the mission is
+// running (or the vehicle is armed/offboard, incl. missions started from the
+// CLI), เลือก/แก้ไข + 🚀 turn gray + disabled; the pad modal force-closes.
+async function resetField(){
+ if(!confirm('🧹 รีเซ็ตสนาม (SIM): เกิดใหม่ทั้ง SITL + pad สุ่มใหม่ + กล่องครบ 4 ใบ — ใช้เวลา ~1 นาที ทำเลยหรือไม่?'))return;
+ var m=document.getElementById('savemsg');if(m)m.textContent='🧹 กำลังรีเซ็ตสนาม… (~1 นาที)';
+ try{var r=await fetch('/api/mission/reset',{method:'POST'});var j=await r.json();
+  if(!j.ok&&j.err){alert(j.err);if(m)m.textContent=j.err;}}
+ catch(e){if(m)m.textContent='รีเซ็ตไม่สำเร็จ: '+e;}
+}
+// ── mission awareness pack (operator picks 2026-08-14: A2+B2+T1(no sound)+C1+D) ──
+var SEGNAMES=['ขึ้นบิน','เข้าเส้นทาง','ค้นหา','ส่งของ','กลับ'];
+var SEGEDGES=[2,8,18,55,90,100];   // segment i spans SEGEDGES[i]..SEGEDGES[i+1]
+function fmtEta(sec){if(sec==null)return'';if(sec<60)return'เหลือ ~'+sec+' วิ';
+ return'เหลือ ~'+Math.round(sec/60)+' นาที';}
+function fmtClock(t){if(t==null)return'';
+ return Math.floor(t/60)+':'+('0'+Math.floor(t%60)).slice(-2)}
+function renderProgress(s){
+ var ms=s.mission||{},w=document.getElementById('pbarwrap');if(!w)return;
+ var stale=ms.age_s!=null&&ms.age_s>45;
+ var pr=(typeof ms.progress==='number')?ms.progress:null;
+ var active=!stale&&pr!=null&&ms.phase&&(ms.phase!=='done'||pr===100);
+ // the %-bar REPLACES the old recon/deliver/done stepper (operator
+ // 2026-08-14: duplicated info) — the stepper stays only for idle/stale
+ // or a feed without progress fields (e.g. the sibling repo's writer)
+ var mp=document.getElementById('mprog');
+ if(mp)mp.style.display=active?'none':'block';
+ if(!active){w.style.display='none';return}
+ w.style.display='block';
+ var segs=document.getElementById('psegs');
+ if(!segs.childElementCount)
+  segs.innerHTML=SEGNAMES.map(function(n){return'<div class=pseg><i></i><b>'+n+'</b></div>'}).join('');
+ for(var i=0;i<5;i++){var lo=SEGEDGES[i],hi=SEGEDGES[i+1];
+  var f=pr>=hi?1:(pr<=lo?0:(pr-lo)/(hi-lo));
+  segs.children[i].firstChild.style.width=Math.round(f*100)+'%';}
+ document.getElementById('ppct').textContent=pr+'%';
+ document.getElementById('plabel').textContent=ms.progress_label||'';
+ var right=[];
+ // ⏱ mission clock removed (operator 2026-08-18) — ETA stays: it is OUR
+ // progress prediction, not the official time.
+ if(ms.phase!=='done'&&ms.eta_s!=null)right.push(fmtEta(ms.eta_s));
+ document.getElementById('peta').textContent=right.join(' · ');
+}
+function renderTimeline(s){
+ // compact chip strip (replaced the 9-row metro timeline — too tall)
+ var ms=s.mission||{},el=document.getElementById('tline');if(!el)return;
+ var stale=ms.age_s!=null&&ms.age_s>45;
+ var done=(ms.phase==='done');
+ var run=!stale&&ms.phase&&(typeof ms.progress==='number');
+ if(!run){el.style.display='none';return}
+ var pr=ms.progress||0,asg=ms.assigned||[],dlv=ms.delivered||[];
+ var evs=(ms.events||[]).map(function(e){return e.text});
+ function has(sub){for(var i=0;i<evs.length;i++)if(evs[i].indexOf(sub)>=0)return true;return false}
+ var chips=[];
+ function chip(st,txt){chips.push('<span class="mchip '+st+'">'+txt+'</span>')}
+ chip(done||pr>=8?'ok':(pr>=2?'cur':'todo'),done||pr>=8?'ขึ้นบิน ✓':'ขึ้นบิน');
+ var pm=['P1','P2','P3'].map(function(p){return has('ผ่านจุด '+p)?p+'✓':p}).join('·');
+ chip(done||pr>=18?'ok':(pr>=8?'cur':'todo'),pm);
+ var found=0,padmap=ms.pads_mapped||{};
+ for(var i=0;i<asg.length;i++)if(padmap[String(asg[i])])found++;
+ chip(done||pr>=55?'ok':(pr>=18?'cur':'todo'),'🔍 '+found+'/'+asg.length);
+ for(var j=0;j<asg.length;j++){var a=asg[j];
+  var st=dlv.indexOf(a)>=0?'ok'
+        :(!done&&(ms.progress_label||'').indexOf('pad '+a+' ')>=0?'cur':'todo');
+  chip(st,st==='ok'?'pad '+a+' ✓':'pad '+a);}
+ chip(done?'ok':(pr>=90?'cur':'todo'),done?'ถึงบ้าน ✓':'🏠 กลับ');
+ var html=chips.join('');
+ if(el.dataset.h!==html){el.dataset.h=html;el.innerHTML=html;}
+ el.style.display='flex';
+}
+// T1 toasts — NO sound (explicit user request 2026-08-14)
+var EVSEEN=null;
+function renderToasts(s){
+ var evs=((s.mission||{}).events)||[];if(!evs.length)return;
+ var box=document.getElementById('toasts');if(!box)return;
+ if(EVSEEN===null){EVSEEN={};                    // first tick: absorb history,
+  for(var i=0;i<evs.length;i++)EVSEEN[evs[i].t+'|'+evs[i].text]=1;return}   // never replay old toasts
+ for(var j=0;j<evs.length;j++){var e=evs[j],k=e.t+'|'+e.text;
+  if(EVSEEN[k])continue;EVSEEN[k]=1;
+  var d=document.createElement('div');d.className='toast'+(e.warn?' warn':'');
+  d.textContent=e.text;box.appendChild(d);
+  while(box.childElementCount>4)box.removeChild(box.firstChild);
+  (function(dd){setTimeout(function(){if(dd.parentNode)dd.parentNode.removeChild(dd)},6000)})(d);}
+}
+// C1 post-flight summary card
+var SUMSHOWN=false,WASLIVE=false;
+function renderSummary(s){
+ var ms=s.mission||{},stale=ms.age_s!=null&&ms.age_s>45;
+ var liveNow=!stale&&ms.phase&&ms.phase!=='done';
+ if(liveNow){WASLIVE=true;SUMSHOWN=false;return}
+ if(ms.phase==='done'&&WASLIVE&&!SUMSHOWN&&!stale){
+  SUMSHOWN=true;WASLIVE=false;
+  var dlv=(ms.delivered||[]),asg=(ms.assigned||[]);
+  var t=ms.mission_time!=null
+    ?Math.floor(ms.mission_time/60)+':'+('0'+Math.floor(ms.mission_time%60)).slice(-2):'–';
+  var batt=(s.batt&&s.batt.pct!=null)?s.batt.pct+'%':'–';
+  var ok=asg.length>0&&dlv.length>=asg.length;
+  document.getElementById('sumcardc').innerHTML=
+   '<h3>'+(ok?'✅ ภารกิจสำเร็จ':'🏁 จบภารกิจ')+'</h3>'
+  +'<div style="font-size:13px;color:#8b98a5">'+(s.mission_current||'')+'</div>'
+  +'<div class=sumgrid>'
+  +'<div class=sumcell><b>'+dlv.length+'/'+asg.length+'</b><span>ส่งสำเร็จ</span></div>'
+  +'<div class=sumcell><b>'+t+'</b><span>เวลาบิน</span></div>'
+  +'<div class=sumcell><b>'+batt+'</b><span>แบตเหลือ</span></div>'
+  +'<div class=sumcell><b>'+Object.keys(ms.pads_mapped||{}).length+'</b><span>pad ที่เจอ</span></div>'
+  +'</div>'
+  +'<div style="font-size:12.5px;color:#3fb950;margin-bottom:12px">'
+  +dlv.map(function(p){return'pad '+p+' ✓'}).join(' · ')+'</div>'
+  +'<button class=savebtn style="margin:0" onclick=closeSummary()>ปิด</button>';
+  document.getElementById('summodal').className='show';}
+}
+function closeSummary(){document.getElementById('summodal').className='';
+}
+// D field mode (sunlight): 🔆 toggle, remembered across sessions
+function fmToggle(){var on=document.body.classList.toggle('fieldmode');
+ try{localStorage.setItem('fieldmode',on?'1':'0')}catch(e){}}
+try{if(localStorage.getItem('fieldmode')==='1')document.body.classList.add('fieldmode')}catch(e){}
+// mission switcher (2026-08-13): dropdown in the Mission card — re-points the
+// console (map field, captures, 🚀 command) at another registered mission.
+// Both projects fly the SAME aircraft; entries differ only in field/envelope.
+function realSwitchHelp(){
+ var s=window.LAST||{},host=s.real_host||'<cm4>',dir=(s.real_dir||'~/mission');
+ alert('🔒 console นี้ผูกกับเครื่องจริงตัวเดียว\\n\\n'
+ +'mission ที่โหลดอยู่: '+(s.mission_current||'(ตาม --mission-cmd)')+'\\n'
+ +'สั่งไปที่: '+host+' → '+dir+'\\n\\n'
+ +'ต้องการสลับไป mission อื่นบนเครื่องจริง ทำ 3 ขั้น:\\n'
+ +'1) deploy repo ของ mission นั้นขึ้น CM4 (cm4/deploy.sh)\\n'
+ +'2) ปิด console นี้ (Ctrl-C ที่ terminal ที่เปิดมัน)\\n'
+ +'3) เปิดใหม่ด้วย --mission-cmd ที่ชี้ไป entry ของ repo นั้น\\n'
+ +'   เช่น cm4/launch_gcs_real.sh <user>@'+host+'\\n\\n'
+ +'ระหว่างบินห้ามสลับอยู่แล้ว — ที่ล็อกไว้เพื่อกันปุ่ม 🚀 กลายเป็นคำสั่ง SIM เงียบ ๆ');
+}
+function renderMissions(s){
+ var row=document.getElementById('miselrow'),sel=document.getElementById('misel');
+ var card=document.getElementById('mrealcard');
+ if(!row||!sel)return;
+ // REAL console: no dropdown at all — a locked card that NAMES the loaded
+ // mission + its CM4, and explains switching (click for the steps)
+ if(s.real_console&&card){
+  row.style.display='none';card.style.display='block';card.className='mreal';
+  var nm=s.mission_current||'(ตาม --mission-cmd)';
+  var lbl=nm;
+  for(var i=0;i<(s.missions||[]).length;i++)if(s.missions[i].name===nm)lbl=s.missions[i].label;
+  var html='<div class=t>🔒 เครื่องจริง · '+lbl+'</div>'
+   +'<div class=s>ปุ่ม 🚀 สั่งไปที่ <b>'+(s.real_host||'CM4')+'</b>'
+   +(s.real_dir?' → <b>'+s.real_dir+'</b>':'')+'</div>'
+   +'<div class=h>สลับ mission ไม่ได้จากหน้านี้ — ต้องปิด console แล้วเปิดใหม่ '
+   +'(แตะเพื่อดูขั้นตอน)</div>';
+  if(card.dataset.h!==html){card.dataset.h=html;card.innerHTML=html;}
+  return;
+ }
+ if(card)card.style.display='none';
+ var ms=s.missions||[];
+ if(ms.length<2){row.style.display='none';return}
+ row.style.display='block';
+ var sig=JSON.stringify([ms,s.mission_current,!!s.real_console]);
+ if(sel.dataset.sig!==sig){sel.dataset.sig=sig;
+  sel.innerHTML=ms.map(function(m){
+   var cur=(m.name===s.mission_current);
+   var off=!m.available||(s.real_console&&!cur);
+   return '<option value="'+m.name+'"'+(cur?' selected':'')
+        +(off?' disabled':'')+'>'+(cur?'📌 ':'')
+        +m.label+(m.available?'':' — ยังไม่พร้อม (รอ contract)')
+        +((s.real_console&&!cur&&m.available)?' — ต้อง deploy ขึ้น CM4 ก่อน':'')
+        +'</option>';
+  }).join('');}
+ // a REAL console is pinned to its ssh GO: switching would swap it for a
+ // laptop-side SIM command (see apply_mission)
+ sel.disabled=!!s.real_console
+   ||((!s.demo)&&(!!s.mission_running||!!s.armed||!!s.reset_running));
+ var lbl=row.firstElementChild;
+ if(lbl)lbl.textContent=s.real_console
+   ?'🗂 Template mission — 🔒 ล็อกบนเครื่องจริง (console นี้สั่ง CM4)'
+   :'🗂 Template mission — กดกล่องด้านล่างเพื่อสลับสนาม';
+}
+async function selectMission(){
+ var sel=document.getElementById('misel');var name=sel.value;
+ var cur=(window.LAST||{}).mission_current;
+ if(name===cur)return;
+ var lbl=sel.options[sel.selectedIndex].text.replace('📌 ','');
+ if(!confirm('สลับไป mission "'+lbl+'" ?\\n(แผนที่/pad/ปุ่ม 🚀 จะชี้ไป mission นั้นทันที)')){
+  sel.value=cur;return;}
+ try{var r=await fetch('/api/mission/select',{method:'POST',
+   headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})});
+  var j=await r.json();
+  if(!j.ok){alert(j.err||'สลับไม่สำเร็จ');sel.value=cur;return;}
+  window.ZSIG=null;window.ZFIT=true;SEL=[];PADS_INIT=false;   // re-sync + pan to the new field
+ }catch(e){alert(e);sel.value=cur;}
+}
+function renderMissionLock(s){
+ var ms=s.mission||{};
+ var fresh=ms.age_s!=null&&ms.age_s<=45;
+ var live=(!s.demo)&&fresh&&!!ms.phase&&ms.phase!=='done';
+ var resetting=!!s.reset_running;
+ var lock=(!s.demo)&&(!!s.mission_running||live||!!s.armed||resetting);
+ var po=document.getElementById('padopen');
+ if(po){po.disabled=lock;po.className=lock?'savebtn locked':'savebtn';
+  po.textContent=lock?(resetting?'🧹 กำลังรีเซ็ตสนาม…':'🔒 ล็อกขณะบิน mission — แก้ไข pad ไม่ได้')
+                     :'✏️ เลือก / แก้ไข pad (ตั้งก่อนบิน offboard)';}
+ var badge=s.mission_label?' ['+s.mission_label+']':'';
+ var fb=document.getElementById('flybtn');
+ if(fb){fb.style.display=s.mission_cmd?'block':'none';
+  var noCm4=(s.cm4_ok===false);          // ssh mission with the CM4 unreachable
+  fb.disabled=lock||!s.pads_selected||noCm4;
+  // 🚀 upload feedback (2026-08-14): the CONFIRMATION is the drone's own
+  // status feed turning fresh — proof the mission process is alive on the
+  // aircraft (REAL: via status_sync), not just that the ssh/spawn returned.
+  var phase=String(ms.phase||''), freshMs=fresh&&phase&&phase!=='done';
+  var upState=null;
+  if(s.mission_running){
+   if(freshMs&&phase.indexOf('preflight')>=0)upState='staged';
+   else if(freshMs)upState='flying';
+   else upState='upwait';
+  }
+  var cls='savebtn';
+  if(upState==='staged')cls='savebtn staged';
+  else if(upState==='upwait')cls='savebtn upwait';
+  else if(fb.disabled)cls='savebtn locked';
+  fb.className=cls;
+  fb.textContent=
+    upState==='upwait'?'⏳ กำลัง up ขึ้นโดรน… (รอสัญญาณยืนยันจากโดรน)'
+   :upState==='staged'?'✅ up เสร็จ — mission อยู่บนโดรนแล้ว (preflight/รอ RC)'
+   :upState==='flying'?'🛫 กำลังบิน — '+phase
+   :(resetting?'🧹 รอรีเซ็ตสนามเสร็จ…'
+   :(noCm4?'🔒 ไม่พบสัญญาณ CM4 — เช็ค WiFi/เปิดเครื่อง'
+   :(live?'🛫 mission กำลังบิน (เริ่มจากภายนอก)':'🚀 up ขึ้นโดรน'+badge)));
+  // one-time "upload confirmed" line the moment staged/flying first appears
+  if(upState&&upState!=='upwait'&&window.UPWAIT){window.UPWAIT=null;
+   var m=document.getElementById('savemsg');
+   if(m)m.textContent='✅ up ขึ้นโดรนสำเร็จ — โดรนรายงานสถานะกลับมาแล้ว';}
+ }
+ var rb=document.getElementById('resetbtn');
+ if(rb){rb.style.display=s.reset_cmd?'block':'none';
+  rb.disabled=lock&&!resetting?true:resetting;
+  rb.className=(rb.disabled)?'savebtn locked':'savebtn';
+  rb.textContent=resetting?'🧹 กำลังรีเซ็ตสนาม…':'🧹 รีเซ็ตสนาม [SIM]';}
+ if(lock){var pm=document.getElementById('padmodal');
+  if(pm&&pm.className.indexOf('show')>=0){
+   SEL=(window.SEL_BACKUP||SEL).slice();pm.className='modal';renderPads();}}
+ window.MLOCK=lock;
+}
+// live per-pad status from the running mission: scanned -> "เจอแล้ว", dropped -> "drop แล้ว"
+function renderPadLive(s){
+ var el=document.getElementById('padlive');if(!el)return;
+ var ms=s.mission||{},stale=(ms.age_s!=null&&ms.age_s>45);
+ var mapped=stale?{}:(ms.pads_mapped||{}),deliv=stale?[]:(ms.delivered||[]),asg=s.assignment||[];
+ var set={};asg.forEach(function(x){set[x]=1;});
+ Object.keys(mapped).forEach(function(x){set[parseInt(x,10)]=1;});
+ deliv.forEach(function(x){set[x]=1;});
+ var ids=Object.keys(set).map(Number).filter(function(x){return x>=1;}).sort(function(a,b){return a-b;});
+ if(!ids.length){el.innerHTML='<div class="padli off">— รอ mission เริ่มสแกน —</div>';return;}
+ el.innerHTML=ids.map(function(id){
+   var found=(mapped[id]!=null)||(mapped[String(id)]!=null),dropped=deliv.indexOf(id)>=0;
+   if(dropped)return '<div class=padli style="color:#3fb950">📦 drop pad '+id+' แล้ว</div>';
+   if(found)return '<div class=padli style="color:#8b949e">✅ เจอ pad '+id+' แล้ว</div>';
+   return '<div class="padli off">⏳ pad '+id+' รอสแกน</div>';
+ }).join('');
+}
+function renderServos(s){
+ var g=document.getElementById('servogrid');if(!g)return;
+ var cfg=(s.servo_cfg||[]).map(function(c){          // pre-2026-08-15 snapshots
+   return (typeof c==='object')?c:{num:c,label:''};});   // sent bare numbers
+ var st=s.servos||{},sel=!!s.pads_selected;
+ if(g.childElementCount!==cfg.length){g.innerHTML='';cfg.forEach(function(c){
+   var b=document.createElement('button');b.type='button';b.id='sv'+c.num;
+   // TOGGLE (2026-08-15): each AUX button is an ON/OFF switch for that latch —
+   // press to open, press again to close. Reading the CURRENT state at click
+   // time (not at render time) keeps it correct even if the latch was moved by
+   // "ปล่อยทั้งหมด" or by the mission between renders.
+   b.onclick=(function(n){return function(){
+     var st=(window.LAST||{}).servos||{};
+     if((st[String(n)]||{}).released){resetServo([n]);}else{releaseServo([n]);}
+   };})(c.num);
+   g.appendChild(b);});}
+ var mrun=!!s.mission_running;   // autonomous mission owns the latches — no manual drops
+ cfg.forEach(function(c){var b=document.getElementById('sv'+c.num);if(!b)return;
+   var info=st[String(c.num)]||{},rel=!!info.released;
+   b.className=rel?'rel':'';
+   b.innerHTML='AUX '+c.num+(c.label?'<br><b>'+c.label+'</b>':'')
+              +'<br>'+(rel?'เปิดอยู่ ▸ กดเพื่อปิด':'ปิดอยู่ ▸ กดเพื่อเปิด');
+   b.title='AUX '+c.num+(c.label?' — '+c.label:'')
+          +(rel?' (เปิดอยู่ — กดเพื่อปิดกลับ)':' (ปิดอยู่ — กดเพื่อเปิด)');
+   b.disabled=!sel||mrun;});                         // small buttons: locked until pad chosen
+ var w=document.getElementById('servowarn');
+ if(w){if(sel){w.className='servowarn';}
+   else{w.className='servowarn show';
+    w.innerHTML=s.armed?'🚨 ARMED แต่ยังไม่เลือก pad — ภารกิจไม่รู้ว่าจะ drop ที่ไหน!'
+                       :'⚠️ เลือก pad ที่จะ drop ก่อน ถึงจะปล่อย servo ได้';}}
+ var ab=document.getElementById('servoall');if(ab)ab.disabled=!sel||mrun;
+}
+async function releaseServo(which){
+ var s=window.LAST||{};
+ if(!s.pads_selected){alert('⚠️ เลือก pad ที่จะ drop ก่อน แล้วกดปุ่ม "บันทึก assignment"');return;}
+ var lbl=which?('servo '+which.join(', ')):'servo ทั้งหมด';
+ // Confirm only when it can actually drop an egg from the air. On a DISARMED
+ // bench the latch is being toggled on purpose, over and over, and a modal on
+ // every press just trains the operator to click through warnings.
+ if((s.armed||!which)&&!confirm('ปล่อย '+lbl+' ?  payload จะหล่นทันที'))return;
+ var m=document.getElementById('servomsg');if(m)m.textContent='กำลังปล่อย '+lbl+'…';
+ var qs=which?('?'+which.map(function(n){return 'which='+n;}).join('&')):'';
+ try{var r=await fetch('/api/servo/release'+qs,{method:'POST'});var j=await r.json();
+  if(m)m.textContent=j.ok?('✅ ปล่อยแล้ว: '+lbl):('❌ '+(j.err||'error'));}
+ catch(e){if(m)m.textContent='❌ '+e;}
+}
+async function resetServo(which){
+ var lbl=which?('servo '+which.join(', ')):'servo ทั้งหมด';
+ var m=document.getElementById('servomsg');if(m)m.textContent='กำลังปิด '+lbl+' กลับ…';
+ var qs=which?('?'+which.map(function(n){return 'which='+n;}).join('&')):'';
+ try{var r=await fetch('/api/servo/reset'+qs,{method:'POST'});var j=await r.json();
+  if(m)m.textContent=j.ok?('↩️ ปิดกลับแล้ว: '+lbl+' (พร้อมเทสใหม่)'):('❌ '+(j.err||'error'));}
+ catch(e){if(m)m.textContent='❌ '+e;}
 }
 function fmtClk(s){s=Math.max(0,Math.floor(s));var m=Math.floor(s/60),ss=s%60;return (m<10?'0':'')+m+':'+(ss<10?'0':'')+ss;}
-function updClock(){
- var el=document.getElementById('mclock');if(!el)return;
- var suf='<span style="font-size:14px;color:#8b98a5"> / 20:00</span>';
- if(MCLOCK.base==null){el.innerHTML='--:--'+suf;return;}
- var t=MCLOCK.done?MCLOCK.base:MCLOCK.base+(Date.now()-MCLOCK.at)/1000;
- var col=t>=1200?'#f85149':(t>=1080?'#d29922':'#3fb950');
- el.innerHTML='<span style="color:'+col+'">'+fmtClk(t)+'</span>'+suf;
-}
-setInterval(updClock,250);
+// (updClock + its 250 ms interval removed with the #mclock element —
+//  operator 2026-08-18: the committee keeps the official mission time.)
+// map the real mission phase string -> step index in [recon, deliver, done]
+// ("load" step removed 2026-08-12 per operator request — the eggs ride the
+// whole flight so a loading step never lit in practice; an old feed's
+// "load"-tagged phase still lands on recon instead of vanishing)
+function phaseIdx(ph){ph=String(ph||'').toLowerCase();
+ if(ph.indexOf('recon')>=0||ph.indexOf('load')>=0)return 0;
+ if(ph.indexOf('deliver')>=0)return 1;
+ if(ph.indexOf('done')>=0)return 2;
+ return -1;}                                        // idle / unknown = not started
 function renderMission(ms){
  var el=document.getElementById('mprog');if(!el)return;
- if(!ms){el.innerHTML='<span style=color:#8b98a5>idle — mission ยังไม่รัน</span>';MCLOCK.base=null;return;}
- var mapped=Object.keys(ms.pads_mapped||{}).length,deliv=(ms.delivered||[]).length;
+ var why=ms&&ms.home_reason?'<div class="mtwhy">🏠 '+ms.home_reason+'</div>':'';
+ if(!ms||(ms.age_s!=null&&ms.age_s>45)){el.innerHTML='<span style=color:#8b98a5>idle — ไม่มี mission สด</span>'+why;return;}
+ var mapped=(ms.src==='radio')?(ms.mapped_n||0):Object.keys(ms.pads_mapped||{}).length,
+     deliv=(ms.delivered||[]).length;
  var asg=(ms.assigned&&ms.assigned.length)?ms.assigned.length:SEL.length;
- var mt=ms.mission_time!=null?ms.mission_time.toFixed(0)+' s':'–';
- var stale=(ms.age_s>10)?' <span class=warn>(stale '+ms.age_s+'s)</span>':'';
- el.innerHTML='<div class=row><span>Phase</span><span><b>'+(ms.phase||'–')+'</b>'+stale+'</span></div>'+
-  '<div class=row><span>Pads เจอแล้ว</span><span><b>'+mapped+'</b> / 6</span></div>'+
-  '<div class=row><span>ส่งแล้ว</span><span><b>'+deliv+'</b> / '+asg+'  ['+(ms.delivered||[]).join(', ')+']</span></div>'+
-  '<div class=row><span>เวลา</span><span><b>'+mt+'</b></span></div>';
- if(ms.mission_time!=null){MCLOCK.base=ms.mission_time;MCLOCK.at=Date.now();MCLOCK.done=(ms.phase==='done');}else MCLOCK.base=null;
+ var cur=phaseIdx(ms.phase),labels=['recon','deliver','done'],steps='';
+ for(var i=0;i<labels.length;i++){
+  var cls=(cur>=2)?'done':(i<cur?'done':(i===cur?'cur':''));
+  steps+='<div class="mtstep '+cls+'"><i>'+(cls==='done'?'✓':'')+'</i><span>'+labels[i]+'</span></div>';
+ }
+ var fc=(asg>0&&mapped>=asg)?'#3fb950':'#e6e6e6',dc=(asg>0&&deliv>=asg)?'#3fb950':'#e6e6e6';
+ el.innerHTML='<div class=mtl>'+steps+'</div>'+
+  '<div class=mtstats>'+
+   '<span>พบ <b style="color:'+fc+'">'+mapped+'/'+asg+'</b></span><span class=sep>·</span>'+
+   '<span>ส่ง <b style="color:'+dc+'">'+deliv+'/'+asg+'</b></span>'+
+  '</div>'+why;
 }
 function aavcEN(e,n,lat0,lon0){var R=6378137.0;
  return [lat0+(n/R)*180/Math.PI, lon0+(e/(R*Math.cos(lat0*Math.PI/180)))*180/Math.PI];}
 function aavcMap(s){
  if(!mapReady||typeof L==='undefined')return;
  var z=s.zones||{};
- if(!lzones.length&&(z.airspace||z.search)){
+ // redraw when the field CHANGES (map editor save/clear), not just once
+ var zsig=JSON.stringify([z.airspace,z.search,z.transit,z.home]);
+ if(window.ZSIG!==zsig&&(z.airspace||z.search)){
+  window.ZSIG=zsig;
+  for(var zi=0;zi<lzones.length;zi++)lmap.removeLayer(lzones[zi]);lzones=[];
+  if(lhomeMarker){lmap.removeLayer(lhomeMarker);lhomeMarker=null;}
   if(z.airspace&&z.airspace.length>=3)lzones.push(L.polygon(z.airspace,{color:'#f85149',weight:2,fill:false,dashArray:'8 6'}).addTo(lmap).bindTooltip('controlled airspace'));
   if(z.search&&z.search.length>=3)lzones.push(L.polygon(z.search,{color:'#f0d000',weight:2,fill:false}).addTo(lmap).bindTooltip('search area'));
-  if(z.home)lhomeMarker=L.circleMarker(z.home,{radius:6,color:'#fff',fillColor:'#2ea043',fillOpacity:1,weight:2}).addTo(lmap).bindTooltip('HOME (P1)');
+  if(z.transit&&z.transit.length>=1)lzones.push(L.polyline(z.transit,{color:'#58a6ff',weight:2,dashArray:'2 6'}).addTo(lmap).bindTooltip('transit P1→P3'));
+  if(z.home)lhomeMarker=L.circleMarker(z.home,{radius:6,color:'#fff',fillColor:'#2ea043',fillOpacity:1,weight:2}).addTo(lmap).bindTooltip('HOME / L&R');
+  // template switch: pan the map to the newly selected field
+  if(window.ZFIT&&z.airspace&&z.airspace.length>=3){window.ZFIT=false;
+   try{lmap.fitBounds(L.latLngBounds(z.airspace).pad(0.3))}catch(_){}}
  }
- var ms=s.mission||{},pm=ms.pads_mapped||{},o=s.origin||{},deliv=ms.delivered||[];
+ // Pads = the CURRENT mission's scanned set ONLY (2026-08-12, operator
+ // request): a stale feed (>45 s, e.g. mission process gone) counts as
+ // empty, and any marker no longer present in pads_mapped is REMOVED — the
+ // old code only ever added/recoloured, so a new mission (or a feed reset)
+ // left the previous field's pads painted on the map until a page reload.
+ var ms=s.mission||{},stale=(ms.age_s!=null&&ms.age_s>45);
+ var pm=stale?{}:(ms.pads_mapped||{}),o=s.origin||{},deliv=stale?[]:(ms.delivered||[]);
+ // "อยู่ในคิวส่ง" = the RUNNING mission's own assignment (mission_status
+ // .assigned) when the feed is live — NOT the local editor state, which can
+ // lag behind a selection saved elsewhere (bug seen 2026-08-12: pad 3 showed
+ // queued from a stale page-load assignment). Editor SEL is only the
+ // fallback when no live mission is feeding.
+ var q=(!stale&&ms.assigned&&ms.assigned.length)?ms.assigned:SEL;
+ for(var oid in lpads){if(!(oid in pm)){lmap.removeLayer(lpads[oid]);delete lpads[oid];}}
  for(var id in pm){
   if(o.lat==null)break;
   var en=pm[id],pos=aavcEN(en[0],en[1],o.lat,o.lon),pid=parseInt(id);
-  var col=(deliv.indexOf(pid)>=0)?'#f85149':(SEL.indexOf(pid)>=0?'#3fb950':'#58a6ff');
-  if(!lpads[id])lpads[id]=L.circleMarker(pos,{radius:11,color:'#0d1117',weight:2,fillColor:col,fillOpacity:.95}).addTo(lmap)
-    .bindTooltip('Pad '+id,{permanent:true,direction:'center',className:'padtip'});
-  else{lpads[id].setLatLng(pos);lpads[id].setStyle({fillColor:col});}
+  var done=deliv.indexOf(pid)>=0;
+  var cls=done?'padbox done':(q.indexOf(pid)>=0?'padbox queue':'padbox todo');
+  var st=done?'ส่งแล้ว':(q.indexOf(pid)>=0?'อยู่ในคิวส่ง':'เจอแล้ว');
+  var icon=L.divIcon({className:'padicon',iconSize:[36,36],iconAnchor:[18,18],
+   html:'<div class="'+cls+'"><i>✓</i><span>'+id+'</span></div>'});
+  if(!lpads[id])lpads[id]=L.marker(pos,{icon:icon}).addTo(lmap).bindTooltip('Pad '+id+' — '+st,{direction:'top'});
+  else{lpads[id].setLatLng(pos);lpads[id].setIcon(icon);lpads[id].setTooltipContent('Pad '+id+' — '+st);}
  }
 }
 async function tick(){
@@ -1843,6 +3253,10 @@ async function tick(){
  var _db=document.getElementById('demobar');if(_db)_db.style.display=s.demo?'block':'none';
  document.getElementById('mode').textContent=s.mode||'–';
  document.getElementById('armstate').innerHTML=s.armed?'<span class=bad>ARMED</span>':'<span class=ok>DISARM</span>';
+ // mission budget clock: START on ARMED+OFFBOARD, keep running while airborne, FREEZE on disarm, RESTART next flight
+ var _offb=s.armed&&String(s.mode||'').toUpperCase()==='OFFBOARD';
+ if(_offb){if(FT.start==null||FT.frozen!=null){FT.start=Date.now();FT.frozen=null;}}
+ else if(!s.armed&&FT.start!=null&&FT.frozen==null){FT.frozen=(Date.now()-FT.start)/1000;}
  var b=s.batt||{};
  var bc=(b.pct!=null&&b.pct<20)?'bad':(b.pct!=null&&b.pct<40)?'warn':'ok';
  document.getElementById('batt').innerHTML=b.volt==null?'–':'<span class="'+bc+'">'+b.volt+'V</span>';
@@ -1851,15 +3265,33 @@ async function tick(){
  document.getElementById('gpsfix').innerHTML='<span class="'+(g.fix>=3?'ok':'bad')+'">'+(g.fix_str||'–')+'</span>';
  document.getElementById('sats').textContent=g.sats==null?'–':g.sats;
  var a=s.att||{};
- document.getElementById('hdgtop').textContent=a.heading==null?'–':Math.round(a.heading)+'° '+card16(a.heading);
  try{renderInsti(s)}catch(e){}
  var msgs=s.messages||[];
  if(msgs.length){var m=msgs[msgs.length-1];document.getElementById('msgline').textContent='['+m.t+'] '+m.txt;}
  var gfn=document.getElementById('gfnow'); if(gfn) gfn.textContent=gfFmt(s.geofence);
  var lk=s.link_kind||'',wired=(lk==='usb'||lk==='cm4'||lk==='other'),upB=document.getElementById('gfup');
  if(upB){upB.disabled=!wired;upB.textContent=wired?'⬆️ Upload สี่เหลี่ยม':'🔒 Upload (ต่อ USB ก่อน)';upB.title=wired?'':'เสียบ FC USB ก่อน — upload สี่เหลี่ยมบนวิทยุ ELRS ไม่ชัวร์';}
- if(!PADS_INIT&&s.assignment){SEL=(s.assignment||[]).slice();PADS_INIT=true;renderPads();}
- renderMission(s.mission);
+ // Keep the editor in sync with the SAVED assignment whenever the modal is
+ // CLOSED (2026-08-12 rewrite of the old load-once PADS_INIT latch, which
+ // went stale the moment the selection was saved from another tab/session).
+ var pmod=document.getElementById('padmodal');
+ if(!(pmod&&pmod.className.indexOf('show')>=0)){
+  var srvSel=(s.assignment||[]).slice();
+  if(srvSel.join(',')!==SEL.join(',')){SEL=srvSel;PADS_INIT=true;renderPads();}}
+ // no pad chosen yet -> pop the picker automatically (once per load); manual button still edits
+ // (suppressed while the edit-lock is on — never pop the picker mid-flight)
+ if(!window.PAD_AUTO_SHOWN&&!s.pads_selected&&!window.MLOCK&&!s.mission_running){
+  window.PAD_AUTO_SHOWN=true;try{openPadModal()}catch(e){}}
+ try{renderMission(s.mission)}catch(e){}
+ try{renderProgress(s)}catch(e){}
+ try{renderTimeline(s)}catch(e){}
+ try{renderToasts(s)}catch(e){}
+ try{renderSummary(s)}catch(e){}
+ try{renderMissions(s)}catch(e){}
+ try{renderMissionLock(s)}catch(e){}
+ try{renderServos(s)}catch(e){}
+ try{renderPadStatus(s)}catch(e){}
+ try{layoutTop()}catch(e){}
 }
 function gfActName(a){var m={0:'ปิด',1:'เตือน',2:'Hold',3:'RTL',4:'Terminate',5:'Land'};return (m[a]!=null)?m[a]:a;}
 function gfFmt(g){if(!g||(g.hor==null&&g.ver==null&&g.action==null))return 'ยังไม่ได้อ่าน';
@@ -1883,6 +3315,11 @@ var gfB=document.getElementById('gfbtn');
 if(gfB)gfB.onclick=function(){var p=document.getElementById('gfpanel');p.classList.toggle('open');if(p.classList.contains('open'))gfRead();};
 var gfR=document.getElementById('gfread');if(gfR)gfR.onclick=gfRead;
 var gfA=document.getElementById('gfapply');if(gfA)gfA.onclick=gfApply;
+var oB=document.getElementById('originbtn');
+if(oB)oB.onclick=async function(){
+ if(!confirm('ตั้ง origin พิกัด local (0,0) = ตำแหน่งปัจจุบันของโดรน?\\n(ส่ง SET_GPS_GLOBAL_ORIGIN ไป FMU — พิกัด pad/NED ของ mission จะอิงจุดนี้)'))return;
+ try{var r=await fetch('/api/origin/set',{method:'POST'});await r.json();}catch(e){}
+};
 function cornerIcon(){return L.divIcon({className:'fcorner',html:'',iconSize:[14,14],iconAnchor:[7,7]});}
 function fenceClearLocal(){if(frect){lmap.removeLayer(frect);frect=null;}for(var i=0;i<fmarkers.length;i++)lmap.removeLayer(fmarkers[i]);fmarkers=[];fcorners=[];}
 function fenceDraw(){
@@ -1990,6 +3427,81 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps({"ok": True, "ids": ids}))
             except Exception as e:
                 return self._send(200, json.dumps({"ok": False, "err": str(e)}))
+        if action == "mission/select":    # in-UI mission switcher (2026-08-13)
+            try:
+                ln = int(self.headers.get("Content-Length", 0) or 0)
+                name = str(json.loads(
+                    self.rfile.read(ln) or b"{}").get("name") or "")
+                err = apply_mission(name)
+                if err:
+                    return self._send(200, json.dumps({"ok": False, "err": err}))
+                print(f"[aavc] mission switched -> {name}: "
+                      f"field={AAVC_FIELD} captures={AAVC_CAPTURES}")
+                return self._send(200, json.dumps({"ok": True, "name": name}))
+            except Exception as e:
+                return self._send(200, json.dumps({"ok": False, "err": str(e)}))
+        if action == "mission/start":     # GCS GO (2026-08-12): spawn --mission-cmd
+            if LINK.demo:
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "demo mode — ไม่มีเครื่องจริงให้บิน"}))
+            if not MISSION_CMD:
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "console ไม่ได้ตั้ง --mission-cmd (เปิดผ่าน launch_stack.sh/make aavc-gcs)"}))
+            ids = selected_pads()
+            if not ids:                   # same interlock as the servo release
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "⚠️ เลือก + บันทึก pad ก่อนสั่งบิน"}))
+            if _CM4_OK is False:          # ssh mission + CM4 unreachable
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "🔒 ไม่พบสัญญาณ CM4 — เช็ค WiFi/"
+                                         "เปิดเครื่องก่อน แล้วปุ่มจะปลดเอง"}))
+            if mission_running():
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "mission กำลังบินอยู่แล้ว"}))
+            if LINK.snapshot().get("armed"):
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "เครื่อง ARMED อยู่ — ต้อง disarm ก่อนเริ่ม mission ใหม่"}))
+            if reset_running():
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "🧹 กำลังรีเซ็ตสนาม — รอให้เสร็จก่อน"}))
+            ok, detail = start_mission(ids)
+            print(f"[aavc] mission start ids={ids}: {detail}")
+            return self._send(200, json.dumps(
+                {"ok": ok, "ids": ids, "err": None if ok else detail}))
+        if action == "mission/reset":     # SIM-only field reset (--reset-cmd)
+            if LINK.demo:
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "demo mode — ไม่มีสนามให้รีเซ็ต"}))
+            if not RESET_CMD:
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "console ไม่ได้ตั้ง --reset-cmd (ปุ่มนี้มีเฉพาะ SIM)"}))
+            if mission_running():
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "mission กำลังบิน — รีเซ็ตไม่ได้"}))
+            if LINK.snapshot().get("armed"):
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "เครื่อง ARMED อยู่ — รีเซ็ตไม่ได้"}))
+            ok, detail = start_reset()
+            print(f"[aavc] field reset: {detail}")
+            return self._send(200, json.dumps(
+                {"ok": ok, "err": None if ok else detail}))
+        if action.startswith("servo/"):      # AAVC payload servo (DO_SET_SERVO). ADD-only;
+            from urllib.parse import urlparse, parse_qs   # works in demo (state only, no send)
+            q = parse_qs(urlparse(self.path).query)
+            which = [int(x) for x in q.get("which", [])] or None   # ?which=1&which=2 else all
+            if action.startswith("servo/release"):
+                if not selected_pads():       # INTERLOCK: must choose drop pads first
+                    return self._send(200, json.dumps(
+                        {"ok": False, "err": "⚠️ เลือก pad ที่จะ drop ก่อน แล้วค่อยปล่อย servo"}))
+                if mission_running():         # INTERLOCK: the autonomous mission owns
+                    return self._send(200, json.dumps(   # the latches — no manual drops
+                        {"ok": False, "err": "🔒 mission กำลังบิน — ห้ามปล่อย servo มือ"}))
+                LINK.release_servos(which)
+            elif action.startswith("servo/reset"):
+                LINK.reset_servos(which)      # closing the latch is always allowed
+            else:
+                return self._send(404, json.dumps({"error": "unknown servo action"}))
+            return self._send(200, json.dumps({"ok": True}))
         if LINK.demo:
             LINK._dmsg(action)
             return self._send(200, json.dumps({"ok": True, "demo": True}))
@@ -2022,6 +3534,8 @@ class Handler(BaseHTTPRequestHandler):
                 from urllib.parse import urlparse, parse_qs
                 q = parse_qs(urlparse(self.path).query)
                 LINK.set_fltmode_async(int(q["slot"][0]), int(q["value"][0]))
+            elif action == "origin/set":          # AAVC: local NED (0,0) = current position
+                LINK.set_local_origin_async()
             elif action == "geofence/read":
                 LINK.read_geofence_async()
             elif action.startswith("geofence/set"):
@@ -2048,6 +3562,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     global LINK, CM4MGR, AAVC_CAPTURES, AAVC_FIELD
+    global MISSION_CMD, MISSION_LABEL, RESET_CMD, CURRENT_MISSION, REAL_CONSOLE
     ap = argparse.ArgumentParser()
     ap.add_argument("-c", "--config", default="config/real.yaml")
     ap.add_argument("--port", type=int, default=8000)
@@ -2060,13 +3575,83 @@ def main():
                          "point at the touch-and-go mission's captures/ when testing")
     ap.add_argument("--field",
                     help="field yaml: GPS zones + pad IDs (default: bundled aavc_field.yaml)")
+    ap.add_argument("--mission-cmd",
+                    help="command template for the 🚀 บิน-mission button; {ids} is "
+                         "replaced with the saved pad selection. SITL: "
+                         "'<repo>/sitl/run_mission.sh {ids}'. Real bird: ssh into "
+                         "the CM4 (the orchestrator runs there), e.g. "
+                         "\"ssh aavc@cm4 'REAL=1 ~/mission/sitl/run_mission.sh {ids}'\"")
+    ap.add_argument("--mission-label", default="",
+                    help="badge on the 🚀 button, e.g. SIM or REAL — tells the "
+                         "operator which world the configured mission-cmd flies")
+    ap.add_argument("--reset-cmd",
+                    help="SIM-ONLY field-reset template for the 🧹 button "
+                         "(respawn SITL + pads + cargo). Omit on the real bird "
+                         "— the button then stays hidden")
     args = ap.parse_args()
     if args.captures:
         AAVC_CAPTURES = os.path.abspath(os.path.expanduser(args.captures))
     if args.field:
         AAVC_FIELD = os.path.abspath(os.path.expanduser(args.field))
+    if args.mission_cmd:
+        MISSION_CMD = args.mission_cmd
+        # an ssh GO = this console commands a REAL aircraft; pin it there
+        REAL_CONSOLE = "ssh" in args.mission_cmd
+    MISSION_LABEL = args.mission_label
+    if args.reset_cmd:
+        RESET_CMD = args.reset_cmd
+    # in-UI mission switcher: load the registry and mark the entry whose
+    # captures dir matches the CLI config as the active one
+    load_missions()
+    for _n, _m in MISSIONS.items():
+        if _m and os.path.expanduser(_m.get("captures") or "") == AAVC_CAPTURES:
+            CURRENT_MISSION = _n
+            break
+    # Desktop-icon flow (no explicit --captures): ALWAYS apply the FIRST
+    # ready registry template so boot is deterministic and fully wired
+    # (map field + captures + 🚀 all from ONE entry — a captures-only match
+    # left a half-applied state: pinned name, no mission_cmd). The
+    # captures-match above stays as a LABEL for CLI-configured consoles:
+    # launch_stack / launch_gcs_real pass explicit --captures and must keep
+    # their own mission_cmd (the REAL ssh command is never swapped for the
+    # registry's SIM one).
+    def _mission_ready(n):
+        m = MISSIONS.get(n) or {}
+        return bool(m.get("field")) and bool(m.get("mission_cmd"))
+    if not args.captures:
+        # `default: true` in missions.yaml wins; otherwise first ready entry.
+        # Added 2026-08-15: registry ORDER was deciding which field yaml the
+        # console booted with, so an operator on the bench kept getting the
+        # other mission's servo labels/geofence after every restart and had to
+        # re-pick the mission by hand each time.
+        # AAVC_MISSION=<name> beats everything: it lets each operator's own
+        # launcher pin the mission WITHOUT editing this shared registry, so the
+        # two sessions stop flipping one `default:` flag back and forth.
+        _env = os.environ.get("AAVC_MISSION", "").strip()
+        _order = ([_env] if _env in MISSIONS else [])
+        _order += ([n for n, m in MISSIONS.items()
+                    if (m or {}).get("default") and n not in _order]
+                   + [n for n, m in MISSIONS.items()
+                      if not (m or {}).get("default") and n not in _order])
+        if _env and _env not in MISSIONS:
+            print(f"[aavc] AAVC_MISSION='{_env}' ไม่มีใน registry — ข้าม")
+        for _n in _order:
+            if _mission_ready(_n) and apply_mission(_n) is None:
+                _why = ("AAVC_MISSION env" if _n == _env else
+                        "default: true in missions.yaml"
+                        if (MISSIONS.get(_n) or {}).get("default")
+                        else "first ready in registry")
+                print(f"[aavc] boot template: '{_n}' ({_why})")
+                break
+    if MISSIONS:
+        print(f"[aavc] missions registry: {', '.join(MISSIONS)} "
+              f"(active: {CURRENT_MISSION or 'custom CLI config'})")
+    threading.Thread(target=_cm4_probe_loop, daemon=True).start()
     print(f"[aavc] captures={AAVC_CAPTURES}")
     print(f"[aavc] field={AAVC_FIELD}")
+    print(f"[aavc] mission-cmd={MISSION_CMD or '(none — 🚀 button hidden)'}"
+          f"{f' [{MISSION_LABEL}]' if MISSION_LABEL else ''}")
+    print(f"[aavc] reset-cmd={RESET_CMD or '(none — 🧹 button hidden)'}")
 
     if args.demo:
         print("[gcs] DEMO mode — ไม่ต่อ FMU จริง (พรีวิวหน้าตา)")

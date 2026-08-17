@@ -10,6 +10,7 @@ venv-pi/
 logs/
 results/
 captures/
+blackbox/
 *.ulg
 *.csv
 *.log

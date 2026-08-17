@@ -50,11 +50,25 @@ fi
 
 # ---- server รันอยู่แล้วบน :8010? ----
 if curl -s -m 2 -o /dev/null "$URL/api/status" 2>/dev/null; then
-    if [ "$HAVE_DEV" = "1" ] && server_is_demo; then
-        log "demo อยู่ + เพิ่งเลือกลิงก์จริง -> รีสตาร์ต $MODE"
-        pkill -f "aavc_gcs.py .*--port $PORT" 2>/dev/null; sleep 1.5
-    else
-        log "server รันอยู่แล้ว -> เปิดเบราว์เซอร์เฉย ๆ"; open_browser; exit 0
+    # server ที่รันอยู่ "แก่กว่าโค้ด" = หน้าเว็บค้างเวอร์ชันเก่า (เจอจริง
+    # 2026-08-13: console ค้างข้ามวันเสิร์ฟ UI เก่าทั้งที่ไฟล์ใหม่แล้ว) —
+    # เทียบเวลา start ของ process กับ mtime ของ src แล้วรีสตาร์ทให้เอง
+    GPID=$(pgrep -f "aavc_gcs.py .*--port $PORT" | head -1)
+    if [ -n "${GPID:-}" ] && [ -d "/proc/$GPID" ]; then
+        PROC_START=$(stat -c %Y "/proc/$GPID" 2>/dev/null || echo 0)
+        SRC_MTIME=$(stat -c %Y "src/aavc_gcs.py" 2>/dev/null || echo 0)
+        if [ "$SRC_MTIME" -gt "$PROC_START" ]; then
+            log "โค้ดใหม่กว่า server ที่รันอยู่ -> รีสตาร์ตให้เป็นเวอร์ชันล่าสุด"
+            kill "$GPID" 2>/dev/null; sleep 1.5
+        fi
+    fi
+    if curl -s -m 2 -o /dev/null "$URL/api/status" 2>/dev/null; then
+        if [ "$HAVE_DEV" = "1" ] && server_is_demo; then
+            log "demo อยู่ + เพิ่งเลือกลิงก์จริง -> รีสตาร์ต $MODE"
+            pkill -f "aavc_gcs.py .*--port $PORT" 2>/dev/null; sleep 1.5
+        else
+            log "server รันอยู่แล้ว (เวอร์ชันล่าสุด) -> เปิดเบราว์เซอร์เฉย ๆ"; open_browser; exit 0
+        fi
     fi
 fi
 

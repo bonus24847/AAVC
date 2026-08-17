@@ -1,0 +1,39 @@
+# AAVC GCS — mission registry (2026-08-13): ตัวสลับ mission บนหน้า console
+# (dropdown ในการ์ด Mission) แต่ละ entry เปลี่ยน แผนที่สนาม (field) +
+# โฟลเดอร์ผล (captures) + คำสั่งปุ่ม 🚀 (mission_cmd, {ids} = pad ที่เลือก)
+# entry ที่ field/mission_cmd ยังว่าง = ขึ้นในรายการแบบกดไม่ได้ (รอ contract)
+#
+# บล็อก `real:` = ข้อมูลฝั่งเครื่องจริง ใช้โดยไอคอน "AAVC GCS เครื่องจริง"
+# (cm4/launch_gcs_real_gui.sh): repo บนโน้ตบุ๊กที่จะ deploy, ชื่อโฟลเดอร์บน
+# CM4, และคำสั่งที่ปุ่ม 🚀 จะ ssh ไปเรียก — ผู้ใช้ไม่ต้องพิมพ์อะไรเอง
+missions:
+  kmutnb:
+    label: "KMUTNB สนามซ้อม (เพดาน 5 m)"
+    field: "/home/bonus-linux/Desktop/mission AAVC in kmutnb/gcs/kmutnb_field.yaml"
+    captures: "/home/bonus-linux/Desktop/mission AAVC in kmutnb/captures"
+    mission_cmd: "'/home/bonus-linux/Desktop/mission AAVC in kmutnb/sitl/run_mission.sh' {ids}"
+    mission_label: ""   # operator 2026-08-14: ปุ่มเดียวใช้ทุกโลก ไม่ติดป้าย SIM
+    reset_cmd: "env KEEP_CONSOLE=1 GUI=1 bash '/home/bonus-linux/Desktop/mission AAVC in kmutnb/sitl/launch_stack.sh'"
+    real:
+      repo: "/home/bonus-linux/Desktop/mission AAVC in kmutnb"
+      dir: "mission"
+      entry: "REAL=1 ~/mission/sitl/run_mission.sh {ids}"
+  aavc:
+    label: "AAVC สนามแข่ง (mission_AAVC, เพดาน 20 m)"
+    # ธง `default: true` ถูกถอดออก 2026-08-15 (คำสั่งผู้ใช้: "อยากให้ default
+    # เป็นไม่มี") — console กลับไปบูตตามลำดับใน registry คือ entry แรกที่พร้อม
+    # (= kmutnb) ผู้ใช้กดสลับเป็น aavc เองเมื่อต้องการ. กลไก `default:` ยังอยู่
+    # ในโค้ด ใส่กลับที่ entry ไหนก็ได้ถ้าเปลี่ยนใจ
+    # contract delivered + SITL-validated by the mission_AAVC session
+    # 2026-08-13 (4/4 in 541 s; double-run exits 4; RC_GO=1 supported)
+    field: "/home/bonus-linux/Desktop/aavc-gcs/aavc_field.yaml"
+    captures: "/home/bonus-linux/Desktop/mission_AAVC/captures"
+    mission_cmd: "bash /home/bonus-linux/Desktop/mission_AAVC/scripts/run_mission.sh --ids {ids}"
+    mission_label: ""
+    real:
+      repo: "/home/bonus-linux/Desktop/mission_AAVC"
+      dir: "mission_AAVC"        # โฟลเดอร์ปลายทางบน CM4 (~/mission_AAVC)
+      # ตัวรันบนเครื่องจริง: ไม่ส่ง --sim (sim_params ที่ปิด failsafe จะไม่ถูก
+      # push) + ใช้ overlay config.hw.yaml + ไม่รัน servo bridge ของซิม.
+      # RC_GO=1 = สคริปต์แค่ stage ไว้ นักบิน RC เป็นคน arm + สลับ OFFBOARD เอง
+      entry: "RC_GO=1 ~/mission_AAVC/scripts/run_mission_hw.sh --ids {ids}"
