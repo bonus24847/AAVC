@@ -113,12 +113,19 @@ ground_operation:
 # /tmp/aavc_targets.json — used ONLY for the post-flight --truth-json audit and
 # tools/verify_flight.py, NEVER for planning.
 search:
-  sweep_alt_m: 4.0         # 400 mm marker ≈ 85 px @ 1280 px/74.2° from 4 m —
-                           # decodes trivially (no booster regime); swath 6.0 m;
-                           # legal band is [search_floor_m 2.5, ceiling 5]
-  overlap_frac: 0.4        # spacing = swath*(1-overlap) ≈ 5.7 m -> ~7 legs over
-                           # the 40 m cross-span; pad is a huge high-contrast
-                           # blob (~160 px) at 4 m
+  sweep_alt_m: 4.5         # RAISED 4.0 -> 4.5 on 2026-08-18: the MEASURED 74.2°
+                           # lens shrank the swath ~0.66x, and the 4.0 m sweep
+                           # (26 legs, ~380 s) drained the 7500 pack to 37%
+                           # before the first egg — the delivery gate then
+                           # correctly refused all four (SITL, audit t=557).
+                           # At 4.5 m: marker ≈ 75 px (decode-trivial), swath
+                           # 6.8 m, and 0.5 m stays under the 5 m ceiling for
+                           # the per-arm altitude wander. Legal band
+                           # [search_floor_m 2.5, ceiling 5].
+  overlap_frac: 0.3        # spacing = swath*(1-overlap) ≈ 4.8 m -> ~20 legs
+                           # (was 0.4/26 legs). Along-track footprint at 4.5 m
+                           # grows to ~3.8 m, so votes-per-pass IMPROVE even
+                           # with the thinner cross-track overlap.
   margin_m: 5.0            # search-area inset (pads sit >=4 m inside; GPS is coarse)
                            # RAISED 4.0 -> 5.0 on 2026-08-16, executing the
                            # trigger the 2026-08-12 peer note wrote down: at 4.0
