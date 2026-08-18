@@ -112,6 +112,19 @@ Address = ${GCS_HOST:-127.0.0.1}
 Port = 14550
 EOF
 fi
+# The same "left over from a bench session" problem the camera grabber has
+# below, with a worse ending (2026-08-18): a router still holding $SERIAL means
+# OURS cannot open the UART, and keep_alive then restarts a process that fails
+# forever. There is no error the operator sees on the GCS — just a console that
+# never gets telemetry. cleanup() only pkills on EXIT, too late for the run
+# starting now, so clear the field first. Same for a stale beacon, which would
+# otherwise double every STATUSTEXT on the radio.
+if pgrep -f 'mavlink-route[r]d' >/dev/null 2>&1; then
+    echo "[flight] a mavlink-router is already running — stopping it so this run owns $SERIAL"
+    pkill -9 -f 'mavlink-route[r]d' 2>/dev/null
+    sleep 1
+fi
+pkill -9 -f 'status_beacon.p[y]' 2>/dev/null
 echo "[flight] mavlink-router: $SERIAL@$BAUD -> :14540 (orchestrator) + :14550 (QGC @ ${GCS_HOST:-127.0.0.1})"
 keep_alive "mavlink-router" "$ROUTERD" -c "$ROUTER_CONF"
 
