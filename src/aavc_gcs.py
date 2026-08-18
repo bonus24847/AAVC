@@ -834,6 +834,16 @@ class Link:
                 except ValueError:
                     continue
             return
+        m = re.match(r"AAVC stale=(\d+)", txt)
+        if m:
+            # The beacon re-reads and re-sends the same status file every 5 s
+            # forever, so "when this line arrived" says nothing about how old
+            # the mission data inside it is. This line carries the real age and
+            # only appears once the data stops being current; without it a
+            # finished flight kept arriving fresh and a console opened later
+            # showed it at 100 % as though it were live (2026-08-18).
+            self.s["radio_stale"] = {"t": now, "age": int(m.group(1))}
+            return
         m = re.match(r"AAVC prg=(\d+) eta=(\d+) tp=([01]{3}) cur=(\d+|-)", txt)
         if m:
             # progress %, ETA, transit points passed, pad being served —
@@ -1838,11 +1848,20 @@ class Link:
             rw = self.s.get("radio_why")
             why = (WHY_TH.get(rw["code"], rw["code"])
                    if rw and time.time() - rw["t"] <= 15 else None)
+            # Age the mission by the DATA, not by the packet. The beacon resends
+            # the same file every 5 s, so packet age is always ~0 even for a
+            # flight that ended half an hour ago; "AAVC stale=" carries the real
+            # age and only shows up once the writer has stopped. Adding the time
+            # since that line arrived keeps the number honest between beacons.
+            rs = self.s.get("radio_stale")
+            data_age = (rs["age"] + (time.time() - rs["t"])
+                        if rs and time.time() - rs["t"] <= 20 else 0.0)
             mission = {"phase": rm["phase"], "delivered": rm["ok"],
                        "assigned": asg if len(asg) == rm["assigned_n"] else [],
                        "pads_mapped": live_pads, "mapped_n": rm["mapped_n"],
                        "home_reason": why,
-                       "age_s": round(time.time() - rm["t"], 1), "src": "radio"}
+                       "age_s": round(time.time() - rm["t"] + data_age, 1),
+                       "src": "radio"}
             # …and the awareness pack, rebuilt from the "AAVC prg=" line. The
             # %-bar and the milestone strip both refuse to draw unless
             # mission.progress is a number, so omitting these does not degrade
