@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -78,7 +79,16 @@ def compose_lines(status: dict | None, frame_age_s: float | None) -> list[tuple[
     lines: list[tuple[int, str]] = []
 
     if status:
-        phase = str(status.get("phase") or "?")[:9]
+        # 17, not 9 (2026-08-18). The console does not merely PRINT the phase —
+        # it keys behaviour off the text: the 🚀 button shows "staged" (the
+        # aircraft has confirmed the mission) only when the phase CONTAINS
+        # "preflight", and the longest phase the orchestrator writes is
+        # "recon (preflight)" at 17. Truncated to 9 it arrived as "recon (pr",
+        # the match failed, and the radio path jumped straight to "flying" — a
+        # button lying about whether the mission ever reached the drone. The
+        # widest line this makes is 45 chars, still inside one packet, which a
+        # test pins.
+        phase = str(status.get("phase") or "?")[:17]
         assigned = list(status.get("assigned") or [])
         delivered = list(status.get("delivered") or [])
         seen = len(status.get("pads_mapped") or {})
@@ -107,6 +117,28 @@ def compose_lines(status: dict | None, frame_age_s: float | None) -> list[tuple[
             line += " " + ent
         if line != "AAVC pads":
             lines.append((_SEV_INFO, line))
+        # Progress bar + milestone strip over the radio (operator 2026-08-18:
+        # "ที่เราคุยกันว่าข้อมูลทั้งหมดบนวิทยุ มันหายไปไหน"). `progress` is not
+        # one readout among many — it is the SWITCH the console tests to decide
+        # whether to draw the awareness pack at all, so without it the whole
+        # %-bar + milestone strip collapses back to the old three-step stepper.
+        # It costs one 34-char line to carry, so it rides the radio like the
+        # rest. The two derived fields exist because the console reads them out
+        # of Thai strings that STATUSTEXT (ascii-only) cannot carry:
+        #   tp=110  which transit points have been passed — the P1·P2·P3 chip
+        #           reads this out of the event feed's "ผ่านจุด Pn" lines
+        #   cur=3   the pad being served right now — the console finds it by
+        #           searching progress_label for "pad N "
+        # The console rebuilds both back into the shapes its widgets expect.
+        prg = status.get("progress")
+        if isinstance(prg, (int, float)):
+            texts = " ".join(str(e.get("text", "")) for e in (status.get("events") or []))
+            tp = "".join("1" if f"ผ่านจุด P{n}" in texts else "0" for n in (1, 2, 3))
+            cur = re.search(r"pad (\d+)", str(status.get("progress_label") or ""))
+            eta = status.get("eta_s")
+            lines.append((_SEV_INFO,
+                          f"AAVC prg={int(prg)} eta={int(eta) if eta else 0} "
+                          f"tp={tp} cur={cur.group(1) if cur else '-'}"[:_MAX_TEXT]))
     else:
         lines.append((_SEV_INFO, "AAVC p=idle (no mission yet)"))
 

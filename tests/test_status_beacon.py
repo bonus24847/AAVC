@@ -30,8 +30,9 @@ def _texts(lines):
 def test_every_line_fits_one_statustext_packet() -> None:
     """50 chars is the STATUSTEXT payload; past it MAVLink v2 chunks the string
     into several packets, which is exactly the cost this beacon exists to
-    avoid. Worst case: long phase name, 4 delivered ids, stale camera."""
-    status = {"phase": "TRANSIT_EGRESS", "assigned": [1, 2, 3, 4],
+    avoid. Worst case: the LONGEST phase the orchestrator writes
+    ("recon (preflight)", 17), 4 delivered ids, stale camera."""
+    status = {"phase": "recon (preflight)", "assigned": [1, 2, 3, 4],
               "delivered": [1, 2, 3, 4], "pads_mapped": {"1": [0, 0], "2": [0, 0]}}
     for _, text in beacon.compose_lines(status, 123.4):
         assert len(text) <= 50, f"{len(text)} chars: {text}"
@@ -122,3 +123,61 @@ def test_no_reason_means_no_why_line() -> None:
               "pads_mapped": {}}
     assert not [t for _, t in beacon.compose_lines(status, 0.5)
                 if t.startswith("AAVC why=")]
+
+
+def test_progress_line_carries_what_the_awareness_pack_switches_on() -> None:
+    """``progress`` is not one readout among many: the console's %-bar AND its
+    milestone strip both test ``typeof mission.progress === 'number'`` before
+    drawing anything, so a feed without it silently loses the whole awareness
+    pack rather than degrading. The two derived fields ride along because the
+    console reads them out of Thai strings an ASCII STATUSTEXT cannot carry —
+    ``tp`` replaces searching the event feed for "ผ่านจุด Pn", ``cur`` replaces
+    searching progress_label for "pad N "."""
+    status = {"phase": "localize", "assigned": [1, 3, 4, 6], "delivered": [1, 3],
+              "pads_mapped": {}, "progress": 73, "eta_s": 210,
+              "progress_label": "ส่งของ pad 4 (3/4)",
+              "events": [{"text": "✅ ผ่านจุด P1"}, {"text": "✅ ผ่านจุด P2"}]}
+    line = next(t for t in _texts(beacon.compose_lines(status, 0.3))
+                if t.startswith("AAVC prg="))
+    assert "prg=73" in line
+    assert "eta=210" in line
+    assert "tp=110" in line          # P1, P2 passed; P3 not yet
+    assert "cur=4" in line           # the pad being served RIGHT NOW
+
+
+def test_progress_line_is_omitted_when_the_writer_has_no_progress_field() -> None:
+    """The sibling repo's writer does not emit progress. Sending ``prg=0`` for
+    it would park the console's bar at zero for a whole flight, which reads as
+    "stuck" rather than "not reported"; the console already falls back to the
+    plain stepper when the field is absent."""
+    status = {"phase": "search", "assigned": [1], "delivered": [], "pads_mapped": {}}
+    assert not [t for t in _texts(beacon.compose_lines(status, 0.3))
+                if t.startswith("AAVC prg=")]
+
+
+def test_progress_line_fits_the_packet_at_its_longest() -> None:
+    status = {"phase": "transit_ingress", "assigned": [1, 3, 4, 6],
+              "delivered": [1, 3, 4, 6], "pads_mapped": {}, "progress": 100,
+              "eta_s": 1200, "progress_label": "ส่งของ pad 6 (4/4)",
+              "events": [{"text": "✅ ผ่านจุด P%d" % n} for n in (1, 2, 3)]}
+    line = next(t for t in _texts(beacon.compose_lines(status, 0.3))
+                if t.startswith("AAVC prg="))
+    assert len(line) <= 50 and line.isascii(), f"{len(line)}: {line}"
+
+
+def test_phase_survives_intact_because_the_console_keys_off_its_text() -> None:
+    """The console does not just print the phase. The 🚀 button reports
+    "staged" — the aircraft has CONFIRMED it holds the mission — only when the
+    phase contains "preflight". Truncated to 9 chars that arrived as
+    "recon (pr", the match failed, and the radio path jumped straight to
+    "flying": a button claiming the mission reached the drone with nothing
+    behind the claim. Phases travel whole."""
+    status = {"phase": "recon (preflight)", "assigned": [], "delivered": [],
+              "pads_mapped": {}}
+    line = _texts(beacon.compose_lines(status, 0.3))[0]
+    assert "p=recon (preflight)" in line
+    assert "preflight" in line          # what the button actually searches for
+
+    egress = {"phase": "transit_egress", "assigned": [1], "delivered": [1],
+              "pads_mapped": {}}
+    assert "p=transit_egress" in _texts(beacon.compose_lines(egress, 0.3))[0]
