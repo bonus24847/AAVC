@@ -1765,20 +1765,27 @@ class Link:
         lid = snap.get("lidar") or {}
         snap["lidar_age"] = (round(time.time() - lid["t"], 1)
                              if lid.get("t") else None)
-        try:                                             # nadir camera feed age
-            snap["cam_age"] = round(
-                time.time() - os.path.getmtime("/tmp/aavc_nadir.png"), 1)
-        except OSError:
-            snap["cam_age"] = None
-        # Camera health over the RADIO (status_beacon): measured ON the CM4,
-        # next to the camera — trusted over the local-file age whenever fresh,
-        # because the file here only mirrors reality when WiFi sync is up.
-        rc = self.s.get("radio_cam")
-        snap["cam_radio"] = ({"state": rc["state"], "age": rc.get("age")}
-                             if rc and time.time() - rc["t"] <= 15 else None)
         # which pipe carries the telemetry this console is showing — drives
         # the "วิทยุ" chip in the sensor strip (a serial --url = the NOMAD)
         snap["link_kind"] = "radio" if str(self.url).startswith("/dev/") else "udp"
+        # nadir camera feed age. In SITL the gz bridge writes this file HERE, so
+        # its age IS the camera's health. On the real aircraft the file is written
+        # on the CM4, and now that the WiFi puller is gone (2026-08-18, radio-pure
+        # console) whatever sits at this path is a leftover from the last
+        # simulator run — hours old, and about a different camera entirely.
+        # Reporting its age paints the chip red with a number that LOOKS measured,
+        # which is worse than admitting there is no local reading: radio mode
+        # answers None, so the chip falls to a grey "n/a" unless the beacon spoke.
+        try:
+            snap["cam_age"] = (None if snap["link_kind"] == "radio" else round(
+                time.time() - os.path.getmtime("/tmp/aavc_nadir.png"), 1))
+        except OSError:
+            snap["cam_age"] = None
+        # Camera health over the RADIO (status_beacon): measured ON the CM4,
+        # right next to the camera — the ONLY camera reading a real flight gets.
+        rc = self.s.get("radio_cam")
+        snap["cam_radio"] = ({"state": rc["state"], "age": rc.get("age")}
+                             if rc and time.time() - rc["t"] <= 15 else None)
         snap["zones"] = load_zones()
         origin = self._aavc_origin(snap)
         mission = read_mission_status()
