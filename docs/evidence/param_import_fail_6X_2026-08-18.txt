@@ -1,0 +1,133 @@
+HW arch: PX4_FMU_V6X
+HW type: V6X
+HW FMUM ID: 0x008
+HW BASE ID: 0x000
+PX4 git-hash: 1dacb4cdef2d7145754fc788fa8dc482eed74b40
+PX4 version: Release 1.14.3 (17695743)
+OS: NuttX
+OS version: Release 11.0.0 (184549631)
+OS git-hash: de41e7feaeffaec3ce65327e9569e8fdb553ca3d
+Build datetime: May 30 2024 03:33:40
+Build uri: localhost
+Build variant: default
+Toolchain: GNU GCC, 9.3.1 20200408 (release)
+PX4GUID: 00060000000039323834303351180034003a
+MCU: STM32H7[4|5]xxx, rev. V
+INFO  [param] selected parameter default file /fs/mtd_params
+INFO  [param] importing from '/fs/mtd_params'
+ERROR [parameters] BSON document size (0) doesn't match bytes decoded (5)
+ERROR [parameters] BSON document size (0) doesn't match bytes decoded (5)
+ERROR [parameters] BSON document size (0) doesn't match bytes decoded (5)
+ERROR [param] importing from '/fs/mtd_params' failed (-1)
+ERROR [init] param import failed
+[bsondump] reading from /fs/mtd_params
+BSON document size 0
+BSON_EOO
+BSON decoded 5 bytes (double:0, string:0, bin:0, bool:0, int32:0, int64:0)
+INFO  [parameters] summary: 0/1766 (used/total)
+INFO  [parameters] file: /fs/mtd_params
+INFO  [parameters] auto save: on
+param: export: 0 events, 0us elapsed, 0.00us avg, min 0us max 0us 0.000us rms
+param: find: 0 events
+param: get: 0 events
+param: set: 0 events, 0us elapsed, 0.00us avg, min 0us max 0us 0.000us rms
+dmesg [87:100]
+HW arch: PX4_FMU_V6X
+HW type: V6X
+HW FMUM ID: 0x008
+HW BASE ID: 0x004
+PX4 git-hash: 99c40407ffd7ac184e2d7b4b293f36f10fe561ef
+PX4 version: Release 1.15.4 (17761535)
+OS: NuttX
+OS version: Release 11.0.0 (184549631)
+OS git-hash: 5d74bc138955e6f010a38e0f87f34e9a9019aecc
+Build datetime: Mar 20 2025 23:04:15
+Build uri: localhost
+Build variant: default
+Toolchain: GNU GCC, 9.3.1 20200408 (release)
+PX4GUID: 00060000000039323834303351180034003a
+MCU: STM32H7[4|5]xxx, rev. V
+INFO  [param] selected parameter default file /fs/mtd_params
+INFO  [param] importing from '/fs/mtd_params'
+ERROR [parameters] BSON document size (409936) doesn't match bytes decoded (5)
+ERROR [parameters] BSON document size (409936) doesn't match bytes decoded (5)
+ERROR [parameters] BSON document size (409936) doesn't match bytes decoded (5)
+ERROR [param] importing from '/fs/mtd_params' failed (-1)
+ERROR [init] param import failed
+[bsondump] reading from /fs/mtd_params
+BSON document size 409936
+BSON_EOO
+BSON decoded 5 bytes (double:0, string:0, bin:0, bool:0, int32:0, int64:0)
+[init] importing from parameter backup
+[bsondump] reading from /fs/microsd/parameters_backup.bson
+BSON document size 1197
+BSON_INT32:  CAL_ACC0_ID = 3407898
+BSON_INT32:  CAL_ACC0_PRIO = 50
+BSON_DOUBLE: CAL_ACC0_XOFF = -0.032565
+BSON_DOUBLE: CAL_ACC0_YOFF = 0.034976
+BSON_DOUBLE: CAL_ACC0_ZOFF = -0.083414
+BSON_INT32:  CAL_ACC1_ID = 3407890
+BSON_INT32:  CAL_ACC1_PRIO = 50
+BSON_DOUBLE: CAL_ACC1_XOFF = -0.035646
+BSON_DOUBLE: CAL_ACC1_YOFF = 0.041707
+BSON_DOUBLE: CAL_ACC1_ZOFF = -0.050160
+BSON_INT32:  CAL_ACC2_ID = 3407882
+BSON_INT32:  CAL_ACC2_PRIO = 50
+BSON_DOUBLE: CAL_ACC2_XOFF = 0.018086
+BSON_DOUBLE: CAL_ACC2_YOFF = -0.007382
+BSON_DOUBLE: CAL_ACC2_ZOFF = 0.026225
+BSON_INT32:  CAL_GYRO0_ID = 3407898
+BSON_INT32:  CAL_GYRO0_PRIO = 50
+BSON_DOUBLE: CAL_GYRO0_XOFF = 0.004944
+BSON_DOUBLE: CAL_GYRO0_YOFF = 0.001814
+BSON_DOUBLE: CAL_GYRO0_ZOFF = 0.000690
+BSON_INT32:  CAL_GYRO1_ID = 3407890
+BSON_INT32:  CAL_GYRO1_PRIO = 50
+BSON_DOUBLE: CAL_GYRO1_XOFF = 0.006186
+BSON_DOUBLE: CAL_GYRO1_YOFF = 0.000964
+BSON_DOUBLE: CAL_GYRO1_ZOFF = -0.002081
+BSON_INT32:  CAL_GYRO2_ID = 3407882
+BSON_INT32:  CAL_GYRO2_PRIO = 50
+BSON_DOUBLE: CAL_GYRO2_XOFF = 0.002847
+BSON_DOUBLE: CAL_GYRO2_YOFF = 0.001124
+BSON_DOUBLE: CAL_GYRO2_ZOFF = 0.005126
+BSON_INT32:  CAL_MAG0_ID = 396809
+BSON_INT32:  CAL_MAG0_PRIO = 75
+BSON_INT32:  CAL_MAG0_ROT = 4
+BSON_DOUBLE: CAL_MAG0_XODIAG = 0.015680
+BSON_DOUBLE: CAL_MAG0_XOFF = 0.068859
+BSON_DOUBLE: CAL_MAG0_XSCALE = 0.997814
+BSON_DOUBLE: CAL_MAG0_YODIAG = -0.052495
+BSON_DOUBLE: CAL_MAG0_YOFF = 0.080596
+BSON_DOUBLE: CAL_MAG0_YSCALE = 0.987451
+BSON_DOUBLE: CAL_MAG0_ZODIAG = -0.056633
+BSON_DOUBLE: CAL_MAG0_ZOFF = -0.117736
+BSON_DOUBLE: CAL_MAG0_ZSCALE = 1.020751
+BSON_INT32:  CAL_MAG1_ID = 4395041
+BSON_INT32:  CAL_MAG1_PRIO = 50
+BSON_DOUBLE: CAL_MAG1_XOFF = 0.127385
+BSON_DOUBLE: CAL_MAG1_XSCALE = 0.996838
+BSON_DOUBLE: CAL_MAG1_YOFF = 0.019126
+BSON_DOUBLE: CAL_MAG1_YSCALE = 0.989549
+BSON_DOUBLE: CAL_MAG1_ZOFF = -0.009896
+BSON_DOUBLE: CAL_MAG1_ZSCALE = 1.011974
+BSON_DOUBLE: EKF2_MAG_DECL = -3.334283
+BSON_DOUBLE: SENS_BOARD_X_OFF = -3.433617
+BSON_DOUBLE: SENS_BOARD_Y_OFF = -1.025045
+BSON_INT32:  SYS_AUTOSTART = 4001
+BSON_EOO
+BSON decoded 1197 bytes (double:36, string:0, bin:0, bool:0, int32:18, int64:0)
+INFO  [param] importing from '/fs/microsd/parameters_backup.bson'
+INFO  [parameters] BSON document size 1197 bytes, decoded 1197 bytes (INT32:18, FLOAT:36)
+INFO  [parameters] summary: 0/1889 (used/total)
+INFO  [parameters] file: /fs/mtd_params
+INFO  [parameters] storage array: 54/1889 elements (448 bytes total)
+INFO  [parameters] storage array (custom defaults): 0/1889 elements (256 bytes total)
+INFO  [parameters] auto save: on
+param: export: 0 events, 0us elapsed, 0.00us avg, min 0us max 0us 0.000us rms
+param: find: 54 events
+param: get: 0 events
+param: set: 54 events, 474us elapsed, 8.78us avg, min 5us max 16us 2.765us rms
+dmesg [28:100]
+INFO  [param] selected parameter backup file /fs/microsd/parameters_backup.bson
+Board architecture defaults: /etc/init.d/rc.board_arch_defaults
