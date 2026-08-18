@@ -213,6 +213,50 @@ async def _wait_for_gps(state: OrchestratorState, timeout_s: float = 30.0) -> bo
     return False
 
 
+async def emergency_recover(state: OrchestratorState, commander: Any) -> None:
+    """What to do when the mission loop dies with the aircraft possibly airborne.
+
+    Normally: an orderly RTH, LAND as a last resort, commanded while the safety
+    watchdog is still up — killing the process and leaving the aircraft flying
+    is the one outcome worse than a failed mission.
+
+    **Except after a pilot takeover, where the answer is to do nothing.** Seen
+    live on the bench 2026-08-18 (props off, first real OFFBOARD test):
+    ``safety.py`` logged "PILOT TAKEOVER (POSCTL) — orchestrator standing down,
+    no further commands" at 16:40:16, and at 16:40:53 this path sent an RTL
+    anyway — the loop had been sitting inside the 60 s takeoff-altitude wait and
+    only surfaced afterwards. With no props it changed nothing. In the air it is
+    the companion pulling the aircraft into AUTO.RTL out from under a pilot who
+    took manual control precisely to stop it doing something, leaving them to
+    fight the mode switch back. A stand-down that still issues commands is not a
+    stand-down.
+
+    So on takeover: no command, and PILOT_TAKEOVER stays the terminal state
+    rather than being overwritten with FAILED — the aircraft is the pilot's, and
+    the RC plus the FC's own failsafes are the net.
+    """
+    if state.terminal is TerminalState.PILOT_TAKEOVER:
+        logger.warning("[main] mission loop ended after PILOT TAKEOVER — NOT "
+                       "commanding RTH; the pilot is flying the aircraft")
+        state.record_audit(
+            f"t={state.time_elapsed_s():.1f}s PILOT TAKEOVER — emergency RTH "
+            "suppressed, aircraft left to the pilot")
+        return
+
+    logger.error("[main] mission loop crashed — commanding emergency RTH")
+    state.record_anomaly("mission_loop_exception")
+    state.set_terminal(TerminalState.FAILED, MissionPhase.RTH)
+    try:
+        await commander.rth()
+    except Exception:
+        logger.exception("[main] emergency RTH failed — last-resort LAND")
+        try:
+            await commander.land()
+        except Exception:
+            logger.exception(
+                "[main] LAND failed too — FC failsafes are the only net left")
+
+
 def _evaluate_energy(state: OrchestratorState, energy_policy: EnergyPolicy) -> None:
     """Refresh the energy-budget hint the pre-flight card and the GO gate read.
 
@@ -924,23 +968,8 @@ async def run(args: argparse.Namespace) -> int:
                 refresh_energy=lambda: _evaluate_energy(state, energy_policy),
             )
         except Exception:
-            # An unhandled error mid-mission must NOT just kill the process and
-            # leave the aircraft airborne with the safety watchdog cancelled.
-            # Command an orderly RTH (LAND as a last resort) while the watchdog
-            # is still up, then fall through to the cleanup below.
-            logger.exception("[main] mission loop crashed — commanding emergency RTH")
-            state.record_anomaly("mission_loop_exception")
-            state.set_terminal(TerminalState.FAILED, MissionPhase.RTH)
-            try:
-                await commander.rth()
-            except Exception:
-                logger.exception("[main] emergency RTH failed — last-resort LAND")
-                try:
-                    await commander.land()
-                except Exception:
-                    logger.exception(
-                        "[main] LAND failed too — FC failsafes are the only net left"
-                    )
+            logger.exception("[main] mission loop raised")
+            await emergency_recover(state, commander)
         finally:
             gcs_poll.cancel()
             # Tear down supervision + telemetry on EVERY path (success or the
