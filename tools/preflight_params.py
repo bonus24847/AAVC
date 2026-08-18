@@ -74,6 +74,16 @@ PINNED: dict[str, float] = {
     "MAV_1_FORWARD": 1,               # CM4 -> radio STATUSTEXT
 }
 
+# Params where reading the value back proves the board STORED it and nothing
+# more — the module or estimator using it latched its copy at boot, so a value
+# pushed since then reads correct while the old one is still in force. This
+# tool exists to not mislead, and an unqualified ✔ next to one of these is
+# exactly the kind of reassurance the GF_ACTION incident was made of (readback
+# passed for months while the stored number meant "Hold", not "Return").
+# ``MAV_1_FORWARD`` is reboot_required in PX4's own module.yaml —
+# tools/param_audit.py has treated it that way since it shipped.
+_STORED_NOT_PROVEN = {"MAV_1_FORWARD", "EKF2_HGT_REF"}
+
 
 async def _read(commander: DroneCommander, names: list[str]) -> dict[str, float]:
     """Every param as a float, asking for BOTH storage types.
@@ -105,7 +115,9 @@ def _report(title: str, expected: dict[str, float], got: dict[str, float],
             print(f"  ?  {name:18s} = (ไม่ตอบ)")
             off.append(name)
         elif abs(have - float(want)) <= 1e-6 * max(1.0, abs(float(want))):
-            print(f"  ✔  {name:18s} = {have:g}")
+            note = "  (เก็บค่าแล้ว — ต้องรีบูตถึงจะมีผลจริง)" \
+                if name in _STORED_NOT_PROVEN else ""
+            print(f"  ✔  {name:18s} = {have:g}{note}")
         else:
             note = "" if fatal else "  (mission เขียนทับตอนสตาร์ต — ไม่ต้องแก้)"
             print(f"  {'✘' if fatal else '·'}  {name:18s} = {have:g}"
