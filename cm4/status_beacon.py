@@ -67,7 +67,14 @@ def _fmt_ids(ids: list) -> str:
     return out or "-"
 
 
-def compose_lines(status: dict | None, frame_age_s: float | None) -> list[tuple[int, str]]:
+# How old the mission status may be before the beacon says so out loud. The
+# orchestrator writes at ~1 Hz while flying, so anything past this means nobody
+# is writing any more — the mission ended, or its process died.
+_STATUS_STALE_S = 30.0
+
+
+def compose_lines(status: dict | None, frame_age_s: float | None,
+                  status_age_s: float | None = None) -> list[tuple[int, str]]:
     """``[(severity, text)]`` for one beacon tick. Pure — unit-testable without
     a link, a simulator or a camera.
 
@@ -145,6 +152,17 @@ def compose_lines(status: dict | None, frame_age_s: float | None) -> list[tuple[
     # WHY the aircraft came home unfinished — an ascii code the console maps
     # back to operator text (operator 2026-08-18). One short WARN line, only
     # while a reason stands; gcs_status clears it at every FLIGHT START.
+    # How old the STATUS ITSELF is — not how long ago we sent it. The console
+    # dates the mission by when the beacon line arrived, and this beacon re-reads
+    # and re-sends the same file every 5 s forever, so a finished mission kept
+    # arriving "2.6 s fresh" while its contents were 32 minutes old: a console
+    # opened the next morning showed the last flight sitting at 100 % as though
+    # it were happening now (operator 2026-08-18, after a console restart failed
+    # to clear it — restarting cannot help, the staleness is on the wire).
+    # Sent only once the data stops being current, so a live flight pays nothing.
+    if status_age_s is not None and status_age_s > _STATUS_STALE_S:
+        lines.append((_SEV_INFO, f"AAVC stale={int(status_age_s)}"[:_MAX_TEXT]))
+
     why = (status or {}).get("home_reason_code")
     if why:
         lines.append((_SEV_WARN, f"AAVC why={why}"[:_MAX_TEXT]))
@@ -206,7 +224,21 @@ def main() -> int:
               f"every {args.interval_s}s (sysid 1 / comp 191)", flush=True)
 
     while True:
-        lines = compose_lines(_read_status(status_path), _frame_age(args.frame))
+        status = _read_status(status_path)
+        # Prefer the writer's own stamp over the file mtime: the orchestrator
+        # writes atomically via rename, and a status copied between machines
+        # keeps `updated` but not the mtime.
+        age = None
+        if status is not None:
+            stamped = status.get("updated")
+            if isinstance(stamped, (int, float)):
+                age = max(0.0, time.time() - float(stamped))
+            else:
+                try:
+                    age = max(0.0, time.time() - status_path.stat().st_mtime)
+                except OSError:
+                    age = None
+        lines = compose_lines(status, _frame_age(args.frame), age)
         for sev, text in lines:
             if args.dry_run:
                 print(f"[beacon] sev={sev} {text}", flush=True)

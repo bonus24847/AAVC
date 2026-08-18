@@ -181,3 +181,35 @@ def test_phase_survives_intact_because_the_console_keys_off_its_text() -> None:
     egress = {"phase": "transit_egress", "assigned": [1], "delivered": [1],
               "pads_mapped": {}}
     assert "p=transit_egress" in _texts(beacon.compose_lines(egress, 0.3))[0]
+
+
+def test_a_status_nobody_is_writing_any_more_says_so() -> None:
+    """The beacon re-reads and re-sends the SAME file every 5 s forever, so the
+    console — which dates the mission by when the line arrived — saw a flight
+    that ended half an hour ago as 2.6 s fresh and drew it at 100 % on a console
+    opened afterwards (operator 2026-08-18; restarting the console cannot help,
+    the staleness is on the wire). Once the data stops being current the beacon
+    has to say how old it is."""
+    status = {"phase": "done", "assigned": [1, 3], "delivered": [1, 3],
+              "pads_mapped": {}, "progress": 100}
+    line = next((t for t in _texts(beacon.compose_lines(status, 0.3, 1917.0))
+                 if t.startswith("AAVC stale=")), None)
+    assert line == "AAVC stale=1917"
+    assert len(line) <= 50 and line.isascii()
+
+
+def test_a_live_mission_pays_nothing_for_it() -> None:
+    """A flight in progress is written at ~1 Hz, so the line would be noise on a
+    link chosen for costing ~30 B/s — it exists only to mark data that stopped."""
+    status = {"phase": "search", "assigned": [1], "delivered": [],
+              "pads_mapped": {}, "progress": 30}
+    for age in (None, 0.0, 5.0, beacon._STATUS_STALE_S):
+        assert not [t for t in _texts(beacon.compose_lines(status, 0.3, age))
+                    if t.startswith("AAVC stale=")], f"emitted at age={age}"
+
+
+def test_the_threshold_sits_above_the_writer_rate_not_at_it() -> None:
+    """The orchestrator writes about once a second; a threshold near that would
+    flap on any hiccup, and one far above it would leave a dead mission looking
+    live for minutes."""
+    assert 10.0 <= beacon._STATUS_STALE_S <= 60.0
