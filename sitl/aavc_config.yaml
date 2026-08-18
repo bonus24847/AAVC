@@ -352,6 +352,12 @@ connection:
   # cosmetic widgets (documented graceful degradation; the safety watchdog
   # never reads these fields). To get both, add a second MAVLink instance in
   # PX4 (e.g. `mavlink start -u 18571 -o 14551` via pxh) and set 14551 here.
+  # ⚠ …but NOT on the current wiring (2026-08-18). The consumed-mAh counter it
+  # carries is avionics-only since the PM03D went out (measured 0.62 A / 91 mAh
+  # on the bench vs ~35-43 A in flight), and feeding it in flips
+  # energy_consumed_mah() to tier A — a silently optimistic pack budget that
+  # stops refusing flights the battery cannot finish. 0 keeps the honest
+  # voltage-derived tier B. See the same warning in cm4/launch_flight.sh.
   raw_telemetry_port: 0
 
 # Wind model for SITL (Bangkok SW monsoon; a rooftop pitch is fully exposed, and

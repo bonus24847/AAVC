@@ -89,7 +89,16 @@ Address = 127.0.0.1
 Port = 14540
 [UdpEndpoint raw]
 # Dashboard ESC/servo/consumed-mAh listener (orchestrator RawMavlinkSubscriber).
-# Match connection.raw_telemetry_port=14551 in the config for real-CM4 flight.
+# ⚠ DO NOT set connection.raw_telemetry_port=14551 on THIS aircraft (the line
+# here used to tell you to — 2026-08-18). The PM03D is out: the Pixhawk is fed
+# straight off the pack while the motors run from a board it cannot sense, so
+# BATTERY_STATUS.current_consumed counts AVIONICS ONLY — measured 0.62 A / 91 mAh
+# with the pack on the bench, against the ~35-43 A of flight. Feeding that in
+# promotes energy_consumed_mah() from tier B (percent, voltage-derived and
+# correct here) to tier A (coulomb count), and the GO gate then reads
+# "5534 mAh usable left" on a pack that really has 2250 — it would wave through
+# the flight it exists to refuse. Keep the port at 0 until the wiring can
+# actually sense motor current; the dashboard only loses cosmetic widgets.
 Mode = Normal
 Address = 127.0.0.1
 Port = 14551
