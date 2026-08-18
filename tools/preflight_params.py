@@ -1,46 +1,57 @@
+#!/usr/bin/env python3
 """Field-day FC parameter readback — the "before you fly" glance, in one command.
 
-    .venv/bin/python tools/preflight_params.py                 # via a running router
-    .venv/bin/python tools/preflight_params.py --serial /dev/ttyAMA0
+    .venv/bin/python tools/preflight_params.py                      # via the router
+    .venv/bin/python tools/preflight_params.py --connect serial:///dev/ttyAMA0:921600
 
-Two classes of parameter, and conflating them is the whole point of this tool:
+Complements ``tools/param_audit.py``, which sweeps the ``px4_tuning`` block the
+mission pushes. This one asks about the params NOBODY pushes — the ones the
+board must already hold, where being wrong means the aircraft cannot fly at all.
+Two classes, and conflating them is what makes such a check get ignored:
 
-**BOARD** — nothing in the flight stack writes these. What the FC holds now is
-what it will fly with, so a mismatch here is a STOP. This is where the motor map
+**BOARD** — nothing in the flight stack writes these, so what the FC holds now
+is what it will fly with. A mismatch is a STOP. This is where the motor map
 lives: ``PWM_MAIN_FUNC1..6`` read **0** on 2026-08-16 (motors unassigned to
 outputs, aircraft unflyable), cause never found, restored 2026-08-17. Treat it
-as a regression that can recur — that is exactly why this list is read out loud
-before every field day rather than trusted from a doc.
+as a regression that can recur — which is exactly why the list is read out loud
+before every field day rather than trusted from a doc. The egg latches are here
+too: they sat at 402/405/409/410 (RC passthrough) until 2026-08-17, i.e. two
+eggs wired to the roll and yaw sticks.
 
-**PINNED** — ``DroneCommander`` pushes these at every connect and read-back
-verifies the envelope ones (``verify_envelope_pins``). A parked board holds
-bench state, not flight state, so PX4 defaults here are EXPECTED and reported
-as notes, not failures (CLAUDE.md §G5 says the same in prose).
+**PINNED** — ``DroneCommander`` pushes these at every mission start and
+read-back verifies the envelope ones (``verify_envelope_pins``). A parked board
+holds bench state, not flight state, so PX4 defaults here are EXPECTED and
+reported as notes, not failures. Note they are pushed by
+``orchestrator/main.py``, NOT by ``connect()`` — connecting alone leaves them at
+whatever the board had.
 
-int32 params arrive bit-cast into PARAM_VALUE's float field — unpack them or
-every integer reads 0.0, which looks exactly like the wiped motor map this tool
-exists to catch. See the ``px4-param-int-bitcast`` note.
+Reads through MAVSDK, the same stack the mission flies on. An earlier version
+asked over raw pymavlink and, on the CM4's UART link with the GCS console also
+attached, got silence from every request while MAVSDK on the same link answered
+every one — a preflight check that reports "cannot read the motor map" on a
+healthy aircraft is worse than none, because the next person learns to ignore it.
 
 Exit code: 0 all BOARD params correct · 2 a BOARD mismatch (do not fly) ·
-3 no heartbeat.
+3 no link.
 """
 
 from __future__ import annotations
 
 import argparse
-import struct
+import asyncio
 import sys
-import time
+from pathlib import Path
 
-from pymavlink import mavutil
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from mavlink_adapter.commands import ConnectionConfig, DroneCommander  # noqa: E402
 
 # ── what the FC must already hold, because nothing will fix it for us ──
 BOARD: dict[str, float] = {
     # motor map — the 2026-08-16 regression (all six read 0 = unflyable)
     "PWM_MAIN_FUNC1": 101, "PWM_MAIN_FUNC2": 102, "PWM_MAIN_FUNC3": 103,
     "PWM_MAIN_FUNC4": 104, "PWM_MAIN_FUNC5": 105, "PWM_MAIN_FUNC6": 106,
-    # egg latches — these sat at 402/405/409/410 (RC passthrough) until
-    # 2026-08-17, i.e. two eggs wired to the roll and yaw sticks
+    # egg latches — RC passthrough until 2026-08-17
     "PWM_AUX_FUNC1": 301, "PWM_AUX_FUNC2": 302,
     "PWM_AUX_FUNC3": 303, "PWM_AUX_FUNC4": 304,
     "SYS_AUTOSTART": 6001,            # Generic Hexarotor X
@@ -51,7 +62,7 @@ BOARD: dict[str, float] = {
     "SENS_TFMINI_CFG": 103,           # TFmini-S on TELEM3
 }
 
-# ── pushed by DroneCommander at every connect; bench values are fine ──
+# ── pushed by orchestrator/main.py at mission start; bench values are fine ──
 PINNED: dict[str, float] = {
     "RTL_RETURN_ALT": 9.0,
     "GF_MAX_VER_DIST": 20.0,          # the rules' altitude fence
@@ -63,37 +74,25 @@ PINNED: dict[str, float] = {
     "MAV_1_FORWARD": 1,               # CM4 -> radio STATUSTEXT
 }
 
-_INT_TYPES = frozenset({
-    mavutil.mavlink.MAV_PARAM_TYPE_INT8, mavutil.mavlink.MAV_PARAM_TYPE_UINT8,
-    mavutil.mavlink.MAV_PARAM_TYPE_INT16, mavutil.mavlink.MAV_PARAM_TYPE_UINT16,
-    mavutil.mavlink.MAV_PARAM_TYPE_INT32, mavutil.mavlink.MAV_PARAM_TYPE_UINT32,
-})
 
+async def _read(commander: DroneCommander, names: list[str]) -> dict[str, float]:
+    """Every param as a float, asking for BOTH storage types.
 
-def _decode(msg) -> float:
-    """PARAM_VALUE carries int32 params bit-cast into a float field."""
-    if msg.param_type in _INT_TYPES:
-        return float(struct.unpack("<i", struct.pack("<f", msg.param_value))[0])
-    return float(msg.param_value)
-
-
-def read_params(conn, names: list[str], timeout_s: float = 25.0) -> dict[str, float]:
-    """Ask for every name, re-asking the stragglers — a param request is a
-    datagram, and the radio link drops them."""
-    got: dict[str, float] = {}
-    deadline = time.time() + timeout_s
-    last_request = 0.0
-    while time.time() < deadline and len(got) < len(names):
-        if time.time() - last_request > 4:
-            for name in names:
-                if name not in got:
-                    conn.mav.param_request_read_send(
-                        conn.target_system, conn.target_component, name.encode(), -1)
-            last_request = time.time()
-        msg = conn.recv_match(type="PARAM_VALUE", blocking=True, timeout=1)
-        if msg and msg.param_id in names and msg.param_id not in got:
-            got[msg.param_id] = _decode(msg)
-    return got
+    MAVSDK's getters are type-strict: ``get_param_float`` on an INT32 param
+    fails, and vice versa. Asking only one way made this tool report "(ไม่ตอบ)"
+    for the entire motor map — a check crying that the aircraft is unflyable
+    when every value was in fact correct. Which type a param uses is not
+    memorable (``BAT1_CAPACITY`` is float, ``BAT1_N_CELLS`` is int), so ask
+    both and let the board decide."""
+    out: dict[str, float] = {}
+    for name in names:
+        for getter in (commander.get_param_int, commander.get_param_float):
+            try:
+                out[name] = float(await getter(name))
+                break
+            except Exception:  # noqa: BLE001,PERF203 — wrong type OR absent
+                continue
+    return out
 
 
 def _report(title: str, expected: dict[str, float], got: dict[str, float],
@@ -108,36 +107,26 @@ def _report(title: str, expected: dict[str, float], got: dict[str, float],
         elif abs(have - float(want)) <= 1e-6 * max(1.0, abs(float(want))):
             print(f"  ✔  {name:18s} = {have:g}")
         else:
-            note = "" if fatal else "  (commander เขียนทับตอนต่อ — ไม่ต้องแก้)"
+            note = "" if fatal else "  (mission เขียนทับตอนสตาร์ต — ไม่ต้องแก้)"
             print(f"  {'✘' if fatal else '·'}  {name:18s} = {have:g}"
                   f"  <- ควรเป็น {float(want):g}{note}")
             off.append(name)
     return off
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--url", default="udpin:127.0.0.1:14540",
-                    help="MAVLink endpoint (default: the router's offboard port)")
-    ap.add_argument("--serial", help="talk to the FC directly, e.g. /dev/ttyAMA0 "
-                                     "(needs pyserial; the router path does not)")
-    ap.add_argument("--baud", type=int, default=921600)
-    args = ap.parse_args()
-
-    target = args.serial or args.url
-    print(f"[preflight] {target}")
-    conn = (mavutil.mavlink_connection(args.serial, baud=args.baud)
-            if args.serial else mavutil.mavlink_connection(args.url))
-    if not conn.wait_heartbeat(timeout=15):
-        print("NO HEARTBEAT — FC ไม่ตอบ (เสียบแพ็คแล้วหรือยัง / router ขึ้นไหม)")
+async def _run(endpoint: str) -> int:
+    print(f"[preflight] {endpoint}")
+    commander = DroneCommander(ConnectionConfig(system_address=endpoint))
+    try:
+        await commander.connect()
+    except Exception as e:  # noqa: BLE001
+        print(f"เชื่อมต่อไม่ได้ ({type(e).__name__}: {e}) — "
+              "เสียบแพ็คแล้วหรือยัง / mavlink-router ขึ้นไหม")
         return 3
-    print(f"HEARTBEAT ok — sysid={conn.target_system}")
 
-    names = list(BOARD) + list(PINNED)
-    got = read_params(conn, names)
-
+    got = await _read(commander, list(BOARD) + list(PINNED))
     bad = _report("ต้องถูกบนบอร์ดเอง (ไม่มีใครแก้ให้):", BOARD, got, fatal=True)
-    _report("commander เขียนให้ตอนต่อ (ค่าโต๊ะ = ปกติ):", PINNED, got, fatal=False)
+    _report("mission เขียนให้ตอนสตาร์ต (ค่าโต๊ะ = ปกติ):", PINNED, got, fatal=False)
 
     print()
     if bad:
@@ -145,6 +134,15 @@ def main() -> int:
         return 2
     print("✔ พารามิเตอร์ฝั่งบอร์ดครบถูกต้อง — บินได้")
     return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--connect", default="udpin://0.0.0.0:14540",
+                    help="MAVLink endpoint (default: the router's offboard port; "
+                         "serial:///dev/ttyAMA0:921600 talks to the FC directly)")
+    args = ap.parse_args()
+    return asyncio.run(_run(args.connect))
 
 
 if __name__ == "__main__":
