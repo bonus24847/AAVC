@@ -230,10 +230,14 @@ if [ -f "$PIDFILE" ]; then
     sleep 1
 fi
 
-# ── 5. เปิด console + status_sync (background, ไม่ต้องมี terminal) ─────────
+# ── 5. เปิด console (background, ไม่ต้องมี terminal) ──────────────────────
+# status_sync (ตัวดึง captures/ + เฟรมกล้องผ่าน WiFi) ถูกถอดออก 2026-08-18
+# ตามคำสั่ง operator "เอาไหนที่ใช้วิทยุไม่ได้ เอาออกเลย" — คอนโซลตัวจริงอ่านทุกอย่าง
+# จากวิทยุ NOMAD อย่างเดียว (beacon: phase/จำนวน/พิกัด pad/สาเหตุกลับบ้าน/สุขภาพกล้อง)
+# รอบก่อนถอดไปแค่ `launch_gcs_real.sh` แต่ลืมไอคอนนี้ ซึ่งเป็นตัวที่ใช้จริง — ผลคือ
+# ชิปกล้องไปคิดจากอายุไฟล์ที่ WiFi ดึงมา แทนที่จะเป็นสถานะที่วัดข้างกล้องบน CM4
 : > "$LOG"
-nohup bash "$REPO_ROOT/cm4/status_sync.sh" "$HOST" "$M_DIR" >> "$LOG" 2>&1 &
-echo $! > "$PIDFILE"
+: > "$PIDFILE"
 # telemetry เข้าทางไหน: วิทยุ NOMAD ที่เสียบ USB ก่อน แล้วค่อย udp 14550
 # (cm4/pick_telemetry_link.sh — จุดเลือกร่วมกับไอคอนแบบ terminal)
 . "$REPO_ROOT/cm4/pick_telemetry_link.sh"
