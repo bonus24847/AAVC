@@ -72,12 +72,47 @@ fi
 #   * ปิดหน้าต่าง Gazebo = ปิดแค่ตัว viewer (`gz sim -g`) — ตัวคำนวณโลก
 #     (`gz sim -s`) ยังหมุนต่อ พร้อม PX4 + bridge + console ครบทีม
 # ⇒ เครื่องดูเหมือนว่างแต่ยังกิน CPU/พอร์ตอยู่ และไปชนกับเซสชันข้างบ้าน
+# ⚠ ปุ่มนี้ "ปิดของบนโน้ตบุ๊ก" เท่านั้น — จงใจ **ไม่แตะโดรน**: orchestrator ที่ตายกลาง
+# อากาศแปลว่าไม่มีใครสั่งเครื่อง ซึ่งแย่กว่าคอนโซลค้างมาก การหยุดของบน CM4 ต้องเป็น
+# การตัดสินใจแยกต่างหาก (RC ของ safety pilot คือทางแทรกแซงระหว่างบิน)
+#
+# ฆ่าแบบยกระดับ: TERM ก่อน (ให้โอกาสปิด log สวย ๆ) แล้ว KILL ถ้าไม่ยอมตาย —
+# "โปรแกรมค้าง" คือกรณีที่ SIGTERM ไม่กินพอดี (operator 2026-08-18: "ปุ่มที่เชื่อว่า
+# ปิดจริง ๆ")
+kill_pattern() {
+    local pat="$1" i
+    pgrep -f "$pat" >/dev/null 2>&1 || return 0
+    pkill -TERM -f "$pat" 2>/dev/null
+    for i in 1 2 3 4 5 6; do
+        sleep 0.5
+        pgrep -f "$pat" >/dev/null 2>&1 || return 0
+    done
+    pkill -KILL -f "$pat" 2>/dev/null
+    sleep 0.5
+}
+
 stop_everything() {
+    # จด PID ไว้ก็ใช้ แต่ไม่พึ่งมันอย่างเดียว: คอนโซลที่เปิดมาทางอื่น (เปิดมือ,
+    # PIDFILE หาย, เครื่องรีสตาร์ต) เคยรอดจากปุ่มนี้มาแล้ว
     [ -f "$PIDFILE" ] && { while read -r pid; do
-        [ -n "$pid" ] && kill "$pid" 2>/dev/null; done < "$PIDFILE"; rm -f "$PIDFILE"; }
-    pkill -f 'status_sync.s[h]' 2>/dev/null
+        [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null; done < "$PIDFILE"; }
+    kill_pattern 'aavc_gcs[.]py'
+    kill_pattern 'status_sync.s[h]'
+    rm -f "$PIDFILE"
     bash "$REPO_ROOT/sitl/launch_stack.sh" stop 2>&1
 }
+
+# พิสูจน์ ไม่ใช่สันนิษฐาน — คืนรายการสิ่งที่ยังรอดอยู่ (ว่าง = ปิดหมดจริง)
+stop_survivors() {
+    local left=""
+    pgrep -f 'aavc_gcs[.]py' >/dev/null 2>&1 && left+="· หน้าเว็บ console ยังรันอยู่\n"
+    pgrep -f 'status_sync.s[h]' >/dev/null 2>&1 && left+="· status_sync ยังรันอยู่\n"
+    pgrep -f 'gz si[m]' >/dev/null 2>&1 && left+="· Gazebo ยังรันอยู่\n"
+    pgrep -f 'px4_sitl_default/bin/px[4]' >/dev/null 2>&1 && left+="· PX4 SITL ยังรันอยู่\n"
+    ss -tln 2>/dev/null | grep -qE ':(8000|8020)\b' && left+="· พอร์ต 8000/8020 ยังถูกจับอยู่\n"
+    printf '%b' "$left"
+}
+
 if [ "$MODE" = "stop" ]; then
     OUT="$(stop_everything)"
     RC=$?
@@ -86,7 +121,11 @@ if [ "$MODE" = "stop" ]; then
     if [ "$RC" = 3 ]; then
         die "ไม่ได้ปิดให้ เพราะมี SITL ของอีกโปรเจกต์รันอยู่ (อาจกำลังบินอยู่)\n\n$OUT"
     fi
-    msg "ปิดหมดแล้ว ✔\n\nSITL · Gazebo · bridge · หน้าเว็บ — ไม่เหลือค้าง"
+    LEFT="$(stop_survivors)"
+    if [ -n "$LEFT" ]; then
+        die "ปิดได้ไม่หมด ⚠\n\nยังเหลือ:\n$LEFT\nลองกดซ้ำอีกครั้ง หรือดูด้วย:\n  pgrep -af 'aavc_gcs|gz sim|px4'"
+    fi
+    msg "ปิดหมดแล้ว ✔ (ตรวจซ้ำแล้ว: ไม่เหลือโปรเซส พอร์ต 8000 ว่าง)\n\nSITL · Gazebo · bridge · หน้าเว็บ\n\nหมายเหตุ: ของบน CM4 (router/กล้อง/beacon/mission) ไม่ถูกแตะ — ตั้งใจ ไม่ให้ปุ่มนี้หยุดโดรนที่อาจกำลังบินอยู่"
     exit 0
 fi
 
