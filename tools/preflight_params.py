@@ -82,6 +82,15 @@ PINNED: dict[str, float] = {
 # passed for months while the stored number meant "Hold", not "Return").
 # ``MAV_1_FORWARD`` is reboot_required in PX4's own module.yaml —
 # tools/param_audit.py has treated it that way since it shipped.
+# ``EKF2_HGT_REF`` verified in the v1.17 source 2026-08-18:
+# ``Ekf::checkHeightSensorRefFallback`` (EKF/height_control.cpp:61-66) returns
+# early whenever ``_height_sensor_ref != HeightSensor::UNKNOWN``, and the
+# parameter is only read AFTER that guard — so once any height source is
+# fusing, the reference never consults the parameter again.
+# NOT here, and deliberately: ``EKF2_RNG_CTRL`` reads fresh every update cycle
+# (EKF/aid_sources/range_finder/range_height_control.cpp:130,131,141,145), so
+# its readback IS trustworthy. Marking it would train the reader to ignore the
+# marker, which is the only thing that makes the marker worth printing.
 _STORED_NOT_PROVEN = {"MAV_1_FORWARD", "EKF2_HGT_REF"}
 
 
