@@ -562,7 +562,12 @@ def test_assigned_marker_id_tracks_each_delivery_in_turn(monkeypatch) -> None:
     state.assigned_marker_id = flight_ids[0] ONCE, at FLIGHT START, and never
     again — so the GCS 'designated pad' highlight stuck on pad 3 (the first
     id) for the whole flight while the aircraft actually landed on 1, 4 and 6
-    too. Each delivery must repoint it at the pad it is CURRENTLY serving."""
+    too. Each delivery must repoint it at the pad it is CURRENTLY serving.
+
+    Asserted as an invariant rather than a fixed sequence: since 2026-08-18 the
+    serve order is routed by distance (mission_brain/serve_order.py), so the
+    queue order is deliberately NOT the delivery order. What must hold is that
+    every assigned pad is served exactly once and the id follows each one."""
     state = _state()
     tracker = TargetTracker()
     for mid, pos in ((3, PAD3), (1, PAD1), (4, PAD4), (6, PAD6)):
@@ -586,9 +591,10 @@ def test_assigned_marker_id_tracks_each_delivery_in_turn(monkeypatch) -> None:
         cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
         sortie_gate=_gate_from([3, 1, 4, 6], eggs_aboard=4), profile=COMPETITION))
 
-    assert seen_assigned == [3, 1, 4, 6]
+    assert sorted(seen_assigned) == [1, 3, 4, 6]   # every pad, exactly once
+    assert len(set(seen_assigned)) == 4            # repointed, never stuck on one
     # ...and the id of the LAST delivery served stays visible afterwards.
-    assert state.assigned_marker_id == 6
+    assert state.assigned_marker_id == seen_assigned[-1]
 
 
 def test_eggs_aboard_1_is_one_delivery_per_flight(monkeypatch) -> None:
@@ -693,7 +699,9 @@ def test_fully_successful_flight_gets_no_recovery_flight(monkeypatch) -> None:
     # makes between pads (test_multi_delivery_flight_climbs_out_between_deliveries:
     # 1 launch + 3 hops + 1 pre-egress climb = 5, for this SAME single flight).
     assert cmd.landings == [True], "a fully-served queue must not fly a second flight"
-    assert state.delivered_marker_ids == [3, 1, 4, 6]
+    # sorted(): the serve order is routed by distance since 2026-08-18, so what
+    # this test cares about is that the whole queue got served, not the sequence.
+    assert sorted(state.delivered_marker_ids) == [1, 3, 4, 6]
     assert state.sortie_index == 1
     assert "FLIGHT 2" not in "\n".join(state.anomalies)
     assert state.terminal is TerminalState.COMPLETED
@@ -1360,9 +1368,14 @@ def test_release_channel_shortage_is_skipped_not_raised(monkeypatch) -> None:
 
     assert [c[0] for c in calls] == [0]                   # slot 1 never attempted
     assert state.dropped_stops == {0}
+    # WHICH pad lands in the short slot depends on the routed serve order
+    # (distance-ordered since 2026-08-18), so derive it: the one that was not
+    # delivered is the one the missing channel must have skipped.
+    served = state.delivered_marker_ids[0]
+    skipped = 1 if served == 3 else 3
     joined = "\n".join(state.anomalies)
-    assert ("DELIVERY 2 END delivered=False pad=1 reason=no_release_channel"
-            in joined), joined
+    assert (f"DELIVERY 2 END delivered=False pad={skipped} "
+            "reason=no_release_channel" in joined), joined
     assert cmd.landings == [True] and not state.telemetry.is_armed
     assert state.terminal is TerminalState.COMPLETED     # no exception escaped
 
@@ -1712,3 +1725,45 @@ def test_progress_guard_backstop_bounds_a_crawling_leg() -> None:
     else:
         pytest.fail("a crawling leg was never bounded")
     assert clock.t - 1000.0 <= budget * mission_mod._LEG_CEILING_MULT + 60.0
+
+
+def test_the_flight_serves_by_route_not_by_the_operators_click_order(monkeypatch) -> None:
+    """Operator 2026-08-18: "ให้ส่งตาม path ที่ใกล้ที่สุดก่อน". The queue editor
+    records the order the ids were clicked, which is no basis for a route — the
+    aircraft can cross the field twice serving pads in typing order. Distance
+    saved is battery the sweep has already spent most of, and time inside a
+    window that charges for overtime.
+
+    Fed the worst reasonable queue (farthest pad first), the flight must serve
+    nearest-first instead, and the flown route must actually be shorter."""
+    from mission_brain.serve_order import route_length_m
+
+    state = _state()
+    tracker = TargetTracker()
+    for mid, pos in ((3, PAD3), (1, PAD1), (4, PAD4), (6, PAD6)):
+        _preload_pad(tracker, pos, mid)
+    coords = {3: PAD3, 1: PAD1, 4: PAD4, 6: PAD6}
+    served: list[int] = []
+
+    async def serve(commander, st, target, *, stop_index, params, **kw):
+        served.append(st.assigned_marker_id)
+        st.dropped_stops.add(stop_index)
+        st.telemetry.relative_alt_m = 0.0
+        return AlignResult(acquired=True, aligned=True, landed=True,
+                           dropped=True, final_error_m=0.3)
+
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", serve)
+    cmd = FakeCommander(state)
+    queue = [6, 4, 3, 1]                       # farthest first — the bad case
+
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from(queue, eggs_aboard=4), profile=COMPETITION))
+
+    assert sorted(served) == [1, 3, 4, 6], "every assigned pad must still be served"
+    assert served != queue, "the click order must not survive as the route"
+    start = (HOME.lat, HOME.lon)
+    assert (route_length_m(served, coords, start)
+            < route_length_m(queue, coords, start)), "the reorder must shorten the route"
+    # And the operator can see it happened: the audit records both orders.
+    assert any("SERVE ORDER" in a for a in state.anomalies), state.anomalies[-5:]

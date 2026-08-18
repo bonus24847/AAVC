@@ -64,6 +64,7 @@ from mission_brain.live_plan import ServedStop, pointer_for, render_live_plan
 from mission_brain.profile import MissionProfile, load_profile
 from mission_brain.schemas import Coordinate, MissionPhase, MissionPlan
 from mission_brain.search_pattern import SearchPlanSpec
+from mission_brain.serve_order import order_by_nearest
 
 from .energy_policy import (
     baseline_for_pack,
@@ -866,11 +867,45 @@ async def run_delivery_mission(
                         f"decoding leftover candidates")
                     await _decode_visits(flight, assigned=-1, owed=owed)
 
-            # Serve each assigned id in queue order, re-checking the budget
-            # before EVERY descent. The aircraft is already committed to this
-            # flight, so the gate reserves only the egress + L&R landing — but
-            # it must never start a delivery it cannot finish, and never one
-            # the FC's low-battery failsafe would interrupt with an egg aboard.
+            # Serve by ROUTE, not by the order the operator happened to click
+            # (operator 2026-08-18: "ให้ส่งตาม path ที่ใกล้ที่สุดก่อน"). This is
+            # the first moment it can be decided: pad positions come from the
+            # registry, which only learns them by decoding markers during the
+            # sweep that just finished. Distance saved here is battery the sweep
+            # has already spent most of, and time inside a window that charges
+            # for overtime. `payload_id` stays the serve SLOT below, so the
+            # physical release keeps the diagonal AUX 4/1/2/3 order the rack is
+            # wired for — only which pad each slot flies to changes.
+            if len(flight_ids) > 1:
+                t_now = state.telemetry
+                here = ((t_now.lat, t_now.lon)
+                        if not (math.isnan(t_now.lat) or math.isnan(t_now.lon))
+                        else None)
+                pad_xy = {}
+                for a in flight_ids:
+                    tgt = tracker.confirmed_by_marker(a)
+                    if tgt is not None:
+                        pad_xy[a] = (tgt.lat, tgt.lon)
+                # Where the aircraft leaves for after the last egg: ending far
+                # from the egress point is a real cost, so it is part of the
+                # route being minimised rather than someone else's problem.
+                egress_pt = (transit_route[-1].lat, transit_route[-1].lon) \
+                    if transit_route else None
+                routed = order_by_nearest(flight_ids, pad_xy, here, egress_pt)
+                if routed != list(flight_ids):
+                    state.record_audit(
+                        f"t={state.time_elapsed_s():.1f}s SERVE ORDER flight "
+                        f"{flight} queue={','.join(map(str, flight_ids))} "
+                        f"routed={','.join(map(str, routed))}")
+                    logger.info(f"[mission] flight {flight}: serving nearest-"
+                                f"first {routed} (queue was {list(flight_ids)})")
+                    flight_ids = routed
+
+            # Serve each assigned id, re-checking the budget before EVERY
+            # descent. The aircraft is already committed to this flight, so the
+            # gate reserves only the egress + L&R landing — but it must never
+            # start a delivery it cannot finish, and never one the FC's
+            # low-battery failsafe would interrupt with an egg aboard.
             n_delivered = 0
             for slot, assigned in enumerate(flight_ids):
                 if not _running():

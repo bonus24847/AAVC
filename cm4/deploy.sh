@@ -71,6 +71,11 @@ SIM_EXCLUDES=(
     --exclude 'tests/'            # run them on the dev machine, not the drone
     --exclude 'dashboard/web/'    # Svelte build; the CM4 flies headless
     --exclude 'docs/evidence/'    # flight-log archives
+    # The sibling project's repo is sitting inside this working tree (untracked,
+    # 361 MB — found 2026-08-18 after 8.6 MB of it had already been rsynced onto
+    # the aircraft). Another team's code on the drone is the opposite of the
+    # "auditable at a glance" flight tree this exclude list exists to keep.
+    --exclude 'mission_AAVC/'
 )
 [ "${SIM_TOO:-0}" = "1" ] && SIM_EXCLUDES=()
 rsync -az --delete --info=stats1 \

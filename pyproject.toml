@@ -60,6 +60,13 @@ include = ["mission_brain*", "orchestrator*", "mavlink_adapter*", "vision*", "da
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# The SIBLING project's repo is sitting inside this working tree (untracked,
+# 361 MB, found 2026-08-18). It is not our code and not our style budget, but
+# `ruff check .` walked into it and failed the G0 gate with 14 errors that no
+# one here can fix. Excluded so `make lint` answers the question it is asked:
+# is THIS repo clean. (cm4/deploy.sh excludes the same path for the matching
+# reason — the aircraft should carry only what it flies with.)
+extend-exclude = ["mission_AAVC"]
 
 [tool.ruff.lint]
 # Minimal: pycodestyle errors/warnings, pyflakes, import sort.
