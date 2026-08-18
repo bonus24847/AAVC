@@ -178,7 +178,9 @@ fi
 GUESS=""
 for net in $(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}'); do
     base="${net%/*}"; base="${base%.*}"; cand="$base.$CM4_OCTET"
-    timeout 1 bash -c "echo > /dev/tcp/$cand/22" 2>/dev/null && { GUESS="$CM4_USER@$cand"; break; }
+    # 3 วิ ไม่ใช่ 1 — ARP ที่ยังไม่มีในตารางใช้เวลาเกิน 1 วิได้ แล้วไอคอนจะ
+    # ขึ้น "ยังไม่พบ CM4" ทั้งที่โดรนออนไลน์อยู่ (2026-08-18)
+    timeout 3 bash -c "echo > /dev/tcp/$cand/22" 2>/dev/null && { GUESS="$CM4_USER@$cand"; break; }
 done
 LAST="$(cat "$HOSTFILE" 2>/dev/null || true)"
 DEFAULT="${GUESS:-${LAST:-$CM4_USER@192.168.x.$CM4_OCTET}}"
