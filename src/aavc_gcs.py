@@ -197,6 +197,27 @@ WHY_TH = {
     "pilot": "นักบินยึดเครื่องคืน — ระบบหยุดสั่งแล้ว",
 }
 
+# Phase -> the caption under the %-bar, for the RADIO feed. The WiFi feed sends
+# gcs_status's own progress_label; STATUSTEXT is ascii-only, so over the radio
+# the phase travels as a keyword and the Thai is rebuilt here. Keep the wording
+# matched to orchestrator/gcs_status.py::_update_progress so the operator does
+# not learn two vocabularies for the same aircraft.
+PHASE_TH = {
+    "preflight": "เตรียมพร้อม / รอปล่อย",
+    "recon": "เตรียมพร้อม / รอปล่อย",
+    "recon (preflight)": "เตรียมพร้อม / รอปล่อย",
+    "takeoff": "กำลังขึ้นบิน",
+    "transit_ingress": "บินเข้าเส้นทาง P1→P3",
+    "search": "กวาดหา pad",
+    "localize": "เข้าหา pad",
+    "track": "เข้าหา pad",
+    "drop": "ปล่อยไข่",
+    "transit_egress": "บินกลับ",
+    "rth": "บินกลับ",
+    "land": "กลับมาลงจอด",
+    "done": "จบภารกิจ",
+}
+
 
 def read_mission_status():
     """The mission's live status file (phase, detected pads, deliveries, time) or None."""
@@ -812,6 +833,17 @@ class Link:
                     pads[pid] = {"t": now, "en": [float(e), float(n)]}
                 except ValueError:
                     continue
+            return
+        m = re.match(r"AAVC prg=(\d+) eta=(\d+) tp=([01]{3}) cur=(\d+|-)", txt)
+        if m:
+            # progress %, ETA, transit points passed, pad being served —
+            # everything the awareness pack needs that plain phase+counts
+            # cannot give. `progress` in particular is the switch the %-bar and
+            # the milestone strip test before drawing anything at all.
+            self.s["radio_prog"] = {
+                "t": now, "pct": int(m.group(1)), "eta": int(m.group(2)),
+                "tp": m.group(3), "cur": (None if m.group(4) == "-"
+                                          else int(m.group(4)))}
             return
         m = re.match(r"AAVC why=([\w-]+)", txt)
         if m:
@@ -1811,6 +1843,25 @@ class Link:
                        "pads_mapped": live_pads, "mapped_n": rm["mapped_n"],
                        "home_reason": why,
                        "age_s": round(time.time() - rm["t"], 1), "src": "radio"}
+            # …and the awareness pack, rebuilt from the "AAVC prg=" line. The
+            # %-bar and the milestone strip both refuse to draw unless
+            # mission.progress is a number, so omitting these does not degrade
+            # the display gracefully — it removes it. Two fields are rebuilt
+            # rather than sent, because the console reads them out of Thai
+            # strings an ascii STATUSTEXT cannot carry: progress_label (the
+            # strip finds the CURRENT pad by searching it for "pad N ") and
+            # events (it ticks P1·P2·P3 by searching for "ผ่านจุด Pn").
+            rg = self.s.get("radio_prog")
+            if rg and time.time() - rg["t"] <= 15:
+                label = PHASE_TH.get(rm["phase"], rm["phase"])
+                if rg["cur"] is not None:
+                    label = (f"ส่งของ pad {rg['cur']} "
+                             f"({len(rm['ok']) + 1}/{rm['assigned_n']})")
+                mission["progress"] = rg["pct"]
+                mission["eta_s"] = rg["eta"]
+                mission["progress_label"] = label
+                mission["events"] = [{"text": f"✅ ผ่านจุด P{i + 1}"}
+                                     for i, hit in enumerate(rg["tp"]) if hit == "1"]
         if self.demo and (mission is None or (mission.get("age_s") or 0) > 45):
             mission, origin = self._demo_mission(snap, origin)   # demo: always show a live mission
         snap["origin"] = origin
