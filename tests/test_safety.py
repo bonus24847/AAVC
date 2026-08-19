@@ -79,12 +79,16 @@ class _FakeCommander:
     def __init__(self) -> None:
         self.rth_calls = 0
         self.land_calls = 0
+        self.stood_down = 0
 
     async def rth(self) -> None:
         self.rth_calls += 1
 
     async def land(self, *, disarm: bool = True) -> None:
         self.land_calls += 1
+
+    def stand_down(self) -> None:
+        self.stood_down += 1
 
 
 def _dummy_plan() -> MissionPlan:
@@ -438,6 +442,9 @@ def test_pilot_takeover_posctl_stands_down_without_commands() -> None:
 
     assert state.terminal == TerminalState.PILOT_TAKEOVER
     assert cmd.rth_calls == 0 and cmd.land_calls == 0
+    # The command OWNER is latched too, not just the mission loop: a command
+    # queued after the in-progress one must not still reach the FC.
+    assert cmd.stood_down == 1
     assert any("pilot_takeover_posctl" in a for a in state.anomalies)
 
 

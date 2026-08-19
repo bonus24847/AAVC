@@ -287,8 +287,18 @@ def _pwm_to_norm(pwm_us: float, *, pwm_min: float = 1000.0, pwm_max: float = 200
     return max(-1.0, min(1.0, (pwm_us - centre) / half))
 
 
+class PilotInControlError(RuntimeError):
+    """Raised by a movement command once the pilot has taken the aircraft on RC.
+    The safety layer latches it via ``DroneCommander.stand_down()``; nothing
+    downstream should command the FC while the pilot is flying."""
+
+
 class DroneCommander:
     """Thin async facade over MAVSDK for AAVC missions."""
+
+    # Class default so a test double built with __new__ (skipping the real MAVSDK
+    # System) reads a safe False before any stand_down().
+    _pilot_in_control = False
 
     def __init__(self, config: ConnectionConfig | None = None) -> None:
         self.config = config or ConnectionConfig()
@@ -299,6 +309,20 @@ class DroneCommander:
         # takes ABSOLUTE (MSL) altitude while the rest of the orchestrator
         # speaks AGL relative-altitude. Conversion: msl = home_alt + alt_agl.
         self._home_alt_msl: float | None = None
+        # Latched True by stand_down() when the pilot takes RC control; every
+        # movement command then raises PilotInControlError instead of sending.
+        self._pilot_in_control = False
+
+    def stand_down(self) -> None:
+        """Latch pilot-in-control: every subsequent movement command raises
+        instead of reaching the FC. Called by the safety layer the instant it
+        sees an RC takeover; never cleared — a takeover ends the mission and the
+        aircraft is the pilot's until they land it."""
+        self._pilot_in_control = True
+
+    def _guard_pilot(self, what: str) -> None:
+        if self._pilot_in_control:
+            raise PilotInControlError(f"pilot has the aircraft — refusing to {what}")
 
     def close(self) -> None:
         """Tear down the embedded mavsdk_server subprocess so the process can exit.
@@ -404,6 +428,7 @@ class DroneCommander:
             self._home_alt_msl = 0.0
 
     async def arm_and_takeoff(self, altitude_m: float) -> None:
+        self._guard_pilot("arm/takeoff")
         await self.system.action.set_takeoff_altitude(altitude_m)
         # Landing ON a pad keeps the vehicle ARMED (COM_DISARM_LAND=-1), so a
         # mid-sortie climb-out is takeoff-only — arm just once per sortie.
@@ -491,6 +516,7 @@ class DroneCommander:
         to absolute MSL here because action.goto_location() takes MSL.
         PX4 treats NaN yaw as "hold current heading".
         """
+        self._guard_pilot("goto")
         if self._home_alt_msl is None:
             raise RuntimeError(
                 "home altitude unknown — connect() must be awaited before goto()."
@@ -601,6 +627,7 @@ class DroneCommander:
         refuses the mode unless a fresh offboard signal (>2 Hz) is already
         arriving. The mode change itself stays on the RC — in RC-GO the
         web/companion never launches the aircraft."""
+        self._guard_pilot("stream offboard setpoints")
         await self.system.offboard.set_velocity_body(
             VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))
 
@@ -796,6 +823,7 @@ class DroneCommander:
 
     async def drop_payload(self, payload_id: int = 0) -> None:
         """Release a payload by pulsing the drop servo."""
+        self._guard_pilot("drop a payload")
         if not 0 <= payload_id < self.config.drop_payload_count:
             raise ValueError(
                 f"payload_id {payload_id} out of range "
@@ -894,6 +922,7 @@ class DroneCommander:
         the caller watches altitude/settle and takes off again after the drop).
         ``disarm=True``: the terminal landing — wait for touchdown, disarm
         explicitly, and confirm."""
+        self._guard_pilot("land")
         logger.info(f"[mavlink] landing (disarm={disarm})")
         await self.system.action.land()
         if not disarm:
@@ -915,6 +944,7 @@ class DroneCommander:
         touchdown, so disarm explicitly once landed. Blocking until disarm lets
         the mission terminate only once the vehicle is actually down — callers
         must NOT append a separate LAND after rth()."""
+        self._guard_pilot("return-to-launch")
         logger.info("[mavlink] return-to-launch + land")
         try:
             await self.system.param.set_param_float("RTL_LAND_DELAY", 0.0)

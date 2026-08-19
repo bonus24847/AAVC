@@ -296,6 +296,11 @@ class SafetyWatchdog:
                     f"t={st.time_elapsed_s():.1f}s PILOT TAKEOVER "
                     f"mode={t.flight_mode} — orchestrator standing down")
                 st.set_terminal(TerminalState.PILOT_TAKEOVER)
+                # Latch the command OWNER too. Setting the terminal stops the
+                # mission loop between awaits, but a command already queued would
+                # still reach the FC — stand_down() makes DroneCommander refuse
+                # every movement command from here on (RESUME 2026-08-19 §2.2).
+                self.commander.stand_down()
                 return
         else:
             self._manual_mode_since = None

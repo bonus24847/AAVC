@@ -16,7 +16,32 @@ import asyncio
 import pytest
 from mavsdk.action import ActionError
 
-from mavlink_adapter.commands import DroneCommander, _pwm_to_norm
+from mavlink_adapter.commands import (
+    DroneCommander,
+    PilotInControlError,
+    _pwm_to_norm,
+)
+
+# ── pilot-in-control latch — the command owner refuses after a takeover ──
+
+def test_stand_down_makes_the_commander_refuse_movement() -> None:
+    """RESUME 2026-08-19: the mission loop stops between awaits, but a command
+    that STARTS after the in-progress one would still reach the FC. The flag
+    belongs on the object that owns the sending — once the pilot has the
+    aircraft, EVERY movement command raises instead of commanding."""
+    c = DroneCommander.__new__(DroneCommander)     # skip the real MAVSDK System
+    assert c._pilot_in_control is False            # class default, safe pre-connect
+    c.stand_down()
+    assert c._pilot_in_control is True
+    for make in (lambda: c.goto(13.7, 100.7, 10.0),
+                 lambda: c.arm_and_takeoff(10.0),
+                 lambda: c.land(),
+                 lambda: c.rth(),
+                 lambda: c.drop_payload(0),
+                 lambda: c.prime_offboard_hold()):
+        with pytest.raises(PilotInControlError):
+            asyncio.run(make())
+
 
 # ── _pwm_to_norm — the drop servo must actually cross centre ──
 
