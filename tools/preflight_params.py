@@ -114,6 +114,19 @@ async def _read(commander: DroneCommander, names: list[str]) -> dict[str, float]
     return out
 
 
+def _board_ok(name: str, have: float, want: float) -> bool:
+    """Whether a live reading passes. Relative-tolerance exact match for every
+    param EXCEPT ``BAT1_CAPACITY``, where any value ``<= 0`` is correct: it
+    selects PX4's voltage-only state-of-charge branch, the one this airframe
+    flies on since the PM03D was removed. Pinning it to exactly ``-1`` STOPped
+    the flight over a ``0`` that flies fine — the runtime gate
+    (``main.py``: ``if fc_capacity <= 0``) accepts any non-positive value, so
+    the field-day check must too."""
+    if name == "BAT1_CAPACITY":
+        return have <= 0.0
+    return abs(have - want) <= 1e-6 * max(1.0, abs(want))
+
+
 def _report(title: str, expected: dict[str, float], got: dict[str, float],
             *, fatal: bool) -> list[str]:
     print(f"\n{title}")
@@ -123,7 +136,7 @@ def _report(title: str, expected: dict[str, float], got: dict[str, float],
         if have is None:
             print(f"  ?  {name:18s} = (ไม่ตอบ)")
             off.append(name)
-        elif abs(have - float(want)) <= 1e-6 * max(1.0, abs(float(want))):
+        elif _board_ok(name, have, float(want)):
             note = "  (เก็บค่าแล้ว — ต้องรีบูตถึงจะมีผลจริง)" \
                 if name in _STORED_NOT_PROVEN else ""
             print(f"  ✔  {name:18s} = {have:g}{note}")

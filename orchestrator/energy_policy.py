@@ -73,26 +73,25 @@ class EnergyPolicy:
     # (0.15) and lands at BAT_EMERGEN_THR (0.07). This fraction is a planning
     # floor chosen to sit above all of that, not the lip of a failsafe.
     reserve_frac: float = 0.25
-    # These defaults describe the CURRENT aircraft: two DXF 6S 7500 mAh packs in
-    # parallel (2026-07-25), 15,000 mAh at 8.22 kg AUW. The hover current they
-    # are derived from moved with the mass, not just the capacity — hover power
-    # scales ~W^1.5, so (8.22/7.17)^1.5 = 1.23x turns the EFT E5 bench table's
-    # 29 A into ~35.6 A. Config (sitl/aavc_config.yaml `battery`) overrides all
-    # four; these are the headless fallback and must describe the same aircraft.
+    # ⚠ HEADLESS FALLBACK ONLY. sitl/aavc_config.yaml `battery` overrides all
+    # four of these, and the real aircraft flies ONE 6S 17000 mAh semi-solid
+    # pack (capacity 17000 in config; pack/AUW measured 2026-08-19). These
+    # fallback numbers rest on a smaller, heavier-hover basis on PURPOSE: if the
+    # config battery block is ever absent, the GO gate must err STRICT (assume
+    # too little charge), never optimistic. Do NOT read them as a description of
+    # the current pack — that lives in config, not here.
     #
-    # First-flight estimate for a ONE-delivery flight: 35.6 A hover x 3.5 min
-    # (was 1700 at 29 A / 7.17 kg). Used ONLY until one flight has been measured.
+    # First-flight seed for a ONE-delivery flight (fallback hover basis). Used
+    # ONLY until one real flight has been measured; the measurement replaces it.
     seed_sortie_mah: float = 1750.0
-    # Marginal seed cost of each EXTRA delivery carried in the SAME flight: the
-    # ~110 s TimePolicy.serve_cost_s at that same 35.6 A hover
-    # = 35.6 A x 110/3600 h = 1.09 Ah, rounded to 1100 mAh (was 900 at 29 A).
+    # Marginal seed cost of each EXTRA delivery carried in the SAME flight
+    # (~110 s TimePolicy.serve_cost_s at hover). Kept at 900 as the conservative
+    # fallback — the config value is what a real flight actually uses.
     #
     # A FLIGHT stopped being one delivery at the 2026-07-24 briefing
-    # (eggs_aboard=4 → one ~10-minute flight), but the seed did not move with
-    # it: the pre-flight gate then compared the pack against ~1/3 of what the
-    # flight actually costs and showed a falsely green card for a flight the
-    # pack cannot finish. Scaling the SEED (not the measurements — those are
-    # already whole flights) is what keeps the gate honest on flight 1.
+    # (eggs_aboard=4 → one ~10-minute flight): seed_flight_mah() scales the SEED
+    # by eggs_aboard so the pre-flight gate weighs the pack against the WHOLE
+    # flight, not ~1/3 of it. Measurements are already whole-flight deltas.
     seed_delivery_mah: float = 900.0
     # Deliveries carried per FLIGHT — 1 = the original one-egg-per-flight model.
     # Constructed from mission.eggs_aboard so the two can't drift apart.

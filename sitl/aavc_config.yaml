@@ -632,6 +632,26 @@ failsafes:
 # hover from the EFT E5 bench table becomes ~35.6 A. Airframe side of the same
 # change: sitl/models/eft_x6100_base/model.sdf (mass) and
 # sitl/px4_patches/22000_gz_eft_x6100 (MPC_THR_HOVER 0.48 -> 0.53).
+# ⚠ 2026-08-19 — PACK SWAP: back to ONE 6S 17000 mAh semi-solid (Perpetual
+# Wings), 10C, FLYING FOR REAL (operator: "ใช้แบต 17000 บินจริง เลิกใช้ 7500
+# แล้ว"). This supersedes the 2026-08-17 note below. MEASURED 2026-08-19:
+# pack 1.5 kg; AUW ready-to-fly WITH 4x50 g egg payload = 7.2 kg; 6S; full
+# charge 25.1 V = 4.18 V/cell. capacity_mah below is 17000.
+#   ⚠ STILL OPEN, gated on the operator:
+#   (1) BAT1_V_EMPTY (cutoff per cell) needs the manufacturer spec — interim
+#       CONSERVATIVE until then (errs to an EARLY land = safe). Since
+#       BAT1_CAPACITY=-1 the whole gauge is interpolate(cell_v, V_EMPTY,
+#       V_CHARGED), so every % threshold (RTH 30 / LAND 20 / delivery-gate 38 /
+#       BAT_LOW/CRIT/EMERGEN) rides on these two — read them off the powered
+#       board (preflight_params over the CM4/NOMAD) before the next flight.
+#   (2) SITL SDF mass + MPC_THR_HOVER + sim_battery below still describe the OLD
+#       pack — SITL-only, not flight safety; real bird lets MPC_USE_HTE learn
+#       hover. Tracked in the safety-review Workstream A.
+# The seeds below are now VERY conservative against a 17000 pack (usable
+# 12750 mAh vs a 4450 mAh seed-flight) — i.e. the GO gate errs STRICT. Kept as
+# a floor until a real 17000 flight's measured consumed-mAh replaces them.
+#
+# ── superseded history ──
 # ⚠ 2026-08-17 — PACK SWAP: back to ONE 7500 mAh 6S (operator: "เกจแบต ตอนนี้
 # เปลี่ยนเป็น 7500 ก่อนครับ"). This supersedes the 2026-08-14 note below it.
 # History: 2x7500 in parallel (15000, the AUW-8.22 kg aircraft every validated
@@ -665,7 +685,7 @@ failsafes:
 # parallel session's repo. They move together, deliberately, not as a side
 # effect of this note.
 battery:
-  capacity_mah: 7500        # ONE 6S 7500 mAh pack (half the validated pair)
+  capacity_mah: 17000       # ONE 6S 17000 mAh semi-solid (Perpetual Wings), 10C
   cells: 6
   # ~29.6 A hover x 3.5 min. Used ONLY for flight 1; measurement replaces it
   # from flight 2 onwards.
