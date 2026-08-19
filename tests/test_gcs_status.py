@@ -168,6 +168,50 @@ def test_home_reason_maps_watchdog_kinds(tmp_path: Path) -> None:
     assert "ลงจอด" in doc["home_reason"]
 
 
+def test_transit_passes_survive_a_flooded_event_feed(tmp_path: Path) -> None:
+    """The console (and the radio beacon) rebuild the P1·P2·P3 transit chip by
+    scanning events for 'ผ่านจุด Pn'. The event feed is a rolling cap of 10, so a
+    flight's 3 ingress passes were evicted by the pad-confirm/release events that
+    followed — the chip un-ticked MID-FLIGHT on the radio-only console. Transit
+    passes must ride a lane the cap cannot evict."""
+    p = tmp_path / "s.json"
+    g = GcsMissionStatus(p, _LAT0, _LON0, assigned=[1, 2, 3, 4])
+    for pt in ("P1", "P2", "P3"):
+        g.on_audit(f"t=10s TRANSIT_PASS {pt} ingress flight=1 d=0.5m")
+    for i in range(15):                 # well past the 10-event rolling cap
+        g._event(f"toast {i}")
+    g._write()
+    texts = " ".join(e["text"] for e in _read(p)["events"])
+    for pt in ("P1", "P2", "P3"):
+        assert f"ผ่านจุด {pt}" in texts, f"{pt} evicted from the feed: {texts}"
+
+
+def test_a_new_flight_clears_the_previous_transit_ticks(tmp_path: Path) -> None:
+    """The sticky transit lane must reset per flight, or flight 2's chip would
+    start already ticked from flight 1."""
+    p = tmp_path / "s.json"
+    g = GcsMissionStatus(p, _LAT0, _LON0, assigned=[1, 2, 3, 4])
+    g.on_audit("t=10s TRANSIT_PASS P1 ingress flight=1 d=0.5m")
+    g.on_audit("t=700s FLIGHT 2 START eggs=2 ids=3,4 remaining=500s")
+    texts = " ".join(e["text"] for e in _read(p)["events"])
+    assert "ผ่านจุด P1" not in texts
+
+
+def test_a_recurring_anomaly_is_not_rewritten_every_tick(tmp_path, monkeypatch) -> None:
+    """A low-battery flight audits battery_critical_36%, _35%, _34%… every tick.
+    The first sets the home reason; the rest change nothing, so they must NOT
+    rewrite the SD file — the None-guard gated only the assignment, not the
+    _write() beside it, so a critical-battery moment hammered the card."""
+    p = tmp_path / "s.json"
+    g = GcsMissionStatus(p, _LAT0, _LON0, assigned=[1])
+    g.on_audit("t=1s battery_critical_36%")          # first cause — one write
+    writes: list[int] = []
+    monkeypatch.setattr(g, "_write", lambda: writes.append(1))
+    g.on_audit("t=2s battery_critical_35%")          # same reason, already set
+    g.on_audit("t=3s battery_critical_34%")
+    assert writes == []                              # no rewrite for the repeats
+
+
 def test_home_reason_maps_the_preflight_refusals(tmp_path: Path) -> None:
     """A GO refused at the gate must tell the radio-only operator WHY, the same
     way the energy refusal already does — the envelope and time-reserve

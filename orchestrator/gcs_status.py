@@ -92,6 +92,9 @@ class GcsMissionStatus:
         self._eta_s: int | None = None
         self._search_t0: float | None = None   # mission_time when search began
         self._events: list[dict[str, Any]] = []  # rolling, newest last, max 10
+        # transit passes ride a SEPARATE lane the rolling cap cannot evict, so
+        # the P1·P2·P3 chip never un-ticks mid-flight; cleared at each FLIGHT START
+        self._transit: list[dict[str, Any]] = []
         # WHY the aircraft came home / landed with the mission unfinished
         # (operator request 2026-08-18: "ผมจะได้รู้ว่ากลับ home เพราะอะไร").
         # First cause wins for the flight — the later consequences (an energy
@@ -206,12 +209,19 @@ class GcsMissionStatus:
             self._eta_s = 0
         self._write()
 
-    def _event(self, text: str, warn: bool = False) -> None:
-        """Append to the rolling operator-event feed (console toasts)."""
+    def _event(self, text: str, warn: bool = False, sticky: bool = False) -> None:
+        """Append to the operator-event feed (console toasts). ``sticky`` events
+        — the transit passes the P1·P2·P3 chip is rebuilt from — go to a lane the
+        rolling 10-cap cannot evict, else a flight's ingress passes get pushed
+        out by the pad/release events that follow and the chip un-ticks."""
         with self._lock:
-            self._events.append({"t": round(time.time(), 1),
-                                 "text": text, "warn": warn})
-            del self._events[:-10]
+            row = {"t": round(time.time(), 1), "text": text, "warn": warn}
+            if sticky:
+                self._transit.append(row)
+                del self._transit[:-8]        # 3 ingress + 3 egress + slack
+            else:
+                self._events.append(row)
+                del self._events[:-10]
 
     # WHY-did-it-come-home table: (audit substring, ascii code for the radio
     # beacon, operator text). Ordered — first match in an entry wins. These
@@ -257,6 +267,7 @@ class GcsMissionStatus:
             with self._lock:
                 self._home_reason = None
                 self._home_reason_code = None
+                self._transit = []          # a new flight's transit chip starts blank
             self._write()
         else:
             # …and the FIRST terminal cause of this flight sticks (later
@@ -264,11 +275,14 @@ class GcsMissionStatus:
             # must not overwrite the reason the operator actually needs).
             for needle, code, text in self._HOME_REASONS:
                 if needle in entry:
+                    changed = False
                     with self._lock:
                         if self._home_reason_code is None:
                             self._home_reason = text
                             self._home_reason_code = code
-                    self._write()
+                            changed = True
+                    if changed:            # a repeat of the same cause changes nothing
+                        self._write()
                     break
         m = _RELEASE.search(entry)
         if m is not None:
@@ -283,7 +297,7 @@ class GcsMissionStatus:
         if mt is not None:
             ok = mt.group("what") == "TRANSIT_PASS"
             self._event(("✅ ผ่านจุด " if ok else "⚠️ พลาดจุด ") + mt.group("pt"),
-                        warn=not ok)
+                        warn=not ok, sticky=True)
             self._write()
             return
         if "PILOT TAKEOVER" in entry:
@@ -326,7 +340,7 @@ class GcsMissionStatus:
                     "progress": int(self._progress),
                     "progress_label": self._progress_label,
                     "eta_s": self._eta_s,
-                    "events": list(self._events),
+                    "events": self._transit + list(self._events),
                     "home_reason": self._home_reason,
                     "home_reason_code": self._home_reason_code,
                     "updated": time.time(),
