@@ -158,9 +158,16 @@ if [ "${REAL:-0}" != "1" ] && [ -f "$WIND_STATE" ]; then
     echo "   still-air baseline. 'bash sitl/set_wind.sh off' first if you wanted one."
 fi
 
+# ── SITE: which field this flight is for. The launcher/icon sets these; the
+# defaults are the KMUTNB practice field, so a bare invocation is unchanged.
+# The competition icon sets AAVC_PROFILE=competition + AAVC_CONFIG=sitl/kmitl_config.yaml.
+AAVC_PROFILE="${AAVC_PROFILE:-kmutnb_skyfield}"
+AAVC_CONFIG="${AAVC_CONFIG:-sitl/aavc_config.yaml}"
+echo "🌐 SITE: profile=${AAVC_PROFILE}  config=${AAVC_CONFIG}"
+
 if [ "${REAL:-0}" = "1" ]; then
     exec env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" -m orchestrator.main \
-        --config sitl/aavc_config.yaml --no-dashboard \
+        --config "$AAVC_CONFIG" --profile "$AAVC_PROFILE" --no-dashboard \
         --assigned-ids "$IDS" "${EXTRA[@]}"
 fi
 
@@ -172,7 +179,7 @@ fi
 # teardown that follows.
 set +e
 env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" -m orchestrator.main \
-    --config sitl/aavc_config.yaml --no-dashboard \
+    --config "$AAVC_CONFIG" --profile "$AAVC_PROFILE" --no-dashboard \
     --assigned-ids "$IDS" "${EXTRA[@]}"
 rc=$?
 set -e
