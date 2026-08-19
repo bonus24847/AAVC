@@ -22,8 +22,99 @@ if pgrep -f 'orchestrator.mai[n]' >/dev/null; then
     exit 1
 fi
 
+# ── the aircraft's own infrastructure, brought up by the SAME button ───────
+# Until 2026-08-18 this script started ONLY the orchestrator, which then
+# connects to udpin://…:14540 — a port that exists only because mavlink-router
+# is running. Nothing in the 🚀 path started the router, the camera grabber or
+# the status beacon; they were started by hand over ssh. On a CM4 that has
+# rebooted at the field (a battery swap is enough) pressing 🚀 therefore spawned
+# an orchestrator that logged one line — "connecting to udpin://0.0.0.0:14540" —
+# and died with no MAVLink, no audit trail and nothing on the operator's screen
+# to say why. Seen live at 14:33 on 2026-08-18. The operator cannot ssh in
+# during a scored round, so the button has to be self-sufficient.
+#
+# Idempotent: anything already running is left exactly as it is. Detached with
+# setsid so it OUTLIVES this script — that matters most when the mission refuses
+# to launch, because the beacon is what carries the refusal ("swap the pack") to
+# the console over the radio. Killing it with the mission would hide the answer.
+ensure_infra() {
+    local serial="${SERIAL:-/dev/ttyAMA0}" baud="${BAUD:-921600}"
+    local routerd="${ROUTERD:-}"
+    if [ -z "$routerd" ]; then
+        # A non-interactive ssh does not read the login PATH, so the locally
+        # built binary in ~/.local/bin is invisible unless we look for it.
+        for c in "$HOME/.local/bin/mavlink-routerd" "$(command -v mavlink-routerd 2>/dev/null)"; do
+            [ -n "$c" ] && [ -x "$c" ] && { routerd="$c"; break; }
+        done
+    fi
+
+    if ! pgrep -f 'mavlink-route[r]d' >/dev/null 2>&1; then
+        if [ -z "$routerd" ]; then
+            echo "[run_mission] ERROR: mavlink-router not found — the orchestrator" >&2
+            echo "               cannot reach the FC. Install it or pass ROUTERD=<path>." >&2
+            exit 3
+        fi
+        [ -e "$serial" ] || { echo "[run_mission] ERROR: $serial not found (FC cable?)" >&2; exit 3; }
+        cat > /tmp/aavc_flight_router.conf <<EOF
+[General]
+TcpServerPort = 0
+[UartEndpoint fc]
+Device = $serial
+Baud = $baud
+[UdpEndpoint offboard]
+Mode = Normal
+Address = 127.0.0.1
+Port = 14540
+[UdpEndpoint qgc]
+Mode = Server
+Address = ${GCS_HOST:-127.0.0.1}
+Port = 14550
+EOF
+        echo "[run_mission] starting mavlink-router ($serial@$baud -> :14540, :14550)"
+        setsid "$routerd" -c /tmp/aavc_flight_router.conf \
+            >/tmp/aavc_router.log 2>&1 </dev/null &
+        # 0.5 s, not 3 — and the difference is whether the operator sees errors.
+        # The GCS spawns this over ssh, sleeps exactly 1.5 s, then checks whether
+        # the process already exited (aavc_gcs.py::start_mission); a failure
+        # inside that window is shown in the browser, one after it is invisible —
+        # the button reports "✅ up" and then quietly reverts. A 3 s wait here
+        # pushed every orchestrator startup failure (broken venv, ImportError,
+        # rejected --assigned-ids) to t≈3.1 s on exactly the cold-CM4 case this
+        # function exists to rescue. Nothing needs the longer wait: the
+        # orchestrator's own connect() waits up to 15 s for a heartbeat, so the
+        # router only has to be STARTING, not ready.
+        sleep 0.5
+    else
+        echo "[run_mission] mavlink-router already up"
+    fi
+
+    if [ "${NO_CAMERA:-0}" != "1" ]; then
+        if ! pgrep -f 'camera_grabber.p[y]' >/dev/null 2>&1; then
+            echo "[run_mission] starting camera grabber (BACKEND=${BACKEND:-v4l2})"
+            setsid make -C "$REPO_ROOT" camera-real BACKEND="${BACKEND:-v4l2}" \
+                >/tmp/aavc_camera.log 2>&1 </dev/null &
+        else
+            echo "[run_mission] camera grabber already up"
+        fi
+    fi
+
+    if [ "${BEACON:-1}" = "1" ]; then
+        if ! pgrep -f 'status_beacon.p[y]' >/dev/null 2>&1; then
+            echo "[run_mission] starting status beacon (radio STATUSTEXT)"
+            setsid env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" \
+                "$REPO_ROOT/cm4/status_beacon.py" \
+                --captures "$REPO_ROOT/captures" \
+                --endpoint "udpout:127.0.0.1:14550" \
+                >/tmp/aavc_beacon.log 2>&1 </dev/null &
+        else
+            echo "[run_mission] status beacon already up"
+        fi
+    fi
+}
+
 EXTRA=()
 if [ "${REAL:-0}" = "1" ]; then
+    ensure_infra
     EXTRA+=(--connect "udpin://0.0.0.0:14540")
     # REAL bird defaults to RC-GO (operator conops 2026-08-12): the console's
     # 🚀 only STAGES the flight — the SAFETY PILOT arms via RC and flips to
