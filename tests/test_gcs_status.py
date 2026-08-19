@@ -166,3 +166,19 @@ def test_home_reason_maps_watchdog_kinds(tmp_path: Path) -> None:
     doc = _read(p)
     assert doc["home_reason_code"] == "gps"
     assert "ลงจอด" in doc["home_reason"]
+
+
+def test_home_reason_maps_the_preflight_refusals(tmp_path: Path) -> None:
+    """A GO refused at the gate must tell the radio-only operator WHY, the same
+    way the energy refusal already does — the envelope and time-reserve
+    refusals had no needle, so the flight silently would not stage with no code
+    on the console."""
+    p = tmp_path / "mission_status.json"
+    g = GcsMissionStatus(p, _LAT0, _LON0, assigned=[1])
+    g.on_audit("t=5.0s sortie 1 refused (envelope params)")
+    assert _read(p)["home_reason_code"] == "envelope"
+
+    q = tmp_path / "s2.json"
+    g2 = GcsMissionStatus(q, _LAT0, _LON0, assigned=[1])
+    g2.on_audit("t=5.0s sortie 1 refused (time reserve)")
+    assert _read(q)["home_reason_code"] == "time-gate"
