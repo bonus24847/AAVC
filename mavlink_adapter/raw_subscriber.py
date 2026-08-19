@@ -46,11 +46,10 @@ if TYPE_CHECKING:
 DEFAULT_RAW_PORT = 14551
 DEFAULT_BIND_HOST = "0.0.0.0"
 _SERVO_CHANNELS = 16  # SERVO_OUTPUT_RAW carries servo1..servo16
-_ESC_CHANNELS = 8     # AAVC flies a 6-motor hexa; PX4 reserves 8 slots. Slots
-                      # 6..7 stay 0.0 and are NOT motors — anything reading this
-                      # list for motor health must slice to the real rotor count
-                      # (safety.motor_health.motor_count), or it will diagnose
-                      # two permanently-dead motors on every healthy flight.
+_ESC_CHANNELS = 8     # PX4 reserves 8 ESC slots; the hexa uses 6, so slots 6..7
+                      # stay 0.0 and are NOT motors. The ESC lists are dashboard
+                      # display only now — the motor-health check that had to
+                      # slice them to the real rotor count was removed 2026-08-17.
 # The MAVLink message types we subscribe to (ATTITUDE is deliberately absent —
 # MAVSDK owns roll/pitch; see the module docstring).
 _MSG_TYPES = ("SERVO_OUTPUT_RAW", "ESC_STATUS", "BATTERY_STATUS")
@@ -173,7 +172,6 @@ class RawMavlinkSubscriber:
                     t.esc_rpm[idx] = int(rpm[offset]) if offset < len(rpm) else 0
                     t.esc_current_a[idx] = float(current[offset]) if offset < len(current) else 0.0
                     t.esc_voltage_v[idx] = float(voltage[offset]) if offset < len(voltage) else 0.0
-            t.esc_monotonic = time.monotonic()
         elif mtype == "BATTERY_STATUS":
             consumed = getattr(msg, "current_consumed", -1)
             if consumed >= 0:

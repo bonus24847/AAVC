@@ -86,13 +86,10 @@ class CurrentTelemetry:
     esc_current_a: list[float] = field(default_factory=list)     # per-motor current
     esc_rpm: list[int] = field(default_factory=list)             # per-motor RPM
     esc_voltage_v: list[float] = field(default_factory=list)     # per-motor voltage
-    # When the ESC block last ARRIVED, same reasoning as battery_consumed_monotonic
-    # below: the three lists above are overwritten in place and never cleared, so
-    # a raw listener that dies mid-flight leaves the last good frame sitting there
-    # looking live. The safety watchdog's motor-health check reads per-motor
-    # current to decide whether a rotor has quit — on stale data that decision is
-    # made against history, so it needs to know the age. NaN = none ever arrived.
-    esc_monotonic: float = math.nan
+    # esc_current_a/rpm/voltage are DASHBOARD DISPLAY ONLY now. The motor-health
+    # watchdog that read per-motor current was removed 2026-08-17 (these ESCs are
+    # PWM-only, no current telemetry lead), so nothing reads them for a flight
+    # decision — and the staleness stamp that check needed went with it.
     battery_consumed_mah: float = math.nan
     # When that coulomb count last ARRIVED. It rides the optional raw-MAVLink
     # listener, so it can go quiet while MAVSDK telemetry keeps flowing —
