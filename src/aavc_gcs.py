@@ -2354,9 +2354,11 @@ body.side-collapsed .colside{width:0;padding:0;border-right:none;overflow:hidden
 .fcorner{background:#3fb950;border:2px solid #fff;border-radius:3px;box-shadow:0 0 3px #000;cursor:move}
 /* ---- AAVC pad selector + mission panel ---- */
 .padgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:10px 0}
-.padbtn{padding:12px 6px;border:2px solid #30363d;border-radius:9px;background:#0d1117;color:#c9d1d9;
- cursor:pointer;text-align:center;font-weight:700;font-size:18px;user-select:none}
+.padbtn{padding:8px 4px;border:2px solid #30363d;border-radius:9px;background:#0d1117;color:#c9d1d9;
+ cursor:pointer;user-select:none;display:flex;flex-direction:column;align-items:center;gap:5px}
 .padbtn.sel{border-color:#238636;background:#0f2417;color:#3fb950}
+.padbtn .arucosvg{width:100%;height:auto;max-width:48px;border-radius:3px;display:block;background:#fff;padding:3px;box-sizing:border-box}
+.padbtn .padid{font-weight:700;font-size:14px}
 .padrow{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:16px;color:#8b98a5}
 .savebtn{margin-top:8px;padding:8px;border:0;border-radius:8px;font-size:15px;font-weight:700;color:#fff;
  background:#1f6feb;cursor:pointer;width:100%}
@@ -2881,12 +2883,27 @@ function drawMap(s){
 }
 function a2(s){return (s.att&&s.att.heading!=null)?s.att.heading:null;}
 // ---------------- AAVC: pad selector + mission panel + pads on the map ----------------
+// ArUco DICT_4X4_50 glyphs (6x6 modules, row-major, "1"=white "0"=black), baked
+// from cv2.aruco so the operator matches the committee's assignment card
+// picture-to-picture instead of translating it into a number.
+var ARUCO={
+ 1:"000000000000011110010010010100000000",
+ 2:"000000000110000110000100011010000000",
+ 3:"000000010010010010001000001100000000",
+ 4:"000000001010001000010010011100000000",
+ 5:"000000001110010010011000011010000000",
+ 6:"000000010010011100000100011100000000"};
+function arucoSVG(id){
+ var b=ARUCO[id]||'',n=6,c=6,s=n*c,r='';
+ for(var i=0;i<n*n;i++){ if(b.charAt(i)==='0'){ r+='<rect x="'+((i%n)*c)+'" y="'+(Math.floor(i/n)*c)+'" width="'+c+'" height="'+c+'"/>'; } }
+ return '<svg class="arucosvg" viewBox="0 0 '+s+' '+s+'" xmlns="http://www.w3.org/2000/svg"><rect width="'+s+'" height="'+s+'" fill="#fff"/><g fill="#000">'+r+'</g></svg>';
+}
 function renderPads(){
  var g=document.getElementById('padgrid');if(!g)return;g.innerHTML='';
  [1,2,3,4,5,6].forEach(function(id){
   var d=document.createElement('div');
   d.className='padbtn'+(SEL.indexOf(id)>=0?' sel':'');
-  d.textContent='ID '+id;
+  d.innerHTML=arucoSVG(id)+'<div class="padid">ID '+id+'</div>';
   d.onclick=function(){var i=SEL.indexOf(id);if(i>=0)SEL.splice(i,1);else SEL.push(id);
    SEL.sort(function(a,b){return a-b});renderPads();updateMap(window.LAST||{});};
   g.appendChild(d);
