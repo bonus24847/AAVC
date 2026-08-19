@@ -16,7 +16,7 @@ drone and out to free flight. Bring it up in the **locked gates** (`CLAUDE.md §
   Pixhawk 6X ──serial /dev/ttyACM0 (USB) or /dev/ttyAMA0 (UART) @921600──► mavlink-router
                                                                             ├─► :14540  orchestrator (MAVSDK, --connect udpin://0.0.0.0:14540)
                                                                             └─► :14550  QGC over the telemetry radio / wifi (manual kill)
-  OV9281 nadir camera (gimbal) ──► sitl/camera_grabber.py ──► /tmp/aavc_{nadir,frame}.png ──► vision_worker
+  OV9281 nadir camera (hard-mounted nadir, NO gimbal) ──► sitl/camera_grabber.py ──► /tmp/aavc_{nadir,frame}.png ──► vision_worker
 ```
 
 One command brings the whole stack up onboard (see `cm4/launch_flight.sh`):
@@ -37,9 +37,9 @@ No internet is used in flight (build the `.venv` once offline from `requirements
 The 6X may be on the **HIL build** (`fmu-v6x_hil`, `SYS_HITL=1`) from HITL work — that
 **cannot fly**. Reflash a flight firmware and calibrate:
 
-1. **Flash flight firmware.** Recommended **PX4 1.15.4 `fmu-v6x_default`** (built from the
-   local `~/PX4-Autopilot` source → matches the SITL the gains were tuned against), or
-   latest stable (then re-validate gains at G5/G7).
+1. **Flash flight firmware.** Recommended **PX4 1.17.0 `fmu-v6x_default`** (the board runs
+   1.17.0; built from the `~/PX4-Autopilot-v1.17` worktree the SITL gains were tuned
+   against), or latest stable (then re-validate gains at G5/G7).
    `make px4_fmu-v6x_default upload` in the PX4 tree, or flash via QGC.
 2. **Confirm `SYS_HITL=0`** and set the **real airframe** (*Generic Hexarotor X*,
    `SYS_AUTOSTART=6001`) + the **6-motor map** (`PWM_MAIN_FUNC1..6 = 101..106`).
@@ -141,28 +141,16 @@ Goal: validate the orchestrator ↔ real-FC seam + the actuators, motors **off t
       (0.25 / 0.15 / 0.07) are fractions of that voltage span — re-confirm against the
       pack's discharge curve.
 
-## G6 — Tethered
+## G6 — dropped 2026-08-16
 
-Goal: stable hover + the vision/descent/drop loop on real attitude, on a tether.
-
-- [ ] Tether rigged; props ON; open area; manual kill ready.
-- [ ] **Hover:** arm + a low hover (manual or a short auto). Confirm stable attitude/alt
-      (the SITL-tuned `MC_*RATE_*` gains; re-tune via the System-ID/Autotune module if it
-      oscillates).
-- [ ] **Camera calibration:** with the aircraft at a **known AGL** over a printed pad,
-      compare the projected fix to the true position. Tune the config `cameras:` block —
-      **measure the real OV9281 lens HFOV** (the shipped `fov_deg: 99.7` is an
-      UNMEASURED placeholder; OV9281 modules ship many lens options) and trim the
-      stabilized mount's **residual pitch error** via `depression_deg` (nominal 90°).
-      A ±5° pointing error ≈ 0.9 m drift per 10 m AGL. The camera is 1280 px wide —
-      the 400 mm marker must decode at the 12 m sweep (verify on real mono frames).
-- [ ] **Flow position lock (hover A/B):** hover at 2 m over grass, EKF2_OF_CTRL off
-      then on — horizontal drift over 30 s should tighten visibly with flow (this is
-      the touchdown-scatter fix on the no-RTK GPS; SITL could not test it).
-- [ ] **Descend + land-ON + release:** run a single-pad serve over a printed pad on the
-      tether; confirm the rung descent, the id-verified LAND gate (cover the marker → it
-      must REFUSE to land and climb), touchdown ON the pad, and the touchdown-gated
-      release fire in sequence.
+Tethered hover was dropped: this airframe has already flown several real flights,
+so a tether proves nothing new. Its two real items live on — the camera
+`fov_deg` calibration is a **G5 ground procedure** (measured **74.2°** on the real
+WSD-9781 lens, replacing the old 99.7° placeholder), and the first
+**land-ON + release** over a printed pad is folded into **G7's first flight**.
+⚠ This aircraft has **NO optical flow and NO gimbal — only the downward Lidar
+(TFmini-S)** — so the old flow-lock (`EKF2_OF_CTRL` A/B) and gimbal-trim
+(`depression_deg`) steps are gone with the section; `EKF2_OF_CTRL` is pinned 0.
 
 ## G7 — HW free flight (practice field)
 
