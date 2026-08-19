@@ -158,9 +158,11 @@ if [ "${REAL:-0}" != "1" ] && [ -f "$WIND_STATE" ]; then
     echo "   still-air baseline. 'bash sitl/set_wind.sh off' first if you wanted one."
 fi
 
-# ── SITE: which field this flight is for. The launcher/icon sets these; the
-# defaults are the KMUTNB practice field, so a bare invocation is unchanged.
-# The competition icon sets AAVC_PROFILE=competition + AAVC_CONFIG=sitl/kmitl_config.yaml.
+# ── SITE: which field this flight is for. Precedence: an icon's explicit env
+# wins, then this repo's own .aavc_site marker (aavc-practice ships the KMUTNB
+# one, aavc-comp the KMITL one — sync_core.sh never copies it, so each repo
+# keeps its field), then the KMUTNB fallback below. A bare run is unchanged.
+[ -f "$REPO_ROOT/.aavc_site" ] && . "$REPO_ROOT/.aavc_site"
 AAVC_PROFILE="${AAVC_PROFILE:-kmutnb_skyfield}"
 AAVC_CONFIG="${AAVC_CONFIG:-sitl/aavc_config.yaml}"
 echo "🌐 SITE: profile=${AAVC_PROFILE}  config=${AAVC_CONFIG}"

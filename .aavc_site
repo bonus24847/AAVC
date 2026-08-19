@@ -1,0 +1,9 @@
+# Per-repo SITE marker — this is aavc-practice (KMUTNB sky-field).
+# Sourced by sitl/run_mission.sh. It sets the field defaults ONLY if an icon's
+# env did not already ("${VAR:-default}"), so an explicit icon env still wins.
+#
+# ⚠ sync_core.sh deliberately does NOT copy this file — it is the ONE thing that
+# distinguishes aavc-practice from aavc-comp. The competition repo ships its own
+# .aavc_site with AAVC_PROFILE=competition + AAVC_CONFIG=sitl/kmitl_config.yaml.
+AAVC_PROFILE="${AAVC_PROFILE:-kmutnb_skyfield}"
+AAVC_CONFIG="${AAVC_CONFIG:-sitl/aavc_config.yaml}"
