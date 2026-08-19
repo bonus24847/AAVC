@@ -10,7 +10,23 @@ reset — is equally correct, and the runtime gate (``main.py``:
 flight over a ``0`` that flies fine (the old exact-``-1`` compare did).
 """
 
-from tools.preflight_params import _board_ok
+from tools.preflight_params import BOARD, _board_ok
+
+
+def test_board_checks_the_17000_pack_endpoints() -> None:
+    # After the 2026-08-19 pack swap the field-day check must verify the voltage
+    # endpoints too: with BAT1_CAPACITY=-1 the whole gauge is interpolate(cell_v,
+    # V_EMPTY, V_CHARGED), so a board still holding the LiPo defaults reads a
+    # wrong %. 25.1 V / 6 = 4.18; 22.6 V / 6 = 3.77.
+    assert BOARD["BAT1_V_CHARGED"] == 4.18
+    assert BOARD["BAT1_V_EMPTY"] == 3.77
+
+
+def test_wrong_endpoint_is_flagged() -> None:
+    # the LiPo-default 4.05 the board held before 2026-08-19 must NOT pass as 4.18
+    assert not _board_ok("BAT1_V_CHARGED", 4.05, 4.18)
+    # but float32 storage of 4.18 (reads back 4.17999983) still passes
+    assert _board_ok("BAT1_V_CHARGED", 4.179999828, 4.18)
 
 
 def test_bat1_capacity_accepts_any_non_positive() -> None:

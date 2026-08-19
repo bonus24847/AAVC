@@ -638,12 +638,20 @@ failsafes:
 # pack 1.5 kg; AUW ready-to-fly WITH 4x50 g egg payload = 7.2 kg; 6S; full
 # charge 25.1 V = 4.18 V/cell. capacity_mah below is 17000.
 #   ⚠ STILL OPEN, gated on the operator:
-#   (1) BAT1_V_EMPTY (cutoff per cell) needs the manufacturer spec — interim
-#       CONSERVATIVE until then (errs to an EARLY land = safe). Since
-#       BAT1_CAPACITY=-1 the whole gauge is interpolate(cell_v, V_EMPTY,
-#       V_CHARGED), so every % threshold (RTH 30 / LAND 20 / delivery-gate 38 /
-#       BAT_LOW/CRIT/EMERGEN) rides on these two — read them off the powered
-#       board (preflight_params over the CM4/NOMAD) before the next flight.
+#   (1) BATTERY ENDPOINTS — operator spec 2026-08-19: 6S, full 25.1 V,
+#       empty ~22.6 V => per cell BAT1_V_CHARGED 4.18, BAT1_V_EMPTY 3.77.
+#       Read LIVE off the board over NOMAD the same day: it holds 4.05 / 3.60,
+#       i.e. NOT this pack. Since BAT1_CAPACITY=-1 the whole gauge is
+#       interpolate(cell_v, V_EMPTY, V_CHARGED); and with no current sensing PX4
+#       does NOT load-compensate (calculateStateOfChargeVoltageBased only
+#       compensates when current > 0), so the raw, sagging in-flight voltage is
+#       read straight against these two — the numbers above are RESTED. With the
+#       17000 pack a 4-delivery flight spends ~4.5 of 12.75 Ah usable and never
+#       nears the 30% RTH, so these endpoints drive the OPERATOR's gauge
+#       accuracy far more than any failsafe trigger. Setting them to the pack
+#       (4.18 / 3.77) is safe; verify the mid-range on a test hover (sag under
+#       load) if precision matters. Writing them to the FC is an operator
+#       go-ahead item (failsafe param) — not pushed from this repo.
 #   (2) SITL SDF mass + MPC_THR_HOVER + sim_battery below still describe the OLD
 #       pack — SITL-only, not flight safety; real bird lets MPC_USE_HTE learn
 #       hover. Tracked in the safety-review Workstream A.

@@ -59,6 +59,13 @@ BOARD: dict[str, float] = {
     # battery: the PM03D is out, so the voltage-only branch carries the gauge
     "BAT1_CAPACITY": -1,              # <=0 selects estimateStateOfCharge's else
     "BAT1_N_CELLS": 6,
+    # 17000 mAh semi-solid endpoints (operator 2026-08-19: full 25.1 V, empty
+    # ~22.6 V, 6S -> per cell 4.18 / 3.77). With BAT1_CAPACITY=-1 the whole
+    # gauge is interpolate(cell_v, V_EMPTY, V_CHARGED), so a board still holding
+    # the LiPo defaults (4.05 / 3.60) reads a wrong %. Set + read-back verified
+    # on the board 2026-08-19.
+    "BAT1_V_CHARGED": 4.18,
+    "BAT1_V_EMPTY": 3.77,
     "SENS_TFMINI_CFG": 103,           # TFmini-S on TELEM3
 }
 
