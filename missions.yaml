@@ -8,7 +8,7 @@
 # CM4, และคำสั่งที่ปุ่ม 🚀 จะ ssh ไปเรียก — ผู้ใช้ไม่ต้องพิมพ์อะไรเอง
 missions:
   kmutnb:
-    label: "KMUTNB สนามซ้อม (เพดาน 5 m)"
+    label: "KMUTNB สนามซ้อม (เพดาน 10 m)"
     field: "/home/bonus-linux/Desktop/mission AAVC in kmutnb/gcs/kmutnb_field.yaml"
     captures: "/home/bonus-linux/Desktop/mission AAVC in kmutnb/captures"
     mission_cmd: "'/home/bonus-linux/Desktop/mission AAVC in kmutnb/sitl/run_mission.sh' {ids}"
@@ -19,21 +19,21 @@ missions:
       dir: "mission"
       entry: "REAL=1 ~/mission/sitl/run_mission.sh {ids}"
   aavc:
-    label: "AAVC สนามแข่ง (mission_AAVC, เพดาน 20 m)"
-    # ธง `default: true` ถูกถอดออก 2026-08-15 (คำสั่งผู้ใช้: "อยากให้ default
-    # เป็นไม่มี") — console กลับไปบูตตามลำดับใน registry คือ entry แรกที่พร้อม
-    # (= kmutnb) ผู้ใช้กดสลับเป็น aavc เองเมื่อต้องการ. กลไก `default:` ยังอยู่
-    # ในโค้ด ใส่กลับที่ entry ไหนก็ได้ถ้าเปลี่ยนใจ
-    # contract delivered + SITL-validated by the mission_AAVC session
-    # 2026-08-13 (4/4 in 541 s; double-run exits 4; RC_GO=1 supported)
+    label: "AAVC สนามแข่ง KMITL (aavc-comp, เพดาน 20 m)"
+    # REDIRECTED 2026-08-19 to the aavc-comp repo (a clone of the practice repo
+    # reconfigured for KMITL via .aavc_site: AAVC_PROFILE=competition +
+    # sitl/kmitl_config.yaml). The old mission_AAVC repo was retired the same day.
+    # The flight core is identical to the practice repo and kept so via
+    # aavc-practice/sync_core.sh. ⚠ kmitl_config.yaml geometry is the rules-PDF
+    # numbers, NOT surveyed — verify at the 28-Aug trial.
     field: "/home/bonus-linux/Desktop/aavc-gcs/aavc_field.yaml"
-    captures: "/home/bonus-linux/Desktop/mission_AAVC/captures"
-    mission_cmd: "bash /home/bonus-linux/Desktop/mission_AAVC/scripts/run_mission.sh --ids {ids}"
+    captures: "/home/bonus-linux/Desktop/aavc-comp/captures"
+    mission_cmd: "'/home/bonus-linux/Desktop/aavc-comp/sitl/run_mission.sh' {ids}"
     mission_label: ""
     real:
-      repo: "/home/bonus-linux/Desktop/mission_AAVC"
-      dir: "mission_AAVC"        # โฟลเดอร์ปลายทางบน CM4 (~/mission_AAVC)
-      # ตัวรันบนเครื่องจริง: ไม่ส่ง --sim (sim_params ที่ปิด failsafe จะไม่ถูก
-      # push) + ใช้ overlay config.hw.yaml + ไม่รัน servo bridge ของซิม.
-      # RC_GO=1 = สคริปต์แค่ stage ไว้ นักบิน RC เป็นคน arm + สลับ OFFBOARD เอง
-      entry: "RC_GO=1 ~/mission_AAVC/scripts/run_mission_hw.sh --ids {ids}"
+      repo: "/home/bonus-linux/Desktop/aavc-comp"
+      dir: "aavc-comp"           # โฟลเดอร์ปลายทางบน CM4 (~/aavc-comp)
+      # run_mission.sh (REAL=1) sources .aavc_site → competition + kmitl_config,
+      # and defaults RC_GO=1: the script only STAGES, the RC pilot arms + flips
+      # OFFBOARD. Same launcher as practice — only the repo/site differ.
+      entry: "REAL=1 ~/aavc-comp/sitl/run_mission.sh {ids}"
