@@ -346,6 +346,10 @@ def apply_mission(name):
 # error after the press), and the sensor board gets a CM4 chip. A local
 # mission_cmd (SIM) has no host — probe result None, no gating, chip n/a.
 _CM4_OK = None
+# REAL console: auto bring-up of the aircraft's camera+beacon infra on connect
+# (operator 2026-08-19) so the camera sensor chip lights without staging a flight.
+_INFRA_STARTED = False
+_INFRA_INFLIGHT = False
 
 
 def _mission_cmd_ssh_host(cmd):
@@ -370,6 +374,46 @@ def _mission_cmd_remote_dir(cmd):
     return None
 
 
+def _maybe_start_infra(host):
+    """REAL console only: once the CM4 is reachable over ssh, bring up ONLY the
+    aircraft's infra (mavlink-router + camera grabber + status beacon) via the
+    fail-safe cm4/start_infra.sh — never the orchestrator, so no arm and no
+    flight. This lights the camera sensor chip from the radio beacon WITHOUT
+    pressing 🚀 (operator 2026-08-19). Done once; a CM4 that predates the script
+    just returns 'no such file' and nothing is staged."""
+    global _INFRA_STARTED, _INFRA_INFLIGHT
+    if _INFRA_STARTED or _INFRA_INFLIGHT:
+        return
+    remote_dir = _mission_cmd_remote_dir(MISSION_CMD)
+    if not host or not remote_dir:
+        return
+    _INFRA_INFLIGHT = True
+
+    def _run():
+        global _INFRA_STARTED, _INFRA_INFLIGHT
+        try:
+            r = subprocess.run(
+                ["ssh", "-o", "StrictHostKeyChecking=accept-new",
+                 "-o", "ConnectTimeout=6", "-o", "BatchMode=yes",
+                 host, f"{remote_dir}/cm4/start_infra.sh"],
+                capture_output=True, text=True, timeout=45)
+            _INFRA_STARTED = True   # command ran (infra now up, or a mission already has it)
+            if LINK is not None:
+                if r.returncode == 0:
+                    LINK._note("[infra] CM4 กล้อง+beacon สตาร์ทแล้ว (auto) — chip กล้องจะเขียวใน 2-3 วิ")
+                else:
+                    tail = ((r.stderr or r.stdout or "").strip().splitlines() or [""])[-1]
+                    LINK._note(f"[infra] CM4 start_infra rc={r.returncode}: {tail[:80]}")
+        except Exception as e:
+            # couldn't reach/run — leave the flag down so the next probe retries
+            if LINK is not None:
+                LINK._note(f"[infra] ssh CM4 infra ยังไม่ได้ ({type(e).__name__}) — จะลองใหม่")
+        finally:
+            _INFRA_INFLIGHT = False
+
+    threading.Thread(target=_run, daemon=True, name="infra-start").start()
+
+
 def _cm4_probe_loop():
     global _CM4_OK
     while True:
@@ -381,6 +425,7 @@ def _cm4_probe_loop():
                 c = socket.create_connection((host, 22), timeout=2)
                 c.close()
                 _CM4_OK = True
+                _maybe_start_infra(host)     # REAL: auto camera+beacon on connect
             except OSError:
                 _CM4_OK = False
         time.sleep(4)
@@ -479,10 +524,16 @@ class Link:
         self.url = url
         self.baud = baud
         self.send_lock = threading.Lock()
-        # ACTUATOR_TEST holds an output only while commands keep arriving (PX4
-        # drops the override at its timeout), so a latch that must STAY open on
-        # the bench needs a keep-alive per channel: {num: threading.Event}
-        self._servo_hold: dict[int, threading.Event] = {}
+        # Payload-latch keep-alive. ACTUATOR_TEST holds an output only while
+        # commands keep arriving (PX4 drops the override at its timeout), so a
+        # latch that must STAY open on the bench needs re-sending. The buttons
+        # only EDIT this desired-set {idx: value}; ONE supervisor thread (started
+        # on the first hold) re-sends the held channels and RELEASE_CONTROLs the
+        # rest. Replaces a per-press-thread design that orphaned keep-alive loops
+        # under rapid clicks (latch drove itself; only a process kill stopped it).
+        self._servo_desired: dict[int, float] = {}
+        self._servo_lock = threading.Lock()
+        self._servo_sup_started = False
         self.lock = threading.Lock()
         self.s = {
             "link": False, "last_hb": 0.0, "armed": False, "mode": "-",
@@ -1688,48 +1739,76 @@ class Link:
     # ACTUATOR_TEST is a WATCHDOGGED override, not a switch: PX4 only overrides
     # an output while it is "in test mode", and that mode ends the moment the
     # command's timeout expires (mixer_module/actuator_test.cpp — _next_timeout
-    # is armed only when timeout_ms > 0, and Commander turns any param2 ≤ 0
-    # into RELEASE_CONTROL, so "hold forever" cannot be expressed in one
-    # command). Sending it once therefore gives a latch that springs back by
-    # itself. To make the console button behave like the ON/OFF switch an
-    # operator expects, we re-send while the latch should stay open — the same
-    # thing QGC's actuator sliders do — and stop on the reset button.
+    # is armed only when timeout_ms > 0, and Commander turns any param2 ≤ 0 into
+    # RELEASE_CONTROL, so "hold forever" cannot be expressed in one command).
+    # Sending it once therefore gives a latch that springs back by itself, so to
+    # make the console button behave like an ON/OFF switch we re-send while the
+    # latch should stay open — like QGC's actuator sliders.
+    #
+    # ONE supervisor owns ALL the re-sending (2026-08-19). The previous design
+    # started a fresh keep-alive THREAD per press and tracked one stop-Event per
+    # channel; pressing the buttons rapidly raced the pop/replace of that Event
+    # and ORPHANED keep-alive loops that nothing could stop except killing the
+    # process — the field-reported "latch opens/closes by itself after 5-10 min".
+    # Now the buttons only edit a desired-set {idx: value}; a single long-lived
+    # thread re-sends the held channels and RELEASE_CONTROLs the ones just
+    # removed. Idempotent under any number of concurrent presses, unraceable
+    # (no per-press threads to leak), and self-clearing once the vehicle arms.
 
     _TEST_PERIOD_S = 0.4        # resend interval (PX4 ignores frames > 100 ms old)
     _TEST_TIMEOUT_S = 1.5       # per-command timeout: > period, so no flicker;
                                 # short enough that a dead console releases fast
 
     def _servo_test_hold(self, idx, value):
-        """Hold actuator-set `idx` at `value` until _servo_test_stop()."""
-        cmd_test = getattr(mavutil.mavlink, "MAV_CMD_ACTUATOR_TEST", 310)
-        with self.lock:
-            old = self._servo_hold.pop(idx, None)
-        if old:
-            old.set()                        # replace any previous keep-alive
-        stop = threading.Event()
-        with self.lock:
-            self._servo_hold[idx] = stop
-
-        def _loop():
-            while not stop.is_set():
-                # param1 value, param2 timeout s, param5 = 1000 + output function
-                self._cmd(cmd_test, value, self._TEST_TIMEOUT_S, 0, 0,
-                          1000 + 300 + idx, 0, 0)
-                stop.wait(self._TEST_PERIOD_S)
-
-        threading.Thread(target=_loop, daemon=True).start()
+        """Mark actuator-set `idx` to be held open until _servo_test_stop()."""
+        with self._servo_lock:
+            self._servo_desired[idx] = float(value)
+        self._ensure_servo_sup()
 
     def _servo_test_stop(self, idx):
-        """Stop holding and hand the output back to PX4 (→ its disarmed value)."""
+        """Drop `idx` from the held set and hand the output straight back to PX4.
+        NON-BLOCKING: one immediate RELEASE_CONTROL, then the supervisor re-sends
+        RELEASE on its next tick (<=0.4s) and — since no more HOLD frames arrive —
+        the ACTUATOR_TEST watchdog closes the latch within 1.5s regardless. No
+        per-channel sleeps, so 'close all' is as snappy as closing one latch; the
+        old 0.4s + 3x0.05s PER channel stacked into the 4-6s the operator saw."""
         cmd_test = getattr(mavutil.mavlink, "MAV_CMD_ACTUATOR_TEST", 310)
-        with self.lock:
-            stop = self._servo_hold.pop(idx, None)
-        if stop:
-            stop.set()
-        time.sleep(self._TEST_PERIOD_S)       # let the keep-alive die first
-        for _ in range(3):                    # param2 = 0 → RELEASE_CONTROL
-            self._cmd(cmd_test, 0.0, 0.0, 0, 0, 1000 + 300 + idx, 0, 0)
-            time.sleep(0.05)
+        with self._servo_lock:
+            self._servo_desired.pop(idx, None)
+        self._cmd(cmd_test, 0.0, 0.0, 0, 0, 1000 + 300 + idx, 0, 0)  # param2=0 → RELEASE
+
+    def _ensure_servo_sup(self):
+        """Start the single keep-alive supervisor once, lazily."""
+        with self._servo_lock:
+            if self._servo_sup_started:
+                return
+            self._servo_sup_started = True
+        threading.Thread(target=self._servo_supervisor, daemon=True,
+                         name="servo-keepalive").start()
+
+    def _servo_supervisor(self):
+        cmd_test = getattr(mavutil.mavlink, "MAV_CMD_ACTUATOR_TEST", 310)
+        prev: set[int] = set()
+        while True:
+            with self._servo_lock:
+                desired = dict(self._servo_desired)
+            with self.lock:
+                armed = bool(self.s.get("armed"))
+            if armed and desired:
+                # a bench hold cannot survive into armed flight (PX4 denies
+                # ACTUATOR_TEST while armed anyway) — forget them so nothing
+                # resumes on the next disarm, and release below.
+                with self._servo_lock:
+                    self._servo_desired.clear()
+                desired = {}
+            for i, val in desired.items():           # keep held channels open
+                # param1 value, param2 timeout s, param5 = 1000 + output function
+                self._cmd(cmd_test, val, self._TEST_TIMEOUT_S, 0, 0,
+                          1000 + 300 + i, 0, 0)
+            for i in prev - desired.keys():           # channels just released
+                self._cmd(cmd_test, 0.0, 0.0, 0, 0, 1000 + 300 + i, 0, 0)
+            prev = set(desired.keys())
+            time.sleep(self._TEST_PERIOD_S)
 
     def cal_accel(self):
         # PREFLIGHT_CALIBRATION param5=1 -> accelerometer (6-orientation).
@@ -2850,18 +2929,26 @@ function renderSensors(s){
   else{cls='sna';txt='n/a';}
   html+='<div class="schip '+cls+'" title="'+SLAB[k]+': '+txt+'"><span class=sdot></span>'+SLAB[k]+'</div>';
  }
- // Geofence containment: is the drone INSIDE controlled_airspace right now? A
- // dedicated status the operator asked for (2026-08-19), separate from the FC's
- // own fence-breach failsafe.
- var fp=(s.fence&&s.fence.pts)||[], gg=s.gps||{};
+ // Geofence containment: is the drone INSIDE the fence right now? Uses the
+ // MISSION geofence (controlled_airspace from the field yaml, always loaded —
+ // s.zones.airspace) so it lights up from a GPS fix alone, with NO 🛡️ upload
+ // and NO 🚀; falls back to a session-uploaded polygon if one exists. Separate
+ // from the FC's own fence-breach failsafe (operator 2026-08-19).
+ var fp=fenceRef(s), gg=s.gps||{};
  if(fp.length>=3&&gg.lat!=null&&gg.lon!=null&&gg.fix>=2){
   var inside=pointInPoly(gg.lat,gg.lon,fp);
-  html+='<div class="schip '+(inside?'sok':'sbad')+'" title="geofence: '+(inside?'โดรนอยู่ในรั้ว':'โดรนอยู่นอกรั้ว!')+'"><span class=sdot></span>'+(inside?'ในรั้ว':'นอกรั้ว!')+'</div>';
+  html+='<div class="schip '+(inside?'sok':'sbad')+'" title="geofence (mission): '+(inside?'โดรนอยู่ในรั้ว':'โดรนอยู่นอกรั้ว!')+'"><span class=sdot></span>'+(inside?'ในรั้ว':'นอกรั้ว!')+'</div>';
+ }else if(fp.length>=3){
+  html+='<div class="schip sna" title="geofence (mission): มีรั้วแล้ว รอ GPS fix"><span class=sdot></span>รั้ว · รอ GPS</div>';
  }else{
-  html+='<div class="schip sna" title="geofence: ยังไม่มีตำแหน่ง/รั้วให้เทียบ"><span class=sdot></span>รั้ว ?</div>';
+  html+='<div class="schip sna" title="geofence: ไม่มีรั้วใน mission config"><span class=sdot></span>รั้ว ?</div>';
  }
  box.innerHTML=html;
 }
+// fence reference polygon: prefer the MISSION geofence (field yaml
+// controlled_airspace, always present), else a polygon uploaded this session.
+function fenceRef(s){var z=s.zones||{};
+ return (z.airspace&&z.airspace.length>=3)?z.airspace:((s.fence&&s.fence.pts)||[]);}
 // point-in-polygon (ray casting); pts = [[lat,lon],…]
 function pointInPoly(lat,lon,pts){var inside=false,n=pts.length;
  for(var i=0,j=n-1;i<n;j=i++){var yi=pts[i][0],xi=pts[i][1],yj=pts[j][0],xj=pts[j][1];
@@ -3037,9 +3124,9 @@ function buildFlyChecks(){
  var preFail=(pa.ok===false&&pa.age!=null&&pa.age<15);
  var gpsOk=(g.fix>=3&&!preFail&&(g.hdop==null||g.hdop<=2.0));
  h+=flyRow(gpsOk,'GPS พร้อม arm (ตรงกับ PX4)',(g.fix>=3?'3D '+(g.sats||0)+' ดวง'+(g.hdop!=null?' · hdop '+g.hdop:''):'fix '+(g.fix||0))+(preFail?' · PX4:PDOP สูง':''));
- var fp=(s.fence&&s.fence.pts)||[];
- if(fp.length>=3&&g.lat!=null&&g.fix>=2){var ins=pointInPoly(g.lat,g.lon,fp);if(!ins)block=true;h+=flyRow(ins,'โดรนอยู่ในรั้ว geofence',ins?'ในรั้ว':'อยู่นอกรั้ว!');}
- else h+=flyRow(null,'โดรนอยู่ในรั้ว geofence','ยังไม่มีตำแหน่ง/รั้ว');
+ var fp=fenceRef(s);
+ if(fp.length>=3&&g.lat!=null&&g.fix>=2){var ins=pointInPoly(g.lat,g.lon,fp);if(!ins)block=true;h+=flyRow(ins,'โดรนอยู่ในรั้ว geofence (mission)',ins?'ในรั้ว':'อยู่นอกรั้ว!');}
+ else h+=flyRow(null,'โดรนอยู่ในรั้ว geofence','ยังไม่มีตำแหน่ง GPS');
  h+=flyRow(hl.battery!==false&&(b.pct==null||b.pct>25),'แบตเตอรี่',(b.volt!=null?b.volt+'V':'')+(b.pct!=null?' · '+b.pct+'%':''));
  h+=flyRow(s.link!==false&&s.cm4_ok!==false,'ลิงก์ + CM4',(s.link?'link OK':'link หลุด')+(s.cm4_ok===false?' · CM4 หลุด':''));
  h+=flyRow(hl.rc!==false,'RC (safety pilot) พร้อม',hl.rc!==false?'พร้อม':'ไม่พบ RC');
