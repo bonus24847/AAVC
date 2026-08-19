@@ -91,6 +91,7 @@ def order_by_nearest(ids: Iterable[int],
     queue = list(ids)
     if not _valid(start):
         return queue
+    assert start is not None  # _valid() ruled out None (and NaN); narrows for mypy
     known = [i for i in queue if _valid(coords.get(i))]
     unknown = [i for i in queue if i not in known]
     if len(known) < 2:

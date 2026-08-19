@@ -1033,23 +1033,28 @@ def _rungs_for(profile: Any) -> tuple[float, ...]:
 
 
 def _align_for(profile: Any, frame_max_age_s: float) -> AlignParams:
-    """AlignParams matched to the profile's altitude band.
+    """AlignParams matched to the profile's altitude band AND field geometry.
 
-    KMUTNB (ceiling <= 6 m): 4-rung ladder with positionally-matched
-    tolerances/descent speeds, and accept_radius_m tightened 15 -> 5 m — the
-    default assumes >= 25 m pad separation, but the sky-field baseline packs
-    pads 14.5 m apart, so 15 m would accept a NEIGHBOURING pad as the target.
-    High ceilings keep the AlignParams defaults (the validated KMITL set)."""
+    A very low ceiling (<= 6 m) also needs the short 4-rung ladder with
+    positionally-matched tolerances/descent speeds. The terminal accept radius,
+    though, follows the FIELD not the ceiling — ``profile.terminal_accept_radius_m``
+    — because pad SPACING, not altitude, is what a too-wide radius grabs the
+    wrong pad from. (The old code hard-coded ``accept_radius_m=5`` inside the
+    ``<= 6`` branch; when the KMUTNB ceiling rose 5 -> 10 m that branch stopped
+    firing and the tight sky-field silently got the 15 m KMITL default — wider
+    than its 14.5 m pad spacing.)"""
     rungs = _rungs_for(profile)
+    accept = profile.terminal_accept_radius_m
     if profile.altitude_ceiling_m <= 6.0:
         return AlignParams(
             rungs=rungs,
             rung_tol_m=(1.0, 0.6, 0.35, 0.2),
             rung_descent_mps=(1.5, 0.8, 0.5, 0.4),
-            accept_radius_m=5.0,
+            accept_radius_m=accept,
             frame_max_age_s=frame_max_age_s,
         )
-    return AlignParams(rungs=rungs, frame_max_age_s=frame_max_age_s)
+    return AlignParams(rungs=rungs, accept_radius_m=accept,
+                       frame_max_age_s=frame_max_age_s)
 
 
 def _build_spec(area: list[tuple[float, ...]], home: Coordinate,

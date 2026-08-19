@@ -58,6 +58,14 @@ class MissionProfile(BaseModel):
     # ── default vision target (B3). Production = empty: the operator must name
     # the target; there is no AAVC stock mannequin in real-world ops. ──
     default_target: str
+    # ── terminal-approach accept radius (m): how close a decoded pad must be
+    # for the align layer to accept it AS the target. MUST stay below half the
+    # field's minimum pad separation, or a neighbouring pad can be grabbed. This
+    # rides on the FIELD (the profile), NOT the altitude ceiling: the old
+    # `ceiling <= 6` proxy for "tight sky-field" broke silently when the KMUTNB
+    # practice ceiling was raised 5 -> 10 m (commit a3e3b0f). KMUTNB pads sit
+    # 14.5 m apart -> 5 m; the wider KMITL field keeps the validated 15 m. ──
+    terminal_accept_radius_m: float = Field(15.0, gt=0)
 
 
 # Competition profile = the exact values that were hard-coded before B1 (so the
@@ -140,6 +148,10 @@ KMUTNB_SKYFIELD = COMPETITION.model_copy(update={
     "altitude_ceiling_m": 10.0,
     "transit_alt_m": 9.0,
     "search_floor_m": 2.5,
+    # pads pack 14.5 m apart on the sky-field — the align layer must not accept
+    # one from 15 m away (the KMITL default). Kept HERE, not behind a ceiling
+    # check, so raising the ceiling can never silently widen it again.
+    "terminal_accept_radius_m": 5.0,
 })
 
 _PROFILES: dict[str, MissionProfile] = {

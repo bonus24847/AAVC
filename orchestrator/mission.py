@@ -218,7 +218,7 @@ async def run_delivery_mission(
     profile: MissionProfile | None = None,
     align: AlignParams | None = None,
     policy: TimePolicy | None = None,
-    max_pads: int = 4,
+    max_pads: int = 6,  # SIX pads in the field; a 4 truncates the sweep at 4/6
     decode_dwell_s: float = 4.0,
     on_phase: Callable[[MissionPhase], None] | None = None,
     on_drop_prediction: DropPredCb | None = None,

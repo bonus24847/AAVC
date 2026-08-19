@@ -44,6 +44,11 @@ def test_mission_config_carries_the_generated_frame() -> None:
     assert _pairs_match(cfg["controlled_airspace"], GEO.airspace_ll)
     assert _pairs_match(cfg["search_area"], GEO.search_ll)
     assert _pairs_match(cfg["transit_route"], GEO.transit_ll)
+    # The sweep axis rotates the boustrophedon grid, so it is part of the frame.
+    # The polygons were regenerated from gen_geo's measured 143.2 deg, but
+    # sweep_axis_deg was left at the old satellite-traced 143.8 (code-review
+    # 2026-08-19) — a 0.6 deg drift that walked the legs ~1 m off the survey.
+    assert abs(float(cfg["search"]["sweep_axis_deg"]) - GEO.axis_deg) <= 1e-6
 
 
 def test_real_console_field_carries_the_generated_frame() -> None:

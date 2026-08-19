@@ -32,7 +32,7 @@
 # sitl/spawn_targets.py all derive from THIS center. Keep them in sync (all
 # five generated together by tools/gen_geo.py).
 #
-# Field frame: the pitch long axis bears 143.8 deg true (NW goal -> SE goal),
+# Field frame: the pitch long axis bears 143.2 deg true (NW goal -> SE goal),
 # so every rectangle below is ROTATED in ENU — see search.sweep_axis_deg.
 
 site:
@@ -153,7 +153,9 @@ search:
   # search polygon is rotated ~36 deg off ENU; without this the sweep grid
   # covers the polygon's ENU bounding box, whose corners are OUTSIDE the
   # airspace -> guaranteed geofence proximity/breach. gen_geo AXIS_DEG.
-  sweep_axis_deg: 143.8
+  # 143.2 = the surveyed long axis (the traced 143.8 was 0.6 deg off and walked
+  # the sweep legs ~1 m toward the field ends); test_geometry_invariant pins it.
+  sweep_axis_deg: 143.2
   confirm_votes: 2         # decoded NADIR votes to CONFIRM an id-cluster into the
                            # registry. The land gate re-verifies the id AT the
                            # pad, so a mis-registered pad defers, never mislands.

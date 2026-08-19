@@ -11,7 +11,7 @@ Frame definitions
 -----------------
 * Field centre C = centre circle of the KMUTNB rooftop football pitch
   (สนามฟุตบอลลอยฟ้า มจพ. บางซื่อ), measured off Google z20 imagery 2026-08-11.
-* The pitch long axis points AXIS_DEG (143.8° true, NW goal -> SE goal).
+* The pitch long axis points AXIS_DEG (143.2° true surveyed, NW goal -> SE goal).
   Field frame: s = metres along that axis (+ toward the SE goal),
   t = metres across it (+ toward the NE touchline).
 * ENU: X = east, Y = north, origin = the Launch & Recovery point (which is
