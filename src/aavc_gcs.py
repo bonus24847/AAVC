@@ -3653,6 +3653,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-c", "--config", default="config/real.yaml")
     ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="bind address; default LOCALHOST-ONLY. The /api/* "
+                         "command endpoints have NO auth, so a LAN/hotspot bind "
+                         "(--host 0.0.0.0) lets any device on the network clear "
+                         "the geofence, remap the RC mode switch, or fire the egg "
+                         "latches while the aircraft is flying. Widen only on a "
+                         "network you fully trust.")
     ap.add_argument("--demo", action="store_true",
                     help="serve sample telemetry with no FMU (preview)")
     ap.add_argument("--url", help="MAVLink endpoint override (e.g. /dev/ttyACM0)")
@@ -3760,9 +3767,9 @@ def main():
     CM4MGR = CM4(LINK, local=on_cm4)
     if not args.demo:
         CM4MGR.start()                        # discover/monitor CM4 (or self if local)
-    srv = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
-    where = "localhost" if args.demo else "<host-ip>"
-    print(f"[gcs] dashboard ready -> http://{where}:{args.port}")
+    srv = ThreadingHTTPServer((args.host, args.port), Handler)
+    where = "localhost" if args.host in ("127.0.0.1", "localhost") else args.host
+    print(f"[gcs] dashboard ready -> http://{where}:{args.port}  (bind {args.host})")
     srv.serve_forever()
 
 
