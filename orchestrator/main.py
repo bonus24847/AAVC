@@ -30,6 +30,7 @@ import json
 import math
 import os
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -255,6 +256,32 @@ async def emergency_recover(state: OrchestratorState, commander: Any) -> None:
         except Exception:
             logger.exception(
                 "[main] LAND failed too — FC failsafes are the only net left")
+
+
+async def _guard_mission(run: Callable[[], Awaitable[None]],
+                         state: OrchestratorState, commander: Any) -> None:
+    """Run the mission loop and, on ANY exit that could leave the aircraft
+    airborne — a crash OR a cancel/Ctrl-C — bring it home before the caller's
+    ``finally`` stops the watchdog.
+
+    ``except Exception`` alone missed ``asyncio.CancelledError``, which is a
+    ``BaseException`` on 3.12: a Ctrl-C or a task cancel skipped
+    ``emergency_recover`` entirely and stopped the watchdog with the aircraft
+    still flying, leaving only the FC's own failsafes. The cancel is re-raised
+    so the process still exits; a recovery that itself fails on the way down is
+    swallowed rather than masking the cancellation."""
+    try:
+        await run()
+    except asyncio.CancelledError:
+        logger.warning("[main] mission loop cancelled — emergency recover, then re-raise")
+        try:
+            await emergency_recover(state, commander)
+        except BaseException:  # noqa: BLE001 — cleanup on the way down; never mask the cancel
+            pass
+        raise
+    except Exception:
+        logger.exception("[main] mission loop raised")
+        await emergency_recover(state, commander)
 
 
 def _evaluate_energy(state: OrchestratorState, energy_policy: EnergyPolicy) -> None:
@@ -957,19 +984,19 @@ async def run(args: argparse.Namespace) -> int:
 
         gcs_poll = asyncio.create_task(_gcs_progress_poll())
         try:
-            await run_delivery_mission(
-                commander, state, tracker, spec,
-                home=home, transit_route=transit_route, sortie_gate=sortie_gate,
-                profile=profile, align=align, policy=policy,
-                max_pads=int(sc.get("max_pads", 6)),
-                decode_dwell_s=float(sc.get("decode_dwell_s", 4.0)),
-                on_drop_prediction=on_drop_prediction,
-                on_plan_update=on_plan_update,
-                refresh_energy=lambda: _evaluate_energy(state, energy_policy),
+            await _guard_mission(
+                lambda: run_delivery_mission(
+                    commander, state, tracker, spec,
+                    home=home, transit_route=transit_route, sortie_gate=sortie_gate,
+                    profile=profile, align=align, policy=policy,
+                    max_pads=int(sc.get("max_pads", 6)),
+                    decode_dwell_s=float(sc.get("decode_dwell_s", 4.0)),
+                    on_drop_prediction=on_drop_prediction,
+                    on_plan_update=on_plan_update,
+                    refresh_energy=lambda: _evaluate_energy(state, energy_policy),
+                ),
+                state, commander,
             )
-        except Exception:
-            logger.exception("[main] mission loop raised")
-            await emergency_recover(state, commander)
         finally:
             gcs_poll.cancel()
             # Tear down supervision + telemetry on EVERY path (success or the
