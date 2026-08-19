@@ -115,6 +115,15 @@ EOF
 EXTRA=()
 if [ "${REAL:-0}" = "1" ]; then
     ensure_infra
+    # INFRA_ONLY: bring the aircraft's own stack up (router + camera grabber +
+    # status beacon) but DO NOT start the orchestrator — no arm, no flight. The
+    # REAL console auto-triggers this on connect so the camera sensor chip lights
+    # from the radio beacon without staging a mission (operator 2026-08-19).
+    if [ "${INFRA_ONLY:-0}" = "1" ]; then
+        echo "[run_mission] INFRA_ONLY: router + camera grabber + status beacon up —"
+        echo "              orchestrator NOT started (no arm, no flight)."
+        exit 0
+    fi
     EXTRA+=(--connect "udpin://0.0.0.0:14540")
     # REAL bird defaults to RC-GO (operator conops 2026-08-12): the console's
     # 🚀 only STAGES the flight — the SAFETY PILOT arms via RC and flips to
