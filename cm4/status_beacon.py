@@ -89,12 +89,13 @@ def compose_lines(status: dict | None, frame_age_s: float | None,
         # 17, not 9 (2026-08-18). The console does not merely PRINT the phase —
         # it keys behaviour off the text: the 🚀 button shows "staged" (the
         # aircraft has confirmed the mission) only when the phase CONTAINS
-        # "preflight", and the longest phase the orchestrator writes is
-        # "recon (preflight)" at 17. Truncated to 9 it arrived as "recon (pr",
-        # the match failed, and the radio path jumped straight to "flying" — a
-        # button lying about whether the mission ever reached the drone. The
-        # widest line this makes is 45 chars, still inside one packet, which a
-        # test pins.
+        # "preflight". Truncated to 9 it arrived as "recon (pr", the match
+        # failed, and the radio path jumped straight to "flying" — a button
+        # lying about whether the mission ever reached the drone. 17 is a
+        # line-WIDTH budget, not the longest phase: transit phases run longer
+        # ("deliver (transit_egress)" is 24, truncating to "deliver (transit_"),
+        # but the console's substring matches — "preflight"/"recon"/"deliver" —
+        # all fall inside the first 17 chars, which a test pins.
         phase = str(status.get("phase") or "?")[:17]
         assigned = list(status.get("assigned") or [])
         delivered = list(status.get("delivered") or [])
@@ -160,8 +161,10 @@ def compose_lines(status: dict | None, frame_age_s: float | None,
     # it were happening now (operator 2026-08-18, after a console restart failed
     # to clear it — restarting cannot help, the staleness is on the wire).
     # Sent only once the data stops being current, so a live flight pays nothing.
+    # WARN, not INFO: "the mission data stopped updating" is a something-is-wrong
+    # line like why=/cam=DEAD, and on a QGC bound to 14550 an INFO line blends in.
     if status_age_s is not None and status_age_s > _STATUS_STALE_S:
-        lines.append((_SEV_INFO, f"AAVC stale={int(status_age_s)}"[:_MAX_TEXT]))
+        lines.append((_SEV_WARN, f"AAVC stale={int(status_age_s)}"[:_MAX_TEXT]))
 
     why = (status or {}).get("home_reason_code")
     if why:
@@ -184,6 +187,25 @@ def _read_status(path: Path) -> dict | None:
 
 
 def _frame_age(path: Path) -> float | None:
+    try:
+        return max(0.0, time.time() - path.stat().st_mtime)
+    except OSError:
+        return None
+
+
+def _status_age(status: dict | None, path: Path) -> float | None:
+    """Seconds since the mission status was last WRITTEN, or None if unknown.
+
+    Prefers the writer's own ``updated`` stamp over the file mtime: the
+    orchestrator writes atomically via rename, and a status copied between
+    machines keeps ``updated`` but not the mtime. Falls back to the mtime, then
+    to None if even that cannot be read — the beacon then omits the stale line
+    rather than inventing an age."""
+    if status is None:
+        return None
+    stamped = status.get("updated")
+    if isinstance(stamped, (int, float)):
+        return max(0.0, time.time() - float(stamped))
     try:
         return max(0.0, time.time() - path.stat().st_mtime)
     except OSError:
@@ -224,30 +246,25 @@ def main() -> int:
               f"every {args.interval_s}s (sysid 1 / comp 191)", flush=True)
 
     while True:
-        status = _read_status(status_path)
-        # Prefer the writer's own stamp over the file mtime: the orchestrator
-        # writes atomically via rename, and a status copied between machines
-        # keeps `updated` but not the mtime.
-        age = None
-        if status is not None:
-            stamped = status.get("updated")
-            if isinstance(stamped, (int, float)):
-                age = max(0.0, time.time() - float(stamped))
-            else:
+        try:
+            status = _read_status(status_path)
+            lines = compose_lines(status, _frame_age(args.frame),
+                                  _status_age(status, status_path))
+            for sev, text in lines:
+                if args.dry_run:
+                    print(f"[beacon] sev={sev} {text}", flush=True)
+                    continue
                 try:
-                    age = max(0.0, time.time() - status_path.stat().st_mtime)
-                except OSError:
-                    age = None
-        lines = compose_lines(status, _frame_age(args.frame), age)
-        for sev, text in lines:
-            if args.dry_run:
-                print(f"[beacon] sev={sev} {text}", flush=True)
-                continue
-            try:
-                mav.mav.statustext_send(sev, text.encode("ascii", "replace")[:_MAX_TEXT])
-            except Exception as e:                   # link down, router restarting…
-                print(f"[beacon] send failed ({e}) — retrying next tick", flush=True)
-                break
+                    mav.mav.statustext_send(sev, text.encode("ascii", "replace")[:_MAX_TEXT])
+                except Exception as e:               # link down, router restarting…
+                    print(f"[beacon] send failed ({e}) — retrying next tick", flush=True)
+                    break
+        except Exception as e:
+            # One malformed status (a bad eta_s, a stray pads_mapped entry from
+            # the sibling writer) must NOT kill the loop: on the 🚀 path the
+            # beacon runs unsupervised, so a crash goes radio-silent for the rest
+            # of the flight — the one window the operator most needs it.
+            print(f"[beacon] tick failed ({e}) — continuing", flush=True)
         time.sleep(args.interval_s)
 
 

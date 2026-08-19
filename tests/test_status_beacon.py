@@ -11,6 +11,7 @@ rather than blending into the INFO stream.
 from __future__ import annotations
 
 import importlib.util
+import time
 from pathlib import Path
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -25,6 +26,12 @@ _SEV_WARN = 4
 
 def _texts(lines):
     return [t for _, t in lines]
+
+
+def _cam(lines):
+    """The camera line by CONTENT, not position: a stale=/why= line can precede
+    it, so indexing [1] silently tests the wrong line as the feed grows."""
+    return next((line for line in lines if line[1].startswith("AAVC cam")), None)
 
 
 def test_every_line_fits_one_statustext_packet() -> None:
@@ -59,9 +66,9 @@ def test_camera_state_maps_to_severity() -> None:
     """A stale/absent frame must arrive as WARNING: on the console these lines
     land in one scrolling message list, and an INFO line saying the camera died
     is a line nobody reads in time."""
-    ok = beacon.compose_lines(None, 0.9)[1]
-    dead = beacon.compose_lines(None, 60.0)[1]
-    missing = beacon.compose_lines(None, None)[1]
+    ok = _cam(beacon.compose_lines(None, 0.9))
+    dead = _cam(beacon.compose_lines(None, 60.0))
+    missing = _cam(beacon.compose_lines(None, None))
     assert ok[0] == _SEV_INFO and "cam=OK" in ok[1]
     assert dead[0] == _SEV_WARN and "cam=DEAD" in dead[1]
     assert missing[0] == _SEV_WARN and "cam=NONE" in missing[1]
@@ -73,8 +80,8 @@ def test_camera_threshold_sits_above_the_grabber_rate_not_at_it() -> None:
     first hiccup — nor stay quiet long enough for a wedged grabber to look fine
     for a whole delivery."""
     assert 2.0 < beacon._CAM_DEAD_S <= 10.0
-    assert "cam=OK" in beacon.compose_lines(None, beacon._CAM_DEAD_S - 0.1)[1][1]
-    assert "cam=DEAD" in beacon.compose_lines(None, beacon._CAM_DEAD_S + 0.1)[1][1]
+    assert "cam=OK" in _cam(beacon.compose_lines(None, beacon._CAM_DEAD_S - 0.1))[1]
+    assert "cam=DEAD" in _cam(beacon.compose_lines(None, beacon._CAM_DEAD_S + 0.1))[1]
 
 
 def test_pad_coordinates_ride_the_radio_in_one_packet_chunks() -> None:
@@ -213,3 +220,41 @@ def test_the_threshold_sits_above_the_writer_rate_not_at_it() -> None:
     flap on any hiccup, and one far above it would leave a dead mission looking
     live for minutes."""
     assert 10.0 <= beacon._STATUS_STALE_S <= 60.0
+
+
+def test_status_age_prefers_the_writers_own_stamp(tmp_path) -> None:
+    """The writer's `updated` stamp survives a copy between machines; the file
+    mtime does not. So a status rsynced to the laptop keeps dating correctly."""
+    p = tmp_path / "mission_status.json"
+    p.write_text("{}")                     # exists — but the stamp must win
+    age = beacon._status_age({"updated": time.time() - 12.0}, p)
+    assert age is not None and 11.0 <= age <= 14.0
+
+
+def test_status_age_falls_back_to_mtime_without_a_stamp(tmp_path) -> None:
+    """The sibling repo's writer may omit `updated`; the freshly written file's
+    mtime is then the best available date."""
+    p = tmp_path / "mission_status.json"
+    p.write_text("{}")
+    age = beacon._status_age({"phase": "x"}, p)
+    assert age is not None and age < 5.0
+
+
+def test_status_age_is_none_when_nothing_can_date_it(tmp_path) -> None:
+    """A non-numeric stamp AND no readable file -> no honest age, so None (the
+    beacon then simply omits the stale line rather than inventing a number)."""
+    assert beacon._status_age({"updated": "bad"}, tmp_path / "nope.json") is None
+
+
+def test_status_age_is_none_for_no_status(tmp_path) -> None:
+    assert beacon._status_age(None, tmp_path / "x.json") is None
+
+
+def test_stale_line_is_a_warning_not_info(tmp_path) -> None:
+    """`stale=` means the mission data stopped updating — a "something is wrong"
+    line, like why=/cam=DEAD. As INFO it blended into the stream on a QGC bound
+    to 14550; the operator needs it to stand out."""
+    status = {"phase": "done", "assigned": [1], "delivered": [1], "pads_mapped": {}}
+    stale = next((sev for sev, t in beacon.compose_lines(status, 0.3, 1917.0)
+                  if t.startswith("AAVC stale=")), None)
+    assert stale == _SEV_WARN
