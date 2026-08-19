@@ -806,9 +806,18 @@ class Link:
                     buf.append({"t": time.strftime("%H:%M:%S"), "txt": txt})
                     del buf[:-40]
                     self._parse_cal(txt)
+                    low = txt.lower()
                     # capture GPS driver boot lines ("GPS 1: u-blox …", "GPS: …")
-                    if "gps" in txt.lower():
+                    if "gps" in low:
                         self.s["gps_detect"]["last_msg"] = txt
+                    # PX4's OWN GPS prearm gate (e.g. "Preflight: GPS PDOP too
+                    # high"): track it so the GCS GPS status MATCHES PX4's
+                    # arm-readiness instead of showing 3D-fix green while PX4
+                    # refuses to arm on accuracy. Stamped; JS treats it as active
+                    # only while fresh (PX4 sends no explicit "GPS now OK").
+                    if "pdop" in low or ("preflight" in low and "gps" in low):
+                        self.s["gps_prearm"] = {"ok": False, "txt": txt,
+                                                "t": time.time()}
 
     def _parse_beacon(self, txt):
         """cm4/status_beacon.py summaries over the RADIO (STATUSTEXT, sysid 1 /
@@ -1807,6 +1816,12 @@ class Link:
         lid = snap.get("lidar") or {}
         snap["lidar_age"] = (round(time.time() - lid["t"], 1)
                              if lid.get("t") else None)
+        # PX4's last GPS prearm-fail (PDOP too high, …) with its age, so the GPS
+        # chip can go RED to MATCH PX4 refusing to arm — not just show 3D green.
+        gp = snap.get("gps_prearm") or {}
+        snap["gps_prearm"] = {"ok": gp.get("ok", True), "txt": gp.get("txt", ""),
+                              "age": (round(time.time() - gp["t"], 1)
+                                      if gp.get("t") else None)}
         # which pipe carries the telemetry this console is showing — drives
         # the "วิทยุ" chip in the sensor strip (a serial --url = the NOMAD)
         snap["link_kind"] = "radio" if str(self.url).startswith("/dev/") else "udp"
@@ -2373,6 +2388,27 @@ body.side-collapsed .colside{width:0;padding:0;border-right:none;overflow:hidden
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:1000;
  align-items:center;justify-content:center;padding:16px}
 .modal.show{display:flex}
+/* 🚀 pre-flight checklist + slide-to-confirm (operator 2026-08-19) */
+.flyhint{font-size:12.5px;color:#8b98a5;margin:2px 0 10px;line-height:1.5}
+.flychecks{margin-bottom:12px}
+.flyrow{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;margin-bottom:4px;background:#0d1117;font-size:13.5px}
+.flyrow .fmark{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:0 0 auto}
+.flyrow.ok .fmark{background:#238636;color:#fff}
+.flyrow.bad .fmark{background:#da3633;color:#fff}
+.flyrow.na .fmark{background:#30363d;color:#8b98a5}
+.flyrow .flabel{flex:1;color:#e6edf3}
+.flyrow.bad .flabel{color:#ff7b72}
+.flyrow .fdetail{color:#8b98a5;font-size:12px;text-align:right}
+.slidewrap{position:relative;height:52px;border-radius:26px;background:#161b22;border:2px solid #30363d;overflow:hidden;user-select:none;touch-action:none;margin-bottom:8px}
+.slidewrap.blocked{opacity:.5;pointer-events:none}
+.slidefill{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#1f6feb,#238636)}
+.slidelabel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#c9d1d9;font-size:13.5px;font-weight:600;pointer-events:none}
+.slidethumb{position:absolute;top:3px;left:3px;width:44px;height:44px;border-radius:50%;background:#238636;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.4);z-index:2}
+.slidethumb:active{cursor:grabbing}
+.flyprog{padding:10px;border-radius:8px;background:#0d1117;font-size:14px;color:#e6edf3;margin-bottom:8px}
+.flyoffboard{padding:12px;border-radius:9px;font-size:14px;font-weight:600;margin-bottom:8px;text-align:center;line-height:1.55}
+.flyoffboard.wait{background:#3a2d00;color:#e3b341;border:1px solid #9e6a03}
+.flyoffboard.go{background:#0f5323;color:#3fb950;border:1px solid #238636;animation:stagedpulse 1.4s ease-in-out infinite}
 .modalbox{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:18px;
  max-width:430px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.5)}
 .modalbox h3{margin:0 0 12px;font-size:17px;color:#e6e6e6;text-transform:none;letter-spacing:0}
@@ -2613,6 +2649,23 @@ body.fieldmode #fmbtn{background:#238636;color:#fff;border-color:#3fb950}
    <div id=savemsg style="font-size:13px;color:#8b98a5;margin-top:6px"></div>
   </div>
  </div>
+ <div class=modal id=flymodal>
+  <div class=modalbox>
+   <h3>🚀 พร้อม up ขึ้นโดรน?</h3>
+   <div class=flyhint>ตรวจความพร้อมก่อน แล้ว<b>สไลด์เพื่อยืนยัน</b>อัพโหลด mission — REAL: หลังอัพโหลด นักบิน arm RC + สลับ OFFBOARD เพื่อปล่อยบิน</div>
+   <div id=flychecks class=flychecks></div>
+   <div id=flyslide class=slidewrap>
+    <div id=flyslidefill class=slidefill></div>
+    <div class=slidelabel id=flyslidelabel>สไลด์ขวาเพื่อยืนยัน →</div>
+    <div id=flyslidethumb class=slidethumb>🚀</div>
+   </div>
+   <div id=flyprog class=flyprog style="display:none"></div>
+   <div id=flyoffboard class=flyoffboard style="display:none"></div>
+   <div class=modalbtns>
+    <button class=modalcancel type=button onclick=closeFlyModal()>ปิด</button>
+   </div>
+  </div>
+ </div>
  <div class=modal id=padmodal>
   <div class=modalbox>
    <h3>🎯 เลือก Pad ที่จะส่ง (ID 1-6 · เลือกกี่อันก็ได้)</h3>
@@ -2783,14 +2836,37 @@ function renderSensors(s){
    else{cls='sna';txt='n/a (UDP)';}}
   else if(k==='cm4'){
    if(s.cm4_ok===true){cls='sok';txt='OK';}else if(s.cm4_ok===false){cls='sbad';txt='หลุด';}else{cls='sna';txt='n/a (SIM)';}}
-  else if(k==='gps'){var fx=g.fix||0;if(fx>=3){cls='sok';txt='3D';}else if(fx>=2){cls='sok';txt='2D';}else{cls='sna';txt='no fix';}}
+  else if(k==='gps'){var fx=g.fix||0,hd=g.hdop,pa=s.gps_prearm||{};
+   /* MATCH PX4 arm-readiness, not just fix: RED when PX4 has a fresh GPS
+      prearm-fail ("PDOP too high") or the fix/hdop is not arm-grade, so the GCS
+      GPS status stops showing green while the FC refuses to arm on GPS. */
+   var preFail=(pa.ok===false&&pa.age!=null&&pa.age<15);
+   if(fx<2){cls='sbad';txt='no fix';}
+   else if(preFail){cls='sbad';txt='PDOP สูง';}
+   else if(fx>=3&&(hd==null||hd<=2.0)){cls='sok';txt='3D'+(hd!=null?' · '+hd:'');}
+   else{cls='sbad';txt=(fx>=3?'3D · hdop '+hd:'2D');}}
   else if(h){cls='sok';txt='OK';}          // health-first: AHRS is present=False/health=True on PX4
   else if(p){cls='sbad';txt='BAD';}
   else{cls='sna';txt='n/a';}
   html+='<div class="schip '+cls+'" title="'+SLAB[k]+': '+txt+'"><span class=sdot></span>'+SLAB[k]+'</div>';
  }
+ // Geofence containment: is the drone INSIDE controlled_airspace right now? A
+ // dedicated status the operator asked for (2026-08-19), separate from the FC's
+ // own fence-breach failsafe.
+ var fp=(s.fence&&s.fence.pts)||[], gg=s.gps||{};
+ if(fp.length>=3&&gg.lat!=null&&gg.lon!=null&&gg.fix>=2){
+  var inside=pointInPoly(gg.lat,gg.lon,fp);
+  html+='<div class="schip '+(inside?'sok':'sbad')+'" title="geofence: '+(inside?'โดรนอยู่ในรั้ว':'โดรนอยู่นอกรั้ว!')+'"><span class=sdot></span>'+(inside?'ในรั้ว':'นอกรั้ว!')+'</div>';
+ }else{
+  html+='<div class="schip sna" title="geofence: ยังไม่มีตำแหน่ง/รั้วให้เทียบ"><span class=sdot></span>รั้ว ?</div>';
+ }
  box.innerHTML=html;
 }
+// point-in-polygon (ray casting); pts = [[lat,lon],…]
+function pointInPoly(lat,lon,pts){var inside=false,n=pts.length;
+ for(var i=0,j=n-1;i<n;j=i++){var yi=pts[i][0],xi=pts[i][1],yj=pts[j][0],xj=pts[j][1];
+  if(((yi>lat)!=(yj>lat))&&(lon<(xj-xi)*(lat-yi)/(yj-yi)+xi))inside=!inside;}
+ return inside;}
 function updateMap(s){
  var g=s.gps||{}, ll=document.getElementById('posll');
  var msc=document.getElementById('mapscale'); if(msc) msc.textContent='แผนที่ OSM (ติดตามสด)';
@@ -2937,17 +3013,69 @@ function renderPadStatus(s){
   el.className='padstatus';el.textContent='🎯 จะส่ง '+s.assignment.length+' pad: '+s.assignment.join(', ');}
  else{el.className='padstatus none';el.textContent='— ยังไม่เลือก pad —';}
 }
-// 🚀 GO (2026-08-12): start the mission with the SAVED selection, then lock edits
-async function startMission(){
- var s=window.LAST||{};var ids=s.assignment||[];
+// 🚀 GO (2026-08-12; checklist+slide 2026-08-19): open the pre-flight checklist,
+// slide-to-confirm the upload, then guide the RC arm -> OFFBOARD hand-off.
+var FLY={busy:false,stagedShown:false};
+function startMission(){ openFlyModal(); }
+function openFlyModal(){
+ var s=window.LAST||{},ids=s.assignment||[];
  if(!s.pads_selected||!ids.length){alert('⚠️ เลือก + บันทึก pad ก่อนครับ');openPadModal();return;}
- if(!confirm('🚀 up mission ขึ้นโดรน: ส่ง pad ['+ids.join(', ')+']\\n(SIM: บินทันที · REAL: โดรนรอ RC ของ safety pilot — arm แล้วสลับ OFFBOARD ถึงจะออกบิน)\\nยืนยันหรือไม่?'))return;
- var m=document.getElementById('savemsg');if(m)m.textContent='⏳ กำลัง up mission ขึ้นโดรน…';
+ FLY.busy=false;FLY.stagedShown=false;window.UPWAIT=null;
+ var m=document.getElementById('flymodal');if(!m)return;
+ document.getElementById('flyprog').style.display='none';
+ document.getElementById('flyoffboard').style.display='none';
+ document.getElementById('flyslide').style.display='block';
+ slideReset();buildFlyChecks();
+ m.className='modal show';
+}
+function closeFlyModal(){var m=document.getElementById('flymodal');if(m)m.className='modal';}
+function flyRow(ok,label,detail){return '<div class="flyrow '+(ok===true?'ok':ok===false?'bad':'na')+'"><span class=fmark>'+(ok===true?'✓':ok===false?'✕':'•')+'</span><span class=flabel>'+label+'</span><span class=fdetail>'+(detail||'')+'</span></div>';}
+function buildFlyChecks(){
+ var s=window.LAST||{},g=s.gps||{},hl=s.health||{},pa=s.gps_prearm||{},b=s.batt||{},ids=s.assignment||[],h='',block=false;
+ if(!(s.pads_selected&&ids.length))block=true;
+ h+=flyRow(!!(s.pads_selected&&ids.length),'เลือก pad แล้ว',ids.length?('ID '+ids.join(', ')):'ยังไม่เลือก');
+ var preFail=(pa.ok===false&&pa.age!=null&&pa.age<15);
+ var gpsOk=(g.fix>=3&&!preFail&&(g.hdop==null||g.hdop<=2.0));
+ h+=flyRow(gpsOk,'GPS พร้อม arm (ตรงกับ PX4)',(g.fix>=3?'3D '+(g.sats||0)+' ดวง'+(g.hdop!=null?' · hdop '+g.hdop:''):'fix '+(g.fix||0))+(preFail?' · PX4:PDOP สูง':''));
+ var fp=(s.fence&&s.fence.pts)||[];
+ if(fp.length>=3&&g.lat!=null&&g.fix>=2){var ins=pointInPoly(g.lat,g.lon,fp);if(!ins)block=true;h+=flyRow(ins,'โดรนอยู่ในรั้ว geofence',ins?'ในรั้ว':'อยู่นอกรั้ว!');}
+ else h+=flyRow(null,'โดรนอยู่ในรั้ว geofence','ยังไม่มีตำแหน่ง/รั้ว');
+ h+=flyRow(hl.battery!==false&&(b.pct==null||b.pct>25),'แบตเตอรี่',(b.volt!=null?b.volt+'V':'')+(b.pct!=null?' · '+b.pct+'%':''));
+ h+=flyRow(s.link!==false&&s.cm4_ok!==false,'ลิงก์ + CM4',(s.link?'link OK':'link หลุด')+(s.cm4_ok===false?' · CM4 หลุด':''));
+ h+=flyRow(hl.rc!==false,'RC (safety pilot) พร้อม',hl.rc!==false?'พร้อม':'ไม่พบ RC');
+ document.getElementById('flychecks').innerHTML=h;
+ var sw=document.getElementById('flyslide'),lb=document.getElementById('flyslidelabel');
+ if(block){sw.classList.add('blocked');lb.textContent='⛔ แก้รายการสีแดงก่อน (pad / นอกรั้ว)';}
+ else{sw.classList.remove('blocked');if(!FLY.busy)lb.textContent='สไลด์ขวาเพื่อยืนยัน →';}
+ return block;
+}
+var SL={drag:false,x0:0,max:0};
+function slideReset(){var t=document.getElementById('flyslidethumb'),f=document.getElementById('flyslidefill');if(t)t.style.left='3px';if(f)f.style.width='0';}
+function slideStart(e){var w=document.getElementById('flyslide');if(!w||w.classList.contains('blocked')||FLY.busy)return;SL.drag=true;SL.x0=(e.touches?e.touches[0].clientX:e.clientX);SL.max=w.clientWidth-50;e.preventDefault();}
+function slideMove(e){if(!SL.drag)return;var x=(e.touches?e.touches[0].clientX:e.clientX)-SL.x0;x=Math.max(0,Math.min(SL.max,x));document.getElementById('flyslidethumb').style.left=(3+x)+'px';document.getElementById('flyslidefill').style.width=(x+47)+'px';if(x>=SL.max-2){SL.drag=false;slideDone();}}
+function slideEnd(){if(!SL.drag)return;SL.drag=false;slideReset();}
+function slideDone(){document.getElementById('flyslidelabel').textContent='✅ ยืนยันแล้ว — กำลัง up…';doUpload();}
+function bindSlide(){var t=document.getElementById('flyslidethumb');if(!t)return;
+ t.addEventListener('mousedown',slideStart);window.addEventListener('mousemove',slideMove);window.addEventListener('mouseup',slideEnd);
+ t.addEventListener('touchstart',slideStart,{passive:false});window.addEventListener('touchmove',slideMove,{passive:false});window.addEventListener('touchend',slideEnd);}
+async function doUpload(){
+ if(FLY.busy)return;FLY.busy=true;
+ var p=document.getElementById('flyprog');p.style.display='block';p.textContent='⏳ กำลัง up mission ขึ้นโดรน…';
+ document.getElementById('flyslide').style.display='none';
  try{var r=await fetch('/api/mission/start',{method:'POST'});var j=await r.json();
-  if(j.ok)window.UPWAIT=Date.now();   // arm the "confirmed" one-shot in renderMissionLock
-  if(m)m.textContent=j.ok?'⏳ ส่งคำสั่งแล้ว — รอโดรนยืนยันว่า mission ขึ้นเครื่อง…':(j.err||'เริ่มไม่สำเร็จ');
-  if(!j.ok&&j.err)alert(j.err);}
- catch(e){if(m)m.textContent='สั่งไม่สำเร็จ: '+e;}
+  if(j.ok){window.UPWAIT=Date.now();p.textContent='⏳ ส่งคำสั่งแล้ว — รอโดรนยืนยันว่า mission ขึ้นเครื่อง…';}
+  else{p.innerHTML='<span style=color:#ff7b72>✕ '+(j.err||'เริ่มไม่สำเร็จ')+'</span>';FLY.busy=false;document.getElementById('flyslide').style.display='block';slideReset();buildFlyChecks();}
+ }catch(e){p.innerHTML='<span style=color:#ff7b72>สั่งไม่สำเร็จ: '+e+'</span>';FLY.busy=false;}
+}
+// called from tick(): after upload, prompt RC arm -> OFFBOARD; go green on OFFBOARD
+function updateFlyOffboard(s,offb){
+ var m=document.getElementById('flymodal');if(!m||!m.classList.contains('show'))return;
+ if(!window.UPWAIT&&!offb)return;
+ var p=document.getElementById('flyprog');
+ if(p&&!FLY.stagedShown){FLY.stagedShown=true;p.style.display='block';p.innerHTML='✅ mission ขึ้นเครื่องแล้ว — พร้อมให้ RC ปล่อย';}
+ var ob=document.getElementById('flyoffboard');if(!ob)return;ob.style.display='block';
+ if(offb){ob.className='flyoffboard go';ob.innerHTML='✅ OFFBOARD — โดรนรับช่วงแล้ว กำลังออกบิน';}
+ else{ob.className='flyoffboard wait';ob.innerHTML='🎮 นักบิน: <b>arm RC</b> → <b>สลับ OFFBOARD</b> เพื่อปล่อยบิน<br><span style="font-size:12px;font-weight:400">GCS จะแจ้งเขียวเมื่อโดรนเข้า OFFBOARD</span>';}
 }
 // edit-lock while flying (operator spec 2026-08-12): once the mission is
 // running (or the vehicle is armed/offboard, incl. missions started from the
@@ -3361,6 +3489,7 @@ async function tick(){
  var _offb=s.armed&&String(s.mode||'').toUpperCase()==='OFFBOARD';
  if(_offb){if(FT.start==null||FT.frozen!=null){FT.start=Date.now();FT.frozen=null;}}
  else if(!s.armed&&FT.start!=null&&FT.frozen==null){FT.frozen=(Date.now()-FT.start)/1000;}
+ try{updateFlyOffboard(s,_offb);}catch(e){}   // 🚀 checklist modal: RC arm->OFFBOARD status
  var b=s.batt||{};
  var bc=(b.pct!=null&&b.pct<20)?'bad':(b.pct!=null&&b.pct<40)?'warn':'ok';
  document.getElementById('batt').innerHTML=b.volt==null?'–':'<span class="'+bc+'">'+b.volt+'V</span>';
@@ -3456,7 +3585,7 @@ _fb=document.getElementById('gfdraw');if(_fb)_fb.onclick=fenceDraw;
 _fb=document.getElementById('gfup');if(_fb)_fb.onclick=fenceUpload;
 _fb=document.getElementById('gfclr');if(_fb)_fb.onclick=fenceClearFmu;
 _fb=document.getElementById('gfclrc');if(_fb)_fb.onclick=gfClrCircle;
-setInterval(tick,600);tick();
+bindSlide();setInterval(tick,600);tick();
 </script></body></html>"""
 
 
