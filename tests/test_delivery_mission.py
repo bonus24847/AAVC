@@ -1767,3 +1767,7 @@ def test_the_flight_serves_by_route_not_by_the_operators_click_order(monkeypatch
             < route_length_m(queue, coords, start)), "the reorder must shorten the route"
     # And the operator can see it happened: the audit records both orders.
     assert any("SERVE ORDER" in a for a in state.anomalies), state.anomalies[-5:]
+    # The GCS reads state.flight_ids as "this flight's pads, in order". It must
+    # follow the ROUTED order the aircraft actually flew — not stay on the click
+    # order for the whole flight (the chip disagreed with the flight before).
+    assert state.flight_ids == served, (state.flight_ids, served)

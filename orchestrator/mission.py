@@ -900,6 +900,10 @@ async def run_delivery_mission(
                     logger.info(f"[mission] flight {flight}: serving nearest-"
                                 f"first {routed} (queue was {list(flight_ids)})")
                     flight_ids = routed
+                    # Keep the GCS chip on the order actually flown: state.flight_ids
+                    # was set to the click order at flight start (line ~738) and the
+                    # dashboard reads it as "this flight's pads, in order".
+                    state.flight_ids = list(routed)
 
             # Serve each assigned id, re-checking the budget before EVERY
             # descent. The aircraft is already committed to this flight, so the
