@@ -242,6 +242,13 @@ _INT_PARAMS = frozenset({
     # the pin never actually reached the board — found 2026-08-20 while
     # switching the practice site to baro height reference.
     "EKF2_HGT_REF",
+    # Same defect, one entry down, its whole life too (boolean -> INT32;
+    # "MAV_1_FORWARD=1 failed: TIMEOUT" in every flight log). The pin guards
+    # the radio status beacon: had a param reset wiped it, the beacon would
+    # have gone silent with no error anywhere. Caught by
+    # tools/px4_type_audit.py on 2026-08-20 — run `make type-audit` whenever
+    # a pushed param is added.
+    "MAV_1_FORWARD",
 
     "SIM_BAT_ENABLE",                          # SITL battery simulator on/off
     # Gimbal (VERIFY-AT-G5). MNT_MAN_PITCH is not an angle — PX4 types it INT32
