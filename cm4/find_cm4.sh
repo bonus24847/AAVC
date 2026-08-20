@@ -31,16 +31,20 @@ fi
 # ทั้ง /24 ทำให้ ARP ของ hotspot ท่วมจน .41 ตกหล่น (ping sweep ก็พลาดเหมือนกัน).
 # ถามตัวที่น่าจะใช่ก่อนโดยไม่มีใครแย่ง จึงทั้งเร็วกว่าและเชื่อถือได้กว่าการกวาด.
 for base in "${PREFIXES[@]}"; do
-    cand="$base.$CM4_OCTET"
-    timeout 3 bash -c "echo > /dev/tcp/$cand/22" 2>/dev/null || continue
-    name=$(timeout 8 ssh "${SSH_ID[@]}" -o ConnectTimeout=5 -o BatchMode=yes \
-             -o StrictHostKeyChecking=accept-new "$USER_NAME@$cand" \
-             'hostname; ls -d ~/mission >/dev/null 2>&1 && echo HAS_MISSION' 2>/dev/null)
-    [ -n "$name" ] || continue
-    host=$(echo "$name" | head -1)
-    extra=$(echo "$name" | grep -q HAS_MISSION && echo "  (มี ~/mission แล้ว)")
-    echo "  ✔ CM4: $USER_NAME@$cand   [hostname: $host]$extra"
-    exit 0
+    # วง 10.42.x = CM4 เป็น AP เอง (ทาง ② 2026-08-20) ⇒ ตัวมันคือ ".1" ของวง
+    case "$base" in 10.42.*) CANDS=("$base.1" "$base.$CM4_OCTET") ;;
+                    *)       CANDS=("$base.$CM4_OCTET") ;; esac
+    for cand in "${CANDS[@]}"; do
+        timeout 3 bash -c "echo > /dev/tcp/$cand/22" 2>/dev/null || continue
+        name=$(timeout 8 ssh "${SSH_ID[@]}" -o ConnectTimeout=5 -o BatchMode=yes \
+                 -o StrictHostKeyChecking=accept-new "$USER_NAME@$cand" \
+                 'hostname; ls -d ~/mission >/dev/null 2>&1 && echo HAS_MISSION' 2>/dev/null)
+        [ -n "$name" ] || continue
+        host=$(echo "$name" | head -1)
+        extra=$(echo "$name" | grep -q HAS_MISSION && echo "  (มี ~/mission แล้ว)")
+        echo "  ✔ CM4: $USER_NAME@$cand   [hostname: $host]$extra"
+        exit 0
+    done
 done
 
 for base in "${PREFIXES[@]}"; do
