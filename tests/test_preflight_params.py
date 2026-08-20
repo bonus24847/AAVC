@@ -3,7 +3,8 @@
 The exact-match rule is right for every param EXCEPT ``BAT1_CAPACITY``. Any
 value ``<= 0`` selects PX4's voltage-only state-of-charge branch
 (``estimateStateOfCharge``'s ``else``), which is what this airframe flies on
-after the PM03D was removed. The expected value is written as ``-1``, but a
+after the PM03D was removed (the PM02D now feeding the FC senses avionics
+draw only, so nothing changed). The expected value is written as ``-1``, but a
 board reading ``0`` — or any non-positive value, e.g. after a QGC battery-cal
 reset — is equally correct, and the runtime gate (``main.py``:
 ``if fc_capacity <= 0``) accepts it. So the field-day check must not STOP the
@@ -37,7 +38,8 @@ def test_bat1_capacity_accepts_any_non_positive() -> None:
 
 def test_bat1_capacity_rejects_positive() -> None:
     # a positive capacity re-arms the current-fused gauge — the optimistic
-    # branch the PM03D removal was meant to leave behind
+    # branch the PM03D removal was meant to leave behind (and the PM02D's
+    # avionics-only current would feed, wrongly, if this ever flipped)
     assert not _board_ok("BAT1_CAPACITY", 500.0, -1.0)
     assert not _board_ok("BAT1_CAPACITY", 17000.0, -1.0)
 

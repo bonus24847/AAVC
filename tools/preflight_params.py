@@ -56,7 +56,11 @@ BOARD: dict[str, float] = {
     "PWM_AUX_FUNC3": 303, "PWM_AUX_FUNC4": 304,
     "SYS_AUTOSTART": 6001,            # Generic Hexarotor X
     "CA_ROTOR_COUNT": 6,
-    # battery: the PM03D is out, so the voltage-only branch carries the gauge
+    # battery: the FC is fed by a PM02D that powers ONLY the avionics
+    # (2026-08-20; replaced the converter that replaced the failed PM03D) —
+    # motors still run from a board the FC cannot sense, so the voltage-only
+    # branch carries the gauge. The PM02D's ~0.7 A avionics current must NEVER
+    # be allowed to feed coulomb counting: it reads a pack that never empties.
     "BAT1_CAPACITY": -1,              # <=0 selects estimateStateOfCharge's else
     "BAT1_N_CELLS": 6,
     # 17000 mAh semi-solid endpoints (operator 2026-08-19: full 25.1 V, empty
@@ -125,7 +129,8 @@ def _board_ok(name: str, have: float, want: float) -> bool:
     """Whether a live reading passes. Relative-tolerance exact match for every
     param EXCEPT ``BAT1_CAPACITY``, where any value ``<= 0`` is correct: it
     selects PX4's voltage-only state-of-charge branch, the one this airframe
-    flies on since the PM03D was removed. Pinning it to exactly ``-1`` STOPped
+    flies on since the PM03D failed (the PM02D that now feeds the FC senses
+    avionics draw only). Pinning it to exactly ``-1`` STOPped
     the flight over a ``0`` that flies fine — the runtime gate
     (``main.py``: ``if fc_capacity <= 0``) accepts any non-positive value, so
     the field-day check must too."""

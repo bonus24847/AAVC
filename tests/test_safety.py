@@ -501,7 +501,8 @@ def test_offboard_and_auto_modes_are_not_a_takeover() -> None:
     assert state.terminal == TerminalState.RUNNING
 
 
-# ── battery debounce (no current sensing after the PM03D failure) ────────────
+# ── battery debounce (no motor-current sensing: PM03D failed; the PM02D that
+#    replaced it powers the FC alone) ─────────────────────────────────────────
 
 
 def test_battery_sag_under_load_does_not_trigger() -> None:

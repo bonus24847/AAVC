@@ -94,7 +94,7 @@ def item(cat, name, rec, alt, qty, ulow, uhigh, status, note, fill=None):
 cat_header("✅ มีอยู่แล้ว — ไม่ต้องซื้อ (ราคาประมาณการเพื่อคิดต้นทุน all-in)")
 owned = [
     ("Flight controller", "Pixhawk 6X (standard set)", 1, 13000, 16000,
-     "ชุดมาตรฐานมี PM02 มาด้วย แต่ลำนี้ใช้ PM03D"),
+     "ชุดมาตรฐานมี PM02 มาด้วย; ลำนี้ใช้ PM02D จ่ายเฉพาะ FC (PM03D เดิมพัง 2026-08-16)"),
     ("Companion", "Raspberry Pi CM4 (เช็ก eMMC/Lite)", 1, 2500, 4500, "ราคาแปรตาม RAM/eMMC"),
     ("โครง", "EFT X6100 hexacopter (wheelbase ~1160mm)", 1, 2500, 5000, "เฟรม hexa-X 6 แขน"),
     ("ใบพัด", "16\" (ชุดใช้งาน)", 3, 400, 700, "หน่วย=คู่ (CW+CCW) — hexa ใช้ 3 คู่"),
@@ -122,11 +122,11 @@ item("Propulsion", "ใบ 16\" คาร์บอน (สำรอง)", "1655 
 
 # ---- B. POWER --------------------------------------------------------------
 cat_header("B. Power")
-item("Power", "Power module 6S", "Holybro PM03D", "PM02 V3", 1, 1200, 2000, "ซื้อ",
-     "PM03D = digital/DroneCAN — ตั้ง BAT1_N_CELLS=6, BAT1_CAPACITY=15000 ที่ G5 "
-     "(15000 = แบต 2 ก้อนขนาน รวมกัน ไม่ใช่ 7500 ของก้อนเดียว — ต้องตรงกับ "
-     "battery.capacity_mah ใน sitl/aavc_config.yaml ที่ EnergyPolicy cross-check ไว้). "
-     "เช็ก rating ของ shunt/โมดูลเทียบ hover 35.6A ต่อเนื่อง + peak ตอนไต่")
+item("Power", "Power module 6S", "Holybro PM02D", "PM02 V3", 1, 1200, 2000, "ซื้อ",
+     "PM02D (ติดตั้ง 2026-08-20 แทน PM03D ที่พัง) จ่ายไฟ FC/avionics เท่านั้น — "
+     "มอเตอร์กินจากบอร์ดแยกที่ FC มองไม่เห็น ⇒ BAT1_CAPACITY ต้องเป็น -1 (เกจแรงดันล้วน) "
+     "ห้ามตั้ง capacity เด็ดขาด: กระแสที่ FC เห็น (~0.7 A) คือ avionics ไม่ใช่ ~35-43 A "
+     "ของการบิน เกจนับ mAh จะโกหกแบบไม่มีวันหมด")
 item("Power", "BEC 5V/5A (เลี้ยง CM4 แยก)", "Mateksys / Pololu", "", 1, 300, 500, "ซื้อ",
      "อย่าดึงไฟ CM4 จาก FC rail")
 item("Power", "PDB / สาย / XT90 / connector", "—", "", 1, 500, 1000, "ซื้อ", "")

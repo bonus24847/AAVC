@@ -90,8 +90,9 @@ Port = 14540
 [UdpEndpoint raw]
 # Dashboard ESC/servo/consumed-mAh listener (orchestrator RawMavlinkSubscriber).
 # ⚠ DO NOT set connection.raw_telemetry_port=14551 on THIS aircraft (the line
-# here used to tell you to — 2026-08-18). The PM03D is out: the Pixhawk is fed
-# straight off the pack while the motors run from a board it cannot sense, so
+# here used to tell you to — 2026-08-18). The PM03D is out; since 2026-08-20 a
+# PM02D feeds the Pixhawk (FC/avionics ONLY) while the motors still run from a
+# board it cannot sense, so
 # BATTERY_STATUS.current_consumed counts AVIONICS ONLY — measured 0.62 A / 91 mAh
 # with the pack on the bench, against the ~35-43 A of flight. Feeding that in
 # promotes energy_consumed_mah() from tier B (percent, voltage-derived and

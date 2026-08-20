@@ -130,13 +130,16 @@ Goal: validate the orchestrator ↔ real-FC seam + the actuators, motors **off t
       0.5 / 2 / 5 m. `EKF2_RNG_CTRL=1` is already pinned by the mission's param block.
       Optical flow was CUT from the project (2026-07-22) — there is no flow module to
       configure, and `EKF2_OF_CTRL` is pinned to 0.
-- [ ] **Battery gauge (post-PM03D — VOLTAGE ONLY):** the PM03D is OUT, so the FC cannot
+- [ ] **Battery gauge (VOLTAGE ONLY — PM02D feeds the FC alone):** the PM03D is OUT; the
+      PM02D installed 2026-08-20 powers only the avionics, so the FC still cannot
       sense motor current and the gauge runs on voltage alone. Set `BAT1_CAPACITY=-1`
       (this SELECTS the voltage-only branch; ANY positive value silently re-arms a
       current-fused estimate that reads optimistic on this wiring — do NOT set 7500),
       `BAT1_N_CELLS=6`, and the CURRENT pack's endpoints per cell — the 17000 mAh
       semi-solid is `BAT1_V_CHARGED=4.18` / `BAT1_V_EMPTY=3.77` (25.1 V full / 22.6 V
-      empty ÷ 6). Then run `.venv/bin/python tools/preflight_params.py` and confirm the
+      empty ÷ 6). ⚠ Re-verify FC voltage vs a multimeter ON THE PM02D wiring once
+      (the 2026-08-16 `BAT1_V_DIV` closure belonged to the old converter).
+      Then run `.venv/bin/python tools/preflight_params.py` and confirm the
       BOARD block is all ✔ (it checks every one of these). The failsafe fractions
       (0.25 / 0.15 / 0.07) are fractions of that voltage span — re-confirm against the
       pack's discharge curve.

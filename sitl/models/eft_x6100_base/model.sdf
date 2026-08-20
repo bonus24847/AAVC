@@ -28,7 +28,7 @@
     frame X6100 wheelbase 1.000 m => arm radius 0.500 m, frame 2.75 kg, MTOW 12 kg
     EFT E5 per arm: 5008/335KV motor + 40 A ESC + 18x6.5" folding prop = 362 g
     planned AUW 8.22 kg  (frame 2.75 + E5 x6 2.17 + 6S 7500 mAh x2 2.10
-                          + FC/GPS/PM03D 0.50 + companion+camera 0.35
+                          + FC/GPS/power-module 0.50 + companion+camera 0.35
                           + release mech 0.20 + egg 0.15)
     base_link 7.881 kg + 6 x 0.048 kg props + camera 0.05 + lidar 0.001 = 8.22 kg
     Ixx=Iyy 0.34, Izz 0.64 kg.m^2 (362 g per arm at R=0.5 + central box)

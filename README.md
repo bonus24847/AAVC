@@ -216,7 +216,7 @@ override is the ultimate failsafe.
 | Camera | **Meige OV9281** USB UVC — mono global shutter, 1280×720 (decode needs the width), on a **gimbal-stabilized nadir pitch servo** (PX4 mount driver, VERIFY-AT-G5) |
 | Sensors | **Benewake TFmini-S** downward lidar (AGL for the descent + touchdown gate; `EKF2_RNG_CTRL=1`). No optical flow — dropped 2026-07-22, so the camera alone owns the final metre |
 | Drop | Servo egg-release × 1 (one cargo per sortie; resupply between) |
-| Power | **DXF 6S 7500 mAh 140C** via a **Holybro PM03D** (digital power module; `BAT1_*` calibration is a G5 item) |
+| Power | **Perpetual Wings 6S 17000 mAh semi-solid** · **Holybro PM02D** feeds the FC/avionics ONLY (motors on a separate, unsensed board — voltage-only gauge, `BAT1_CAPACITY=-1`) |
 | RC / telemetry | **RadioMaster TX16S mk2** + **Nomad** ELRS TX + **DBR4** diversity RX (CRSF on TELEM1) |
 | GPS | Coarse, **no RTK** — the camera owns final-metre accuracy |
 | GCS | Trimmed Svelte dashboard (map, camera, mission queue + per-sortie GO, pad readout) |

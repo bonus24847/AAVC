@@ -886,15 +886,18 @@ async def run(args: argparse.Namespace) -> int:
         if fc_capacity <= 0:
             # EXPECTED on this airframe since 2026-08-17, not a defect to fix.
             # BAT1_CAPACITY <= 0 is what puts PX4 on the voltage-only branch of
-            # estimateStateOfCharge, and that is the only honest branch here: the
-            # PM03D is out, the motors run off a board the FC cannot sense, so
-            # coulomb counting would integrate avionics draw alone and report a
-            # percentage that is too high, quietly. Recorded so the audit trail
-            # says which gauge flew, NOT as a request to set a capacity.
+            # estimateStateOfCharge, and that is the only honest branch here:
+            # the PM02D (2026-08-20, replacing the failed PM03D's stand-in
+            # converter) powers ONLY the FC, the motors run off a board the FC
+            # cannot sense, so coulomb counting would integrate the ~0.7 A
+            # avionics draw alone and report a percentage that is too high,
+            # quietly. Recorded so the audit trail says which gauge flew, NOT
+            # as a request to set a capacity.
             state.record_anomaly(
                 "BAT1_CAPACITY<=0 — FC state-of-charge is voltage-only, by design "
-                "on the post-PM03D wiring (the FC cannot see motor current). "
-                "Percentages depend entirely on BAT1_V_DIV/V_EMPTY/V_CHARGED")
+                "on the PM02D-avionics-only wiring (the FC cannot see motor "
+                "current). Percentages depend entirely on "
+                "BAT1_V_DIV/V_EMPTY/V_CHARGED")
         elif abs(fc_capacity - energy_policy.capacity_mah) > 100.0:
             state.record_anomaly(
                 f"battery capacity mismatch: FC {fc_capacity:.0f} mAh vs config "

@@ -309,7 +309,8 @@ class SafetyWatchdog:
         #
         # A single sample used to be enough, which was safe only while the pack
         # had current sensing. It no longer does (2026-08-16: the PM03D failed;
-        # the motors moved to a board the FC cannot see), so PX4 falls back to a
+        # the motors moved to a board the FC cannot see — unchanged by the
+        # PM02D installed 2026-08-20, which powers the FC alone), so PX4 falls back to a
         # purely voltage-derived gauge — and its load compensation is gated on
         # `current_a > FLT_EPSILON` (lib/battery/battery.cpp
         # `calculateStateOfChargeVoltageBased`), so with no current to correct

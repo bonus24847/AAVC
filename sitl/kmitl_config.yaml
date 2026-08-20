@@ -355,7 +355,8 @@ connection:
   # cosmetic widgets (documented graceful degradation; the safety watchdog
   # never reads these fields). To get both, add a second MAVLink instance in
   # PX4 (e.g. `mavlink start -u 18571 -o 14551` via pxh) and set 14551 here.
-  # ⚠ …but NOT on the current wiring (2026-08-18). The consumed-mAh counter it
+  # ⚠ …but NOT on the current wiring (2026-08-18; unchanged by the PM02D
+  # installed 2026-08-20 — it powers the FC only). The consumed-mAh counter it
   # carries is avionics-only since the PM03D went out (measured 0.62 A / 91 mAh
   # on the bench vs ~35-43 A in flight), and feeding it in flips
   # energy_consumed_mah() to tier A — a silently optimistic pack budget that
@@ -726,9 +727,12 @@ sim_battery:
   SIM_BAT_DRAIN: 900.0      # ~15 min full -> empty at hover
   SIM_BAT_MIN_PCT: 0.0      # the default 50 stops the drain half way
   # ── Pack + power sensing ──
-  # ⚠ REWIRED 2026-08-16 (operator): the Holybro PM03D FAILED and is OUT. Power
-  # now splits in two — a converter straight from the pack feeds the Pixhawk,
-  # and the MOTORS are fed by a SEPARATE board that the FC does not sense.
+  # ⚠ REWIRED 2026-08-16 (operator): the Holybro PM03D FAILED and is OUT.
+  # Since 2026-08-20 a Holybro PM02D feeds the Pixhawk (replacing the interim
+  # converter) — but it powers the FC/avionics ONLY; the MOTORS are still fed
+  # by a SEPARATE board that the FC does not sense. The PM02D gives the FC a
+  # clean voltage reading and a ~0.7 A avionics current — that current is the
+  # TRAP, not a feature: see below.
   #
   # The consequence is not "one less sensor", it is that any current the FC
   # still measures is the AVIONICS draw (well under an amp), NOT the ~35-43 A
@@ -772,21 +776,25 @@ sim_battery:
   # become the whole measurement. They are THREE separate questions, and
   # answering one does not answer the others:
   #
-  #   BAT1_V_DIV      ✅ CLOSED (operator, 2026-08-16): pack voltage read with a
-  #                   multimeter matched what the AAVC GCS displayed live, and
-  #                   the reading was taken AFTER the converter swap — i.e. on
-  #                   THIS wiring, so it is not inherited from the PM03D (the
-  #                   divider is a property of the module). Right kind of
-  #                   evidence, right hardware: do not re-open it.
+  #   BAT1_V_DIV      ⚠ REOPENED 2026-08-20: the 2026-08-16 multimeter-vs-GCS
+  #                   closure was measured on the CONVERTER wiring, and the
+  #                   divider is a property of the module — the PM02D that
+  #                   replaced it needs its own check. Softener: three real
+  #                   flights flew on the PM02D that night with plausible
+  #                   voltages, so this is a re-verify, not a suspected fault.
+  #                   One multimeter-vs-GCS reading on the PM02D closes it.
   #   BAT1_N_CELLS  = 6
-  #   BAT1_V_EMPTY  = 3.50     BAT1_V_CHARGED = 4.15
-  #                   ❌ NOT verified by the above. A correct VOLTAGE and a
-  #                   correct PERCENTAGE are different claims: these two are the
-  #                   endpoints the whole percentage is interpolated between
-  #                   (`math::interpolate(cell_v, v_empty, v_charged, 0, 1)`), so
-  #                   a right voltage still reports a wrong % if they are wrong —
-  #                   and every threshold in this file is a % of that.
-  #                   Confirm against the pack's own discharge spec.
+  #   BAT1_V_EMPTY  = 3.77     BAT1_V_CHARGED = 4.18
+  #                   (17000 semi-solid endpoints, on the board since
+  #                   2026-08-19 — full 25.1 V, empty ~22.6 V per the
+  #                   operator's spec; the stale LiPo-era 3.50/4.15 that used
+  #                   to sit on this line never matched the board.)
+  #                   A correct VOLTAGE and a correct PERCENTAGE are different
+  #                   claims: these two are the endpoints the whole percentage
+  #                   is interpolated between (`math::interpolate(cell_v,
+  #                   v_empty, v_charged, 0, 1)`), so a right voltage still
+  #                   reports a wrong % if they are wrong — and every
+  #                   threshold in this file is a % of that.
   #
   # ⚠ And because the gauge has no load compensation without current
   # (`calculateStateOfChargeVoltageBased` only corrects when current > 0), the
