@@ -63,6 +63,51 @@ the parked field). Baro ref removed the in-flight symptom, but the sequence
 stands: wait for `make alt-watch` to print STABLE before staging, and never
 trust a home-MSL cache taken while the frame was still moving.
 
+## Session hygiene on PX4 v1.17.0 (bugs fixed AFTER our build — we carry them)
+
+- **No USB plug-ins / new MAVLink instances once a session is live** — every
+  `Mavlink::start()` re-initializes the shared command-ACK semaphore
+  (PX4#27593): plugging QGC-over-USB mid-session can corrupt command/ACK
+  tracking for the flying link. Weird ACK timeouts after any link change →
+  reboot the FC before GO.
+- **Geofence uploads on the GROUND only** — the navigator SKIPS fence
+  violation checks while a fence upload transaction is in progress.
+- **On-board file reads are untrusted** until v1.17.1 (silent SDMMC READ
+  corruption on our STM32H7, NuttX#389): pull the SD card physically to copy
+  ULogs, or download twice + hash-compare; restore params from the
+  laptop-side `parameters_backup.bson` copy, never from an SD read.
+
+## หลักที่สนามสอน (field-learned principles, 2026-08-20)
+
+1. **GPS อย่างเดียวไม่พอสำหรับงาน precision** — jitter/walk ของ GPS (แนวดิ่ง
+   เดิน 24 m ในเย็นเดียว) ทำให้ทั้ง position และความสูงเชื่อไม่ได้ใน margin
+   ระดับเมตร; การแยกหน้าที่ **baro ถือกรอบความสูง + lidar เก็บเมตรท้าย +
+   GPS เอาแค่แนวราบ + vision ตัดสินเมตรสุดท้าย** ให้ผลดีกว่าที่วัดได้จริง
+   (transit MISS 40 m → PASS 1.4-2.0 m ในคืนเดียว)
+2. **ปัญหาบางชนิดโผล่เฉพาะการบินจริง** — sim ไม่มี GPS jitter จริง, bench
+   เครื่องไม่ขยับ, code review เห็นแต่โค้ดที่ "ถูกทุกบรรทัดบนสมมติฐานผิด"
+   → ทุกไฟลต์จริงคือเครื่องมือค้นหา unknown: เปิด ULog ทุกครั้ง (discovery
+   loop ใน ops-field.md)
+3. **Readback พิสูจน์แค่ว่าค่าถูกเก็บ ไม่ใช่ว่าระบบใช้ค่านั้น** — GF_ACTION,
+   EKF2_HGT_REF, MAV_1_FORWARD ล้วนเคยหลอกด้วยวิธีเดียวกัน; คำถามที่ถูกคือ
+   "โมดูลเจ้าของอ่านค่านี้ใหม่เมื่อไหร่"
+4. **Fail-closed ต้องปล่อยให้ทำงาน** — ระบบปฏิเสธบิน (fence ไม่ยืนยัน /
+   watchdog RTH) สองครั้งในคืนเดียวคือระบบทำงานถูกบน input ที่มันเห็น
+   อย่าสู้กับมัน ให้ไปแก้ input (รีบูต FC, รอ frame นิ่ง, ชาร์จแบต)
+5. **ความรู้จาก community มาก่อนบั๊กจะเจอเรา** — ก่อน debug อาการใหม่จาก
+   ศูนย์ ให้ค้น discuss.px4.io + GitHub ก่อนเสมอ (watchlist =
+   `references/community-watchlist.md`)
+
+## Before the next scored flight (unverified-risk shortlist)
+
+Work `references/community-watchlist.md` ranked actions — the top three have
+never been verified on this aircraft and are catastrophic-if-wrong:
+1. RC-loss drill + ELRS failsafe mode = **No Pulses** (2 minutes, props off).
+2. FC microSD replacement (SanDisk Extreme U3 32 GB) — the wedge card has a
+   corruption history and all of 1.17 mis-reads SD silently.
+3. ESC low-voltage cutoff vs the semi-solid pack (motors can cut in the air
+   with charge remaining; no current sensor will warn us).
+
 ## New-bug rule
 
 When a new bug is found and fixed: add its entry (symptom → mechanism → fix →
