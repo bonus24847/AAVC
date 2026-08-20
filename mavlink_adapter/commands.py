@@ -230,6 +230,12 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
 # shared list can cover it.
 _INT_PARAMS = frozenset({
     "EKF2_RNG_CTRL", "EKF2_OF_CTRL",          # height aiding / flow fusion
+    # Missing from this list its whole life: the float write was rejected on
+    # every connect ("EKF2_HGT_REF=1 failed: TIMEOUT" in every flight log), so
+    # the pin never actually reached the board — found 2026-08-20 while
+    # switching the practice site to baro height reference.
+    "EKF2_HGT_REF",
+
     "SIM_BAT_ENABLE",                          # SITL battery simulator on/off
     # Gimbal (VERIFY-AT-G5). MNT_MAN_PITCH is not an angle — PX4 types it INT32
     # because it selects the RC AUX channel that drives pitch (0 = disabled).
