@@ -201,11 +201,18 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     # 7.0 clears every rung, stays inside the TFmini-S band (0.1-12 m) and
     # inside PX4's own 1..10 limit.
     "EKF2_RNG_A_HMAX": 7.0,     # range aiding engages below this (m); default 5.0
-    # 1 = GPS owns absolute height (PX4 default, pinned). 2 (range) would make
-    # the local origin follow ground level — a shed box under the beam becomes
-    # "down". Conditional aiding still pins the final metres.
+    # 0 = BARO owns absolute height (operator decision 2026-08-20 after two
+    # real KMUTNB night flights): the GPS vertical solution walked 12.7→36.6 m
+    # parked and stepped +1.6/+1.3 m INSIDE a 30 s flight, so with 1 (GPS) the
+    # reported AGL lied in both directions — one flight sank into the ground
+    # off a stale home cache, the next was RTH'd by the ceiling watchdog while
+    # physically fine. Baro is step-free over a <20 min flight; GPS keeps
+    # horizontal; TFmini conditional aiding still pins the final metres.
+    # NOT 2 (range): the local origin would follow ground level — a shed box
+    # under the beam becomes "down". The competition config
+    # (sitl/kmitl_config.yaml) still deliberately pins 1 for the 20 m site.
     # ⚠ reboot_required — applies from the next boot.
-    "EKF2_HGT_REF": 1.0,        # height reference = GPS (pinned default)
+    "EKF2_HGT_REF": 0.0,        # height reference = BARO (2026-08-20)
     # Optical flow was cut from the project 2026-07-22 — no flow module aboard.
     # PX4 1.17 enables the fusion by default, which only invites a puzzling
     # "flow timeout" health failure at arming.
