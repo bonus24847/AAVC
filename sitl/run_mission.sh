@@ -90,8 +90,17 @@ EOF
 
     if [ "${NO_CAMERA:-0}" != "1" ]; then
         if ! pgrep -f 'camera_grabber.p[y]' >/dev/null 2>&1; then
-            echo "[run_mission] starting camera grabber (BACKEND=${BACKEND:-v4l2})"
+            # กล้อง UVC ย้ายเลข device ได้ทุกครั้งที่ไฟกระตุก (เจอจริง 2026-08-20:
+            # หลุดจาก video0 ไปเกิดใหม่เป็น video1 → grabber เปิด '0' ไม่ได้ ตายเงียบ
+            # แล้ว beacon ร้อง cam=DEAD) — ใช้ path แบบ by-id ที่ตามกล้องไปทุกการ
+            # enumerate เมื่อหาได้ ผู้เรียกยัง override ได้ด้วย GRAB_ARGS เดิม
+            if [ -z "${GRAB_ARGS:-}" ]; then
+                cam_dev=$(ls /dev/v4l/by-id/*-video-index0 2>/dev/null | head -1)
+                [ -n "$cam_dev" ] && GRAB_ARGS="--nadir-device $cam_dev"
+            fi
+            echo "[run_mission] starting camera grabber (BACKEND=${BACKEND:-v4l2}${GRAB_ARGS:+ $GRAB_ARGS})"
             setsid make -C "$REPO_ROOT" camera-real BACKEND="${BACKEND:-v4l2}" \
+                GRAB_ARGS="${GRAB_ARGS:-}" \
                 >/tmp/aavc_camera.log 2>&1 </dev/null &
         else
             echo "[run_mission] camera grabber already up"
