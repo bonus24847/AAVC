@@ -703,15 +703,24 @@ battery:
   capacity_mah: 17000       # ONE 6S 17000 mAh semi-solid (Perpetual Wings), 10C
   cells: 6
   # ~29.6 A hover x 3.5 min. Used ONLY for flight 1; measurement replaces it
-  # from flight 2 onwards.
+  # from flight 2 onwards. ⚠ ALL hover figures remain CALCULATED — at this
+  # pack's AUW the same scaling rule says ~43 A; a four-delivery flight then
+  # costs ~5.7-7.2 Ah of the 12.75 Ah usable, so these seeds are deliberately
+  # conservative rather than re-derived from more arithmetic. Re-derive them
+  # from GROUND TRUTH once it exists: the TELEM batt=/vbat= series (recorded
+  # since 2026-08-20) + the charger's returned-mAh log
+  # (.claude/skills/PX4MASTER/references/power-battery.md).
   seed_sortie_mah: 1750
-  # Marginal cost of each EXTRA delivery in the SAME flight (~110 s at ~29.6 A).
+  # Marginal cost of each EXTRA delivery in the SAME flight (~110 s at hover).
   seed_delivery_mah: 900
   # DELIBERATELY NOT scaled down with the cost it guards (the 17000 note scaled
   # it up x1.22 for exactly that reason). This estimate rests on a pack mass
   # nobody has weighed, so the slack matters more now, not less — and there is
   # room for it: a four-delivery flight budgets 1750 + 3x900 + 250 = 4700 mAh
-  # against 5625 usable.
+  # against 12750 usable (17000 x 0.75). Field reality check (2026-08-20,
+  # flight 3): the voltage-only gauge read 28 % under load at ~65-70 % rest —
+  # the %-floor watchdog, not this mAh budget, is what actually ends a flight
+  # on a part-charged pack. Start missions charged.
   margin_mah: 250
 
 # ── SITL ONLY — PX4's battery simulator ──
@@ -722,11 +731,11 @@ battery:
 # path from px4_tuning and must never be merged into it.
 sim_battery:
   SIM_BAT_ENABLE: 1
-  # Seconds full -> empty at hover draw: 7500 mAh / ~29.6 A x 3600 = ~912 s.
-  # (2026-08-17 pack swap back to ONE 7500. NOTE this is now SHORTER than the
-  # 20-minute operation window, which is the point: the sim will actually reach
-  # the reserve inside a long run, so the energy gate gets exercised instead of
-  # idling behind a pack that never empties.)
+  # Seconds full -> empty. DELIBERATELY NOT rescaled to the 17000 pack's real
+  # endurance (2026-08-20 review): at ~900 s the sim reaches the reserve
+  # inside a long run, so the energy gate gets exercised instead of idling
+  # behind a pack that never empties — that is this parameter's job, not
+  # realism. Rescaling it needs its own SITL re-validation day.
   SIM_BAT_DRAIN: 900.0      # ~15 min full -> empty at hover
   SIM_BAT_MIN_PCT: 0.0      # the default 50 stops the drain half way
   # ── Pack + power sensing ──

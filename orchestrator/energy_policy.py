@@ -3,19 +3,25 @@
 The twin of ``time_policy.py``: that one refuses to start a sortie the clock
 cannot finish, this one refuses to start a sortie the PACK cannot finish.
 
-The numbers say this matters. ONE 6S 7,500 mAh pack — what the aircraft carries
-again as of 2026-08-17 — yields 5,625 mAh once the flight controller's own
-low-battery reserve is set aside, and a four-delivery flight seeds at 1,750 +
-3 x 900 = 4,450 mAh at the ~29.6 A hover a ~7.3 kg X6100 gives. That is inside
-the pack with about 1 Ah of slack for wind, a longer sweep, a go-around, or any
-second flight — enough, but not enough to ignore.
+The numbers say this matters. ONE 6S 17,000 mAh semi-solid pack — on the
+aircraft since 2026-08-19 — yields 12,750 mAh once the flight controller's own
+low-battery reserve (0.25) is set aside; a four-delivery flight seeds at
+1,750 + 3 x 900 = 4,450 mAh and the GO gate wants that plus the 250 mAh
+margin: 4,700 against 12,750. That is comfortable on paper — but the hover
+figure behind the seeds is a CALCULATED ~43 A at this pack's AUW, and the
+gauge that reports consumption is voltage-only (PM02D powers the FC alone;
+motors run from a board the FC cannot sense), which sags ~30-35 percentage
+points under flight load (measured 2026-08-20: 28 % under thrust at ~65-70 %
+resting SoC). The % the gates see in flight is load-truth, not state of
+charge — conservative, and by design.
 
 History worth keeping, because it is the argument for the next pack decision:
-the aircraft flew 2 x 7,500 in PARALLEL (15,000 mAh, 11,250 usable) from
-2026-07-25, which is the 8.22 kg configuration every validated G4/G4' run used,
-then 1 x 17,000 from 2026-08-14. Capacity is never free — the second pack's
-+1.05 kg took hover to ~35.6 A, so +100 % capacity bought +64 % endurance
-(11.6 -> 19.0 min). The seeds move with the CURRENT, not just the capacity.
+1 x 7,500 to 2026-07-25, then 2 x 7,500 in PARALLEL (15,000 mAh, 11,250
+usable — the 8.22 kg configuration every validated G4/G4' run used), briefly
+back to 1 x 7,500 (2026-08-17), then the 17,000 semi-solid. Capacity is never
+free — the second pack's +1.05 kg took hover to ~35.6 A, so +100 % capacity
+bought +64 % endurance (11.6 -> 19.0 min). The seeds move with the CURRENT,
+not just the capacity.
 
 That is enough for the briefing-default single four-egg flight with room to
 spare, which is the point: at ``eggs_aboard=4`` the whole mission is ONE
@@ -28,7 +34,12 @@ that practice already drained.
 One caveat this module cannot see: no figure below has ever been MEASURED.
 They are bench-table arithmetic (SITL's battery simulator recharges on disarm),
 and on the single pack they additionally rest on an ESTIMATED pack mass, so
-confirm them against a watt-meter at G5. (A second caveat retired with the
+confirm them against a watt-meter at G5. The ground-truth plan (2026-08-20):
+the 1 Hz TELEM audit line now carries batt=/vbat= (the first battery series
+this project has ever recorded), and the field procedure logs the charger's
+returned-mAh after every session plus rest voltage around each flight — the
+seeds get re-derived from THOSE, not from more arithmetic
+(.claude/skills/PX4MASTER/references/power-battery.md). (A second caveat retired with the
 parallel pair: the FC used to report the SUM of two packs, so one dropping out
 mid-flight halved the real capacity invisibly. One pack cannot do that.)
 
