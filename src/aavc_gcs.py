@@ -2670,6 +2670,7 @@ body.fieldmode #fmbtn{background:#238636;color:#fff;border-color:#3fb950}
   <span class=msi><b id=armstate>–</b></span>
   <span class=msi>🔋 <b id=batt>–</b> <b id=battpct>–</b></span>
   <span class=msi>📡 <b id=gpsfix>–</b> <b id=sats>–</b></span>
+  <span class=msi>⬆ <b id=altv2>–</b></span>
  </div>
 </div>
 <div class=mapinst>
@@ -2998,7 +2999,12 @@ function renderInsti(s){
  var rv=document.getElementById('rollv'); if(rv) rv.textContent=a.roll==null?'–':a.roll;
  var pv=document.getElementById('pitchv'); if(pv) pv.textContent=a.pitch==null?'–':a.pitch;
  var hv2=document.getElementById('hdgv2'); if(hv2) hv2.textContent=a.heading==null?'–':Math.round(a.heading);
- var av=document.getElementById('altv'); if(av){var alt=(s.gps&&s.gps.rel_alt!=null)?s.gps.rel_alt:((s.local&&s.local.z!=null)?-s.local.z:null);av.textContent=alt==null?'–':alt.toFixed(1);}
+ var alt=(s.gps&&s.gps.rel_alt!=null)?s.gps.rel_alt:((s.local&&s.local.z!=null)?-s.local.z:null);
+ var av=document.getElementById('altv'); if(av) av.textContent=alt==null?'–':alt.toFixed(1);
+ // main status bar: AGL big + MSL beside it — MSL is what exposes a GPS altitude
+ // frame that moved after an FC reboot (2026-08-20: a stale frame flew the
+ // transit 8.5 m AGL command into the ground)
+ var av2=document.getElementById('altv2'); if(av2){var amsl=(s.gps&&s.gps.alt!=null)?s.gps.alt:null;av2.textContent=(alt==null?'–':alt.toFixed(1)+' m')+(amsl==null?'':' · MSL '+amsl.toFixed(0));}
  // 3D hexacopter: tilt to live attitude (roll/pitch/yaw) + tint rotors by motor throttle
  build3d();
  var d3=document.getElementById('d3att');
