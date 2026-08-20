@@ -214,12 +214,30 @@ fi
 [ -d "$M_REPO" ] || die "ไม่พบโฟลเดอร์ repo ของ mission นี้:\n$M_REPO"
 
 # ── 2. ที่อยู่ CM4 ─────────────────────────────────────────────────────────
+# ทาง ② (2026-08-20): CM4 ปล่อยวง AAVC-DRONE เอง (เป็น AP, ตัวมันเอง = 10.42.0.1)
+# ถ้าแลปท็อปมีโปรไฟล์วงนี้แต่ยังไม่ได้เกาะ และวงลอยอยู่จริง ให้เกาะให้เองก่อนออกตามหา
+# (AP ตัวนี้ "หูดับเป็นจังหวะ" ระหว่างที่มันสแกนหาวงอื่น — ลอง 2 รอบแล้วปล่อยผ่าน:
+# ไม่ติดก็แค่ตกกลับไปเส้นทางถาม/สแกนแบบเดิม ไม่ใช่ความผิดร้ายแรง)
+if nmcli -t -f NAME connection show 2>/dev/null | grep -qx 'AAVC-DRONE' \
+   && ! nmcli -t -f NAME connection show --active 2>/dev/null | grep -qx 'AAVC-DRONE'; then
+    nmcli device wifi rescan >/dev/null 2>&1; sleep 2
+    if nmcli -t -f SSID device wifi list 2>/dev/null | grep -qx 'AAVC-DRONE'; then
+        nmcli -w 25 connection up AAVC-DRONE >/dev/null 2>&1 \
+            || nmcli -w 25 connection up AAVC-DRONE >/dev/null 2>&1
+    fi
+fi
 GUESS=""
 for net in $(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}'); do
-    base="${net%/*}"; base="${base%.*}"; cand="$base.$CM4_OCTET"
-    # 3 วิ ไม่ใช่ 1 — ARP ที่ยังไม่มีในตารางใช้เวลาเกิน 1 วิได้ แล้วไอคอนจะ
-    # ขึ้น "ยังไม่พบ CM4" ทั้งที่โดรนออนไลน์อยู่ (2026-08-18)
-    timeout 3 bash -c "echo > /dev/tcp/$cand/22" 2>/dev/null && { GUESS="$CM4_USER@$cand"; break; }
+    base="${net%/*}"; base="${base%.*}"
+    # วง 10.42.x = วงที่ CM4 เป็น AP เอง ⇒ ตัวมันคือ ".1" ของวง (คงที่ — keyfile
+    # ปัก address1=10.42.0.1 ไว้); เลขท้าย ".41" เป็นธรรมเนียมของวง hotspot เดิม
+    case "$base" in 10.42.*) CANDS=("$base.1" "$base.$CM4_OCTET") ;;
+                    *)       CANDS=("$base.$CM4_OCTET") ;; esac
+    for cand in "${CANDS[@]}"; do
+        # 3 วิ ไม่ใช่ 1 — ARP ที่ยังไม่มีในตารางใช้เวลาเกิน 1 วิได้ แล้วไอคอนจะ
+        # ขึ้น "ยังไม่พบ CM4" ทั้งที่โดรนออนไลน์อยู่ (2026-08-18)
+        timeout 3 bash -c "echo > /dev/tcp/$cand/22" 2>/dev/null && { GUESS="$CM4_USER@$cand"; break 2; }
+    done
 done
 LAST="$(cat "$HOSTFILE" 2>/dev/null || true)"
 DEFAULT="${GUESS:-${LAST:-$CM4_USER@192.168.x.$CM4_OCTET}}"
