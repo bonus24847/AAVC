@@ -71,6 +71,11 @@ BOARD: dict[str, float] = {
     "BAT1_V_CHARGED": 4.18,
     "BAT1_V_EMPTY": 3.77,
     "SENS_TFMINI_CFG": 103,           # TFmini-S on TELEM3
+    # The HITL firmware has NO real actuator output (docs/HITL.md: reflash a
+    # flight fw before G7) — a board still flagged SYS_HITL=1 is unflyable in
+    # exactly the silent way this BOARD block exists to catch, and nothing at
+    # mission start pins it back. Added 2026-08-20 (gap G-7).
+    "SYS_HITL": 0,
 }
 
 # ── pushed by orchestrator/main.py at mission start; bench values are fine ──
@@ -160,7 +165,7 @@ def _report(title: str, expected: dict[str, float], got: dict[str, float],
     return off
 
 
-async def _run(endpoint: str) -> int:
+async def _run(endpoint: str, *, strict: bool = False) -> int:
     print(f"[preflight] {endpoint}")
     commander = DroneCommander(ConnectionConfig(system_address=endpoint))
     try:
@@ -172,12 +177,21 @@ async def _run(endpoint: str) -> int:
 
     got = await _read(commander, list(BOARD) + list(PINNED))
     bad = _report("ต้องถูกบนบอร์ดเอง (ไม่มีใครแก้ให้):", BOARD, got, fatal=True)
-    _report("mission เขียนให้ตอนสตาร์ต (ค่าโต๊ะ = ปกติ):", PINNED, got, fatal=False)
+    pinned_off = _report(
+        "mission เขียนให้ตอนสตาร์ต (ค่าโต๊ะ = ปกติ):", PINNED, got, fatal=strict)
 
     print()
     if bad:
         print(f"✘ อย่าเพิ่งบิน — ต้องแก้ก่อน: {', '.join(bad)}")
         return 2
+    if strict and pinned_off:
+        # Post-staging mode: once orchestrator/main.py has pushed the pins,
+        # a PINNED value still off means the push failed (the "applied 0/24"
+        # class — CLAUDE.md's stale-mavsdk_server story) and the flight would
+        # run on PX4 defaults (RTL at 60 m, 1.5 m/s onto the pad).
+        print(f"✘ --strict: PINNED ยังไม่ลง — {', '.join(pinned_off)} "
+              "(push จาก orchestrator ล้มเหลว?)")
+        return 4
     print("✔ พารามิเตอร์ฝั่งบอร์ดครบถูกต้อง — บินได้")
     return 0
 
@@ -187,8 +201,12 @@ def main() -> int:
     ap.add_argument("--connect", default="udpin://0.0.0.0:14540",
                     help="MAVLink endpoint (default: the router's offboard port; "
                          "serial:///dev/ttyAMA0:921600 talks to the FC directly)")
+    ap.add_argument("--strict", action="store_true",
+                    help="PINNED mismatches exit 4 — use AFTER the orchestrator "
+                         "has staged (it pushes the pins at connect); at the "
+                         "bench they are informational")
     args = ap.parse_args()
-    return asyncio.run(_run(args.connect))
+    return asyncio.run(_run(args.connect, strict=args.strict))
 
 
 if __name__ == "__main__":

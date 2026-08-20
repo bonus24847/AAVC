@@ -1,4 +1,4 @@
-.PHONY: help install lock sitl spawn-targets camera-bridge payload-bridge payload-bridge-servo aavc-gcs camera-real run hitl hitl-params hitl-camera run-hitl web-build test lint clean
+.PHONY: help install lock sitl stack stack-stop spawn-targets camera-bridge camera-view payload-bridge payload-bridge-servo aavc-gcs camera-real run hitl hitl-params hitl-camera run-hitl web-build test lint clean preflight param-audit type-audit fence-probe alt-watch field-check verify replay
 
 # NOTE: invoke tools via `python -m <module>` (location-independent — survives a
 # directory move, unlike the venv's pinned shebangs) and clear PYTHONPATH so a
@@ -32,6 +32,16 @@ help:
 	@echo "  make lint           Run ruff + mypy"
 	@echo "  make lock           Refresh requirements.lock (pinned deps; reproducible offline build)"
 	@echo "  make clean          Remove caches + build artifacts"
+	@echo ""
+	@echo "  Field checks (skill PX4MASTER — .claude/skills/PX4MASTER/):"
+	@echo "  make preflight      BOARD/PINNED param check (CONNECT=…, STRICT=1 after staging)"
+	@echo "  make fence-probe    FC mission/dataman aliveness + SD flags (the 2026-08-20 wedge)"
+	@echo "  make alt-watch      GPS/altitude stability gate — after every FC reboot"
+	@echo "  make field-check    preflight -> fence-probe -> alt-watch (stops at first failure)"
+	@echo "  make param-audit    Bench sweep: is every px4_tuning value holding on the board?"
+	@echo "  make type-audit     Static: every pushed param uses the setter PX4 accepts"
+	@echo "  make verify         Post-flight verifier (RUN=runs/<id>/audit.jsonl [TRUTH=…])"
+	@echo "  make replay         ArUco decode over recorded frames (DIR=… [ARGS=…])"
 
 # For a byte-reproducible competition build (the AAVC site bans internet, so the
 # venv is built once beforehand), pin every transitive dep to requirements.lock:
@@ -164,3 +174,37 @@ clean:
 	rm -rf __pycache__ .pytest_cache .mypy_cache .ruff_cache *.egg-info
 	find . -name "__pycache__" -type d -not -path "./.venv/*" -exec rm -rf {} +
 	find . -name "*.pyc" -not -path "./.venv/*" -delete
+
+# ── Field checks (skill PX4MASTER — .claude/skills/PX4MASTER/) ──────────────
+# CONNECT defaults to the router's offboard port; pass
+# CONNECT=serial:///dev/ttyAMA0:921600 on the CM4 when the router is down.
+CONNECT ?= udpin://0.0.0.0:14540
+
+preflight:
+	$(PY) tools/preflight_params.py --connect "$(CONNECT)" $(if $(STRICT),--strict)
+
+param-audit:
+	$(PY) tools/param_audit.py --connect "$(CONNECT)"
+
+type-audit:
+	$(PY) tools/px4_type_audit.py
+
+fence-probe:
+	$(PY) tools/fence_probe.py --connect "$(CONNECT)"
+
+alt-watch:
+	$(PY) tools/alt_watch.py --connect "$(CONNECT)"
+
+# The laptop-side pre-staging aggregate: stops at the first failure, in the
+# order the field-day procedure runs them. ⚠ run BEFORE pressing GO — both
+# probes bind the orchestrator's udpin port and exit when done.
+field-check: preflight fence-probe alt-watch
+	@echo "✔ field-check: BOARD params + mission path + altitude frame all good — stage away"
+
+# Post-flight verifier: make verify RUN=runs/<id>/audit.jsonl [TRUTH=/tmp/aavc_targets.json]
+verify:
+	$(PY) tools/verify_flight.py "$(RUN)" $(if $(TRUTH),--truth "$(TRUTH)") --config sitl/aavc_config.yaml
+
+# Offline ArUco decode over recorded frames: make replay DIR=runs/<id>/frames [ARGS="--annotate /tmp/annot"]
+replay:
+	$(PY) tools/replay_frames.py "$(DIR)" $(ARGS)

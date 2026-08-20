@@ -48,3 +48,13 @@ def test_exact_match_params_unchanged() -> None:
     assert _board_ok("PWM_MAIN_FUNC1", 101.0, 101.0)
     assert not _board_ok("PWM_MAIN_FUNC1", 0.0, 101.0)
     assert _board_ok("SYS_AUTOSTART", 6001.0, 6001.0)
+
+
+def test_sys_hitl_zero_is_a_board_check() -> None:
+    # The HITL firmware has no real actuator output (docs/HITL.md) — a board
+    # left flagged SYS_HITL=1 is unflyable in exactly the silent way the BOARD
+    # block exists to catch, and no mission-start pin touches it (G-7,
+    # 2026-08-20).
+    assert BOARD.get("SYS_HITL") == 0
+    assert _board_ok("SYS_HITL", 0.0, 0.0)
+    assert not _board_ok("SYS_HITL", 1.0, 0.0)
