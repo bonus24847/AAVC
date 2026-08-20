@@ -3,6 +3,22 @@
 The step-by-step field-day sequence lives in SKILL.md. This file holds the
 supporting procedures and the open ledger.
 
+## Post-flight discovery loop (how the UNKNOWN bugs get found)
+The 2026-08-20 lesson: GPS-height jitter was invisible until real flights —
+sim, bench and review all missed it. The loop that surfaces the next one:
+1. `make verify RUN=…` on the CM4's audit copy (behaviour vs rules).
+2. **Open the black box**: pull the flight's ULog from the FC SD and run PX4
+   Flight Review (logs.px4.io, or `pip install flight_review` locally) —
+   it checks things nobody thought to ask: vibration (>2-3 m/s² peak-to-peak
+   is bad), actuator saturation (watch this at the 17000-pack AUW), thrust
+   margin, EKF innovations/resets, setpoint-vs-estimate tracking, FFT peaks.
+   `tools/verify_flight.py --ulog` gives the scripted subset (needs pyulog).
+3. Search the symptom on discuss.px4.io + the PX4 GitHub issues BEFORE
+   debugging from scratch — most of what this aircraft will hit was hit by
+   someone in 2019.
+4. 15 minutes, whole crew: "what surprised us today?" → every surprise
+   becomes a references/ entry or an open item HERE (the new-bug rule).
+
 ## RC-GO conops (proven live, incl. two real takeovers 2026-08-20)
 Web/console = STAGE ONLY. The pilot releases: ARM (in POSCTL, throttle low)
 → flip OFFBOARD within a few seconds (ground auto-disarm timer) → aircraft
