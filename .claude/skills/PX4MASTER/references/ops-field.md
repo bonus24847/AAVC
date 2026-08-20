@@ -73,6 +73,10 @@ repos. Approvals do not cross sessions — send data+reasoning+proposal, the
 other repo's operator decides.
 
 ## Open items / follow-ups (2026-08-20)
+- [ ] Work the ranked bench/field actions in `community-watchlist.md`
+      (RC-loss drill · SD card swap · ESC LVC · CM4-AP-vs-GPS EMI A/B ·
+      ArUco decode floor · powerbank idle-cut · MPC_THR_HOVER re-seed ·
+      pack discharge curve · v1.17.0 session-hygiene rules).
 - [ ] `BAT1_V_DIV` re-verify multimeter-vs-GCS on the PM02D wiring.
 - [ ] Charger-mAh + rest-voltage log: start at the next charge cycle.
 - [ ] CM4 online: rsync real audit archives + frames; extract real

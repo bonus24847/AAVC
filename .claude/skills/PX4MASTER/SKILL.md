@@ -28,6 +28,7 @@ deliberately keeps 1) · TFmini lidar aids below 7 m.
 | Link & routing: wedges, pymavlink, WiFi-AP-flies-away, port rules, pkill trap | `references/link-routing.md` |
 | SITL-only traps | `references/sitl.md` |
 | Field operations, procedures, verifier discipline, follow-ups | `references/ops-field.md` |
+| Community watchlist: known 1.17/hardware issues we likely carry + ranked bench actions | `references/community-watchlist.md` |
 
 ## The field-day sequence (validated live 2026-08-20)
 
