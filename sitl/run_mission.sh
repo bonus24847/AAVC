@@ -90,8 +90,17 @@ EOF
 
     if [ "${NO_CAMERA:-0}" != "1" ]; then
         if ! pgrep -f 'camera_grabber.p[y]' >/dev/null 2>&1; then
-            echo "[run_mission] starting camera grabber (BACKEND=${BACKEND:-v4l2})"
+            # กล้อง UVC ย้ายเลข device ได้ทุกครั้งที่ไฟกระตุก (เจอจริง 2026-08-20:
+            # หลุดจาก video0 ไปเกิดใหม่เป็น video1 → grabber เปิด '0' ไม่ได้ ตายเงียบ
+            # แล้ว beacon ร้อง cam=DEAD) — ใช้ path แบบ by-id ที่ตามกล้องไปทุกการ
+            # enumerate เมื่อหาได้ ผู้เรียกยัง override ได้ด้วย GRAB_ARGS เดิม
+            if [ -z "${GRAB_ARGS:-}" ]; then
+                cam_dev=$(ls /dev/v4l/by-id/*-video-index0 2>/dev/null | head -1)
+                [ -n "$cam_dev" ] && GRAB_ARGS="--nadir-device $cam_dev"
+            fi
+            echo "[run_mission] starting camera grabber (BACKEND=${BACKEND:-v4l2}${GRAB_ARGS:+ $GRAB_ARGS})"
             setsid make -C "$REPO_ROOT" camera-real BACKEND="${BACKEND:-v4l2}" \
+                GRAB_ARGS="${GRAB_ARGS:-}" \
                 >/tmp/aavc_camera.log 2>&1 </dev/null &
         else
             echo "[run_mission] camera grabber already up"
@@ -115,6 +124,15 @@ EOF
 EXTRA=()
 if [ "${REAL:-0}" = "1" ]; then
     ensure_infra
+    # INFRA_ONLY: bring the aircraft's own stack up (router + camera grabber +
+    # status beacon) but DO NOT start the orchestrator — no arm, no flight. The
+    # REAL console auto-triggers this on connect so the camera sensor chip lights
+    # from the radio beacon without staging a mission (operator 2026-08-19).
+    if [ "${INFRA_ONLY:-0}" = "1" ]; then
+        echo "[run_mission] INFRA_ONLY: router + camera grabber + status beacon up —"
+        echo "              orchestrator NOT started (no arm, no flight)."
+        exit 0
+    fi
     EXTRA+=(--connect "udpin://0.0.0.0:14540")
     # REAL bird defaults to RC-GO (operator conops 2026-08-12): the console's
     # 🚀 only STAGES the flight — the SAFETY PILOT arms via RC and flips to

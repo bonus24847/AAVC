@@ -280,6 +280,24 @@ else
 fi
 printf '%s' "$HOST" > "$HOSTFILE"
 
+# ── 3b. เคลียร์ session เก่าบนโดรนทุกครั้งที่เปิดไอคอน (operator 2026-08-20:
+# "เคลียให้ผมทุกครั้งที่เปิด icon aavcgcs") — สถานะ mission ค้างฝั่ง CM4 ทำให้
+# beacon ประกาศ "AAVC stale=/why=" ของไฟลต์เก่าจนจออ่านสับสน ⇒ ล้างแล้วยก infra
+# (router/กล้อง/beacon) กลับขึ้นทันที. การ์ดสำคัญ: ถ้า orchestrator กำลังรันอยู่
+# (mission กลางคัน!) ห้ามเคลียร์เด็ดขาด — ปรัชญาเดียวกับปุ่ม stop ที่ไม่แตะโดรน.
+# best-effort: CM4 ไม่ตอบก็เปิด console ต่อได้ (ปุ่ม 🚀 ยก infra เองอยู่แล้ว)
+CLR=$(ssh "${SSH_ID[@]}" -o ConnectTimeout=6 -o BatchMode=yes \
+        -o StrictHostKeyChecking=accept-new "$HOST" '
+    if pgrep -f "orchestrator[.]main" >/dev/null 2>&1; then echo BUSY
+    else
+        cd ~/mission && bash clear_state.sh >/dev/null 2>&1
+        bash cm4/start_infra.sh >/dev/null 2>&1
+        echo CLEARED
+    fi' 2>/dev/null || true)
+case "$CLR" in
+    *BUSY*) msg "⚠ มี mission กำลังรันอยู่บนโดรน — ไม่เคลียร์ state บนเครื่องให้ (กันฆ่า mission กลางคัน)" ;;
+esac
+
 # ── 4. ปิด console เครื่องจริงตัวเก่า (สลับ mission = เปิดไอคอนใหม่) ────────
 if [ -f "$PIDFILE" ]; then
     while read -r pid; do [ -n "$pid" ] && kill "$pid" 2>/dev/null; done < "$PIDFILE"
