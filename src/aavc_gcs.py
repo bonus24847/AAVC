@@ -361,6 +361,33 @@ def _mission_cmd_ssh_host(cmd):
     return None
 
 
+def _mission_cmd_ssh_target(cmd):
+    """The FULL ``user@host`` the GO command ssh's to — not just the hostname.
+
+    _maybe_start_infra used to pass the bare host from _mission_cmd_ssh_host
+    (which exists for the TCP probe), so ssh fell back to the LOCAL username
+    and every auto-infra start died with "bonus-linux@10.42.0.1: Permission
+    denied (publickey,password)" — seen on the console message feed
+    2026-08-21. Harmless while the CM4 stack was already up by hand, which is
+    exactly why it went unnoticed."""
+    if not cmd or "ssh" not in cmd:
+        return None
+    for tok in str(cmd).replace("'", " ").replace('"', " ").split():
+        if "@" in tok and not tok.startswith("-"):
+            return tok
+    return None
+
+
+def _mission_cmd_ssh_identity(cmd):
+    """The ``-i <key>`` of the GO command. The CM4 key is NOT the default
+    id_rsa, so a BatchMode ssh without it cannot authenticate either."""
+    toks = str(cmd or "").replace("'", " ").replace('"', " ").split()
+    for i, tok in enumerate(toks):
+        if tok == "-i" and i + 1 < len(toks):
+            return toks[i + 1]
+    return None
+
+
 def _mission_cmd_remote_dir(cmd):
     """The repo dir the ssh GO runs on the CM4 (e.g. ~/mission) — shown on the
     real-console mission card so the operator can SEE which mission is loaded
@@ -389,14 +416,20 @@ def _maybe_start_infra(host):
         return
     _INFRA_INFLIGHT = True
 
+    # Use the SAME credentials the 🚀 GO command uses — user@host and its
+    # identity file — not the bare hostname the TCP probe works with.
+    target = _mission_cmd_ssh_target(MISSION_CMD) or host
+    identity = _mission_cmd_ssh_identity(MISSION_CMD)
+    argv = ["ssh", "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ConnectTimeout=6", "-o", "BatchMode=yes"]
+    if identity:
+        argv += ["-i", identity]
+    argv += [target, f"{remote_dir}/cm4/start_infra.sh"]
+
     def _run():
         global _INFRA_STARTED, _INFRA_INFLIGHT
         try:
-            r = subprocess.run(
-                ["ssh", "-o", "StrictHostKeyChecking=accept-new",
-                 "-o", "ConnectTimeout=6", "-o", "BatchMode=yes",
-                 host, f"{remote_dir}/cm4/start_infra.sh"],
-                capture_output=True, text=True, timeout=45)
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=45)
             _INFRA_STARTED = True   # command ran (infra now up, or a mission already has it)
             if LINK is not None:
                 if r.returncode == 0:
