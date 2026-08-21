@@ -197,3 +197,27 @@ other repo's operator decides.
 - [ ] docs/REAL_FLIGHT_GCS.md + docs/FLIGHT.md still describe the pre-🚀
       stack-start; status_beacon.main() age logic untested;
       test_status_beacon positional indexing brittle (code-review backlog).
+- [ ] 🔴 **Latch servos dead on the bench 2026-08-21 — every DIGITAL layer
+      verified working; suspect: AUX servo-rail power (BEC)**. Evidence
+      chain: GCS press → radio → FC all confirmed (`mavlink status`: TELEM1
+      GCS heartbeat valid, rx 3.2 KB/s; `pwm_out status` DURING the press
+      showed func 301-304 driven at 1900/1990 — the GCS ACTUATOR_TEST
+      supervisor's own values — for ~20 min straight) and CM4-side
+      ACTUATOR_TEST also ACK=0 on all four; zero physical motion anywhere.
+      The 6X does NOT power the AUX rail itself; the BEC feed likely came
+      loose in the PM03D→converter→PM02D rewires (no egg release has
+      actually happened since 2026-08-18). The ORIGINAL "8 s late release"
+      report now reads as the same fault intermittent (loose feed browning
+      out), not radio queueing. NEXT: multimeter the AUX rail centre pin
+      (expect ~5 V), trace the BEC. ⚠ Field rule learned: press เก็บ (re-latch)
+      on the console BEFORE restoring rail power — the supervisor holds all
+      four latches commanded OPEN, and they will snap open the instant power
+      returns. Lessons: (a) `SERVO_OUTPUT_RAW`/`ACTUATOR_OUTPUT_STATUS` on
+      this setup carry MAIN only — telemetry is BLIND to the AUX bank; the
+      only software view of AUX values is nsh `pwm_out status`; (b) a
+      console restart wipes the ACTUATOR_TEST hold set silently.
+- [ ] aavc-gcs launcher `start_infra` sshes as the LOCAL username
+      (`bonus-linux@10.42.0.1` → Permission denied, seen 2026-08-21 on
+      console restart) instead of `drone@` — harmless while the CM4 stack is
+      already up, but the auto-start path is broken; fix the user default in
+      the launcher.
