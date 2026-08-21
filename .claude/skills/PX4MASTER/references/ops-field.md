@@ -72,7 +72,26 @@ before a shared field day, diff `tools/preflight_params.py::BOARD` across the
 repos. Approvals do not cross sessions — send data+reasoning+proposal, the
 other repo's operator decides.
 
-## Open items / follow-ups (updated 2026-08-21 bench session)
+## Open items / follow-ups (updated 2026-08-21 — G7 attempt #1 debrief)
+- [ ] 🔴 **Zombie mission RE-ARMED the aircraft after pilot takeover**
+      (2026-08-21 flight: ~8 min after takeover+disarm the stuck mission
+      loop called arm_and_takeoff on the parked aircraft — every command
+      timed out only because the FC was already powered down). TOP code fix:
+      the takeover/disarm must TERMINATE the mission loop at the
+      DroneCommander layer (the peer repo's `_guard()` pattern). Field rule
+      effective immediately: **after ANY takeover, stop the mission (⏹)
+      BEFORE approaching the aircraft.**
+- [ ] **GCS must show pads AS THEY ARE FOUND (operator request 2026-08-21)**:
+      in-flight WiFi death kills the mission_status.json sync path, and the
+      radio beacon only broadcasts CONFIRMED pads — so the operator saw
+      nothing while markers 4,5 were identified live. Fix chain: beacon
+      broadcasts IDENTIFIED ids too (e.g. `AAVC ids=…` line) + GCS padbox
+      lights an intermediate state (identified=orange, confirmed=green) from
+      `_parse_beacon`. Verify MAV_1_FORWARD is ACTIVE (post-reboot) on the
+      same bench pass.
+- [ ] G7 attempt #1 analysis pending: why sweep legs stalled from wp7
+      (wind? speed?), why only 2/6 markers decoded (coverage vs camera) —
+      ULog from the FC card + frames from the CM4.
 - [ ] 🔴 **RC does not RE-ACQUIRE after a TX power-cycle** (2026-08-21 bench,
       undiagnosed — operator parked it): link was available=True 100%, TX
       off→on, FC stayed available=False. Candidates: TX boot warning screen
