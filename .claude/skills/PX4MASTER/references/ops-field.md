@@ -93,8 +93,17 @@ other repo's operator decides.
       (per attempt)/`arm_and_takeoff`'s tail/`_drop_via_set_actuator`/every
       param+failsafe setter. Caught-by: `tests/test_safety.py` (disarm/boot/
       between-flight/fire-once cases) + `tests/test_commands.py`
-      (stand_down coverage table). Field rule stays: **after ANY takeover,
-      stop the mission (⏹) BEFORE approaching the aircraft.**
+      (stand_down coverage table). **HARDWARE DRILL PASSED 2026-08-21**
+      (props off, nothing armed): D1 fired at the 1.0 s debounce on the LIVE
+      FC mode string — MAVSDK 3.17.2 reports "POSCTL" verbatim, killing
+      hypothesis (a) with hardware — D2 fired on the first tick in both
+      SEARCH and TRANSIT_INGRESS, and the stood-down commander refused
+      goto/param/drop/rth/arm/run_mission while READS still worked (a
+      selective refusal, not a dead link). Log:
+      `docs/evidence/G7_takeover_drill_2026-08-21.txt`. Still owed: the same
+      takeover DURING flight — blocked on the RC re-acquire item below.
+      Field rule stays: **after ANY takeover, stop the mission (⏹) BEFORE
+      approaching the aircraft.**
 - [ ] Dashboard raw dispatches BYPASS the pilot guard (follow-up from the
       2026-08-21 review, deliberately not folded into the fix): web
       `/api/cmd/takeoff`, `/vehicle_arm`, `/resume`, `/hold` call
@@ -161,9 +170,27 @@ other repo's operator decides.
       CAM_GAIN, don't lengthen the exposure first. GATE STILL OPEN: outdoor
       sharpness A/B (auto vs 10/20/30) then hover-decode over the printed
       marker DURING flight.
-- [ ] `MPC_THR_HOVER` 0.5 → 0.58 — measured true hover ≈0.60 (motors mean,
-      flight 3) while the board holds the 0.5 default and HTE logged NaN;
-      AWAITING OPERATOR APPROVAL, then write + re-verify.
+      ⚠⚠ **INDOORS THE 2 ms DEFAULT MAKES THE CAMERA LOOK DEAD** — measured
+      on the bench 2026-08-21 (same room, same frame, mean grey / Laplacian):
+      auto 129/361 · 2 ms gain64 **7/10** · 5 ms 10/14 · 10 ms 50/106 ·
+      2 ms gain128 24/24. So a bench session (and the console's own
+      auto-`start_infra` camera chip) must run `CAM_EXPOSURE=0` or every
+      frame is black mush; the 20 default is for DAYLIGHT only. Corollary
+      still unmeasured: full sun may want a value well BELOW 20 — pick it
+      from the outdoor A/B, do not assume 20 is right just because it is the
+      default. Also learned: while `auto_exposure=3` the
+      `exposure_time_absolute` readback is `flags=inactive` and shows its
+      DEFAULT (166), NOT what the driver chose — the G7 flight's true
+      exposure is therefore unknown, and "16.6 ms in flight" was an
+      artifact of reading an inactive control.
+- [x] `MPC_THR_HOVER` 0.5 → **0.58 WRITTEN + read-back on the board
+      2026-08-21** (operator-approved). Measured true hover ≈0.60 (motors
+      mean, flight 3) while the board held PX4's 0.5 default and the
+      estimator (`MPC_USE_HTE=1`) logged all-NaN — it never converged in
+      flights that short, so the SEED is what the takeoff ramp, the land
+      detector and every post-reset first flight actually fly on. Now in
+      `tools/preflight_params.py::BOARD`, so a board that loses it shows up
+      as a STOP at the next field day. Re-check the ramp on the next flight.
 - [ ] Prop balance / camera-mount stiffness — 60 Hz per-rev vibration peak
       (~1 m/s²) measured; control band clean, so non-blocking.
 - [x] CM4 archives + frames pulled (2026-08-21, ~/aavc_cm4_runs) · ULog

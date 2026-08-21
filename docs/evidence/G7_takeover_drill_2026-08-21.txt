@@ -1,0 +1,87 @@
+Pilot-takeover drill — REAL aircraft (6X + CM4), props off, NOTHING ARMED
+========================================================================
+2026-08-21, KMUTNB bench. Validates the fix for the G7 attempt-1 zombie
+re-arm (orchestrator/safety.py + mavlink_adapter/commands.py, commit 4fe3935).
+
+Setup: CM4 stack up via cm4/start_infra.sh (mavlink-router + camera + beacon,
+no orchestrator). Real DroneCommander on udpin://0.0.0.0:14540, real
+TelemetrySubscriber, real SafetyWatchdog. Only the mission PHASE is simulated
+(that is the mission loop's own variable); every telemetry field is live.
+The aircraft was disarmed for the whole drill and no arm command was ever
+sent — the arm-path guards were exercised on a DISCONNECTED commander so a
+guard failure could not have reached the aircraft.
+
+Live telemetry at start: armed=False mode=LAND alt=nan landed=ON_GROUND
+(indoors: gps_fix=0, battery NaN — both recorded as anomalies, as designed)
+
+
+PART A — D1: sustained pilot flight mode  [the 2026-08-18 path, re-verified]
+---------------------------------------------------------------------------
+FC commanded into POSCTL over MAVLink (disarmed => no outputs); the armed
+STREAM was cancelled in the harness so the forced armed view survived, while
+the MODE kept streaming live from the FC.
+
+    live: armed=False mode=POSCTL
+    forced view: armed=True, FC mode (live) = POSCTL
+
+    terminal=pilot_takeover after 1.00s (debounce is 1.0s) | pilot_in_control=True
+    AUDIT: t=0.0s battery_telemetry_nan
+    AUDIT: t=0.0s gps_unhealthy_fix=0
+    AUDIT: t=1.0s pilot_takeover_posctl
+    AUDIT: t=1.0s PILOT TAKEOVER mode=POSCTL — orchestrator standing down
+
+Kills hypothesis (a) of the original mystery with hardware: MAVSDK 3.17.2 on
+this CM4 reports the mode string as exactly "POSCTL", which is in
+safety.py::_PILOT_MODES. Fired at the debounce, to the tick.
+FC restored to HOLD afterwards (ack=0).
+
+
+PART B — D2: disarm while in a flying phase  [the NEW detector]
+---------------------------------------------------------------
+Real disarmed telemetry, phase forced to a flying phase. Two phases tried:
+
+    phase=transit_ingress -> terminal=pilot_takeover after 1.00s
+        AUDIT: t=1.0s disarm_in_flight_phase
+        AUDIT: t=1.0s PILOT TAKEOVER (disarmed in transit_ingress) — orchestrator standing down
+
+    phase=search          -> terminal=pilot_takeover after 0.10s
+        AUDIT: t=0.0s disarm_in_flight_phase
+        AUDIT: t=0.0s PILOT TAKEOVER (disarmed in search) — orchestrator standing down
+
+(The 1.00 s in the first run is the watchdog's own 0.5 s tick cadence plus
+the harness poll, not a debounce — D2 has none. The 0.10 s run shows it
+firing on the first tick.)
+
+This is the detector the field incidents needed: the pilot's disarm lands
+0.46-0.48 s after the POSCTL flip (ULog-measured), under D1's 1.0 s debounce,
+and the OLD armed-gate ordering then blinded the watchdog permanently.
+
+
+PART C — command guards against the LIVE FC (commander stood down)
+------------------------------------------------------------------
+    READ MPC_XY_CRUISE = 3.00   <- reads still work (link genuinely alive)
+    ✔ goto: refused (pilot has the aircraft — refusing to goto)
+    ✔ set_param_float (no-op rewrite): refused (… refusing to set param MPC_XY_CRUISE)
+    ✔ drop_payload: refused (… refusing to drop a payload)
+    ✔ rth: refused (… refusing to return-to-launch)
+    MPC_XY_CRUISE still 3.00 (unchanged)
+
+Arm paths, on a DISCONNECTED commander (same deployed file, zero reach):
+    ✔ arm_and_takeoff: refused
+    ✔ _arm_with_retry: refused
+    ✔ run_mission: refused
+
+The refusal is SELECTIVE — reads pass, every FC-state change is blocked —
+so a green result here cannot be a dead link in disguise.
+
+
+VERDICT
+-------
+Both detectors fire on real hardware, and the command owner refuses every
+path the zombie used. Final state: FC in HOLD, disarmed, MPC_XY_CRUISE
+unchanged, nothing written to the aircraft by the drill.
+
+NOT covered here (needs a flying aircraft): the takeover during actual
+flight, i.e. the full RC-GO sequence with the safety pilot's own switch.
+That waits on the open RC re-acquire item — the RC link was down all session
+(available=False after a TX power cycle).

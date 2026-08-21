@@ -76,6 +76,13 @@ BOARD: dict[str, float] = {
     # exactly the silent way this BOARD block exists to catch, and nothing at
     # mission start pins it back. Added 2026-08-20 (gap G-7).
     "SYS_HITL": 0,
+    # Hover-thrust SEED. Measured true hover ≈0.60 (motors mean across the
+    # 2026-08-20 flights) while the board shipped PX4's 0.5 default and the
+    # hover-thrust estimator (MPC_USE_HTE=1) logged all-NaN — it never
+    # converged in flights this short, so the SEED is what the takeoff ramp,
+    # the land detector and every post-reset first flight actually fly on.
+    # Written + read-back on the board 2026-08-21 (operator-approved).
+    "MPC_THR_HOVER": 0.58,
 }
 
 # ── pushed by orchestrator/main.py at mission start; bench values are fine ──
