@@ -245,7 +245,16 @@ other repo's operator decides.
       `SERVO_OUTPUT_RAW`/`ACTUATOR_OUTPUT_STATUS` here carry MAIN only —
       telemetry is BLIND to the AUX bank; the only software view of AUX
       values is nsh `pwm_out status`; (b) a console restart silently wipes
-      the ACTUATOR_TEST hold set.
+      the ACTUATOR_TEST hold set; (c) **`system_power.servo_valid` on this
+      6X is USELESS as a rail indicator** — it read `1` with the BEC wire
+      BROKEN and again `1` after the repair attempt, alongside a rock-steady
+      `voltage5v_v` 5.03 (that is the FC's own 5 V from the PM02D, not the
+      servo rail) and `voltage_payload_v` 0.0. There is no software view of
+      the servo rail on this board: the multimeter is the only instrument.
+      Trace it in three points — BEC INPUT (expect pack ~22-25 V) → BEC
+      OUTPUT (expect ~5-6 V) → the pin at an FMU PWM OUT connector — plus a
+      check that the servo plugs are not reversed on the 3-row header
+      (SIG/+5/GND), since a mirrored plug is silent in exactly the same way.
 - [ ] aavc-gcs launcher `start_infra` sshes as the LOCAL username
       (`bonus-linux@10.42.0.1` → Permission denied, seen 2026-08-21 on
       console restart) instead of `drone@` — harmless while the CM4 stack is
