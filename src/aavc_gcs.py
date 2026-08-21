@@ -926,6 +926,17 @@ class Link:
             # reason stands; gcs_status clears it at the next FLIGHT START
             self.s["radio_why"] = {"t": now, "code": m.group(1)}
             return
+        m = re.match(r"AAVC seen=([\d,]+)$", txt)
+        if m:
+            # identified-but-unconfirmed marker ids (2026-08-21): decoded at
+            # least once, confirm votes still short. This line is what lights
+            # the ORANGE pad state when WiFi is dead — G7 flight 1 was pulled
+            # down while ids 4,5 were being identified behind a blank console.
+            # The beacon repeats it while the tracker holds them; a confirmed
+            # pad moves to the "AAVC pads" coordinate line instead.
+            ids = [int(x) for x in m.group(1).split(",") if x.isdigit()]
+            self.s["radio_seen"] = {"t": now, "ids": ids}
+            return
         m = re.match(r"AAVC cam=(\w+)(?:\s+([\d.]+)s)?", txt)
         if m:
             prev = (self.s.get("radio_cam") or {}).get("state")
@@ -1955,9 +1966,17 @@ class Link:
             rs = self.s.get("radio_stale")
             data_age = (rs["age"] + (time.time() - rs["t"])
                         if rs and time.time() - rs["t"] <= 20 else 0.0)
+            # identified-but-unconfirmed ids from "AAVC seen=" — no coords on
+            # the radio (budget), so the value is None: the sidebar ladder
+            # lights orange from the id alone; the map needs a position and
+            # only draws identified pads on the WiFi feed.
+            rsn = self.s.get("radio_seen")
+            seen_ids = (rsn["ids"] if rsn and time.time() - rsn["t"] <= 15
+                        else [])
             mission = {"phase": rm["phase"], "delivered": rm["ok"],
                        "assigned": asg if len(asg) == rm["assigned_n"] else [],
                        "pads_mapped": live_pads, "mapped_n": rm["mapped_n"],
+                       "pads_identified": {str(i): None for i in seen_ids},
                        "home_reason": why,
                        "age_s": round(time.time() - rm["t"] + data_age, 1),
                        "src": "radio"}
@@ -2543,6 +2562,11 @@ body.side-collapsed .colside{width:0;padding:0;border-right:none;overflow:hidden
 .padbox.todo::before,.padbox.queue::before{border-color:#8b949e}
 .padbox.todo span,.padbox.queue span{color:#6e7681}
 .padbox.queue{border-style:dashed}
+/* identified (2026-08-21): id decoded but votes short — ORANGE middle state
+   between gray todo/queue and green done (operator: ส้ม = identified) */
+.padbox.ident{background:#fff7e0;border-color:#d29922}
+.padbox.ident::before{border-color:#e3a008}
+.padbox.ident span{color:#9a6700}
 /* in-flight edit lock (2026-08-12): เลือก/แก้ไข + 🚀 go gray-out during a mission */
 .savebtn.locked,.savebtn.locked:hover{background:#21262d!important;
  border-color:#30363d!important;color:#8b949e!important;cursor:not-allowed}
@@ -2727,6 +2751,7 @@ body.fieldmode #fmbtn{background:#238636;color:#fff;border-color:#3fb950}
     <select id=misel onchange=selectMission() style="width:100%;background:#161b22;color:#e6edf3;border:2px solid #58a6ff;border-radius:8px;padding:8px;font-size:14px;font-weight:600;cursor:pointer"></select>
    </div>
    <div id=mrealcard style="display:none;margin-bottom:6px" onclick=realSwitchHelp()></div>
+   <div class=padlive id=padlive></div>
    <div class=padstatus id=padstatus>— ยังไม่เลือก pad —</div>
    <button class=savebtn id=padopen type=button onclick=openPadModal()>✏️ เลือก / แก้ไข pad (ตั้งก่อนบิน offboard)</button>
    <button class=savebtn id=flybtn type=button onclick=startMission() style="display:none;margin-top:6px">🚀 up ขึ้นโดรน</button>
@@ -3428,18 +3453,26 @@ function renderMissionLock(s){
 }
 // live per-pad status from the running mission: scanned -> "เจอแล้ว", dropped -> "drop แล้ว"
 function renderPadLive(s){
+ // Per-pad ladder (revived 2026-08-21 — it was dead code with no div/caller):
+ // ⏳ รอสแกน → 🟠 เห็นแล้ว รอยืนยัน (identified: id decoded, votes short —
+ // arrives over the RADIO alone via "AAVC seen=") → ✅ เจอแล้ว (confirmed) →
+ // 📦 drop แล้ว. This is what the operator watches when in-flight WiFi dies.
  var el=document.getElementById('padlive');if(!el)return;
  var ms=s.mission||{},stale=(ms.age_s!=null&&ms.age_s>45);
  var mapped=stale?{}:(ms.pads_mapped||{}),deliv=stale?[]:(ms.delivered||[]),asg=s.assignment||[];
+ var ident=stale?{}:(ms.pads_identified||{});
  var set={};asg.forEach(function(x){set[x]=1;});
  Object.keys(mapped).forEach(function(x){set[parseInt(x,10)]=1;});
+ Object.keys(ident).forEach(function(x){set[parseInt(x,10)]=1;});
  deliv.forEach(function(x){set[x]=1;});
  var ids=Object.keys(set).map(Number).filter(function(x){return x>=1;}).sort(function(a,b){return a-b;});
  if(!ids.length){el.innerHTML='<div class="padli off">— รอ mission เริ่มสแกน —</div>';return;}
  el.innerHTML=ids.map(function(id){
    var found=(mapped[id]!=null)||(mapped[String(id)]!=null),dropped=deliv.indexOf(id)>=0;
+   var seen=(id in ident)||(String(id) in ident);   // value may be null (radio: id only)
    if(dropped)return '<div class=padli style="color:#3fb950">📦 drop pad '+id+' แล้ว</div>';
    if(found)return '<div class=padli style="color:#8b949e">✅ เจอ pad '+id+' แล้ว</div>';
+   if(seen)return '<div class=padli style="color:#e3a008">🟠 เห็น pad '+id+' รอยืนยัน</div>';
    return '<div class="padli off">⏳ pad '+id+' รอสแกน</div>';
  }).join('');
 }
@@ -3554,19 +3587,29 @@ function aavcMap(s){
  // left the previous field's pads painted on the map until a page reload.
  var ms=s.mission||{},stale=(ms.age_s!=null&&ms.age_s>45);
  var pm=stale?{}:(ms.pads_mapped||{}),o=s.origin||{},deliv=stale?[]:(ms.delivered||[]);
+ // identified-but-unconfirmed (2026-08-21): the ORANGE middle state. Only the
+ // WiFi feed ships coordinates; the radio ships ids with null coords, which
+ // light the sidebar ladder but cannot place a marker.
+ var pi=stale?{}:(ms.pads_identified||{});
  // "อยู่ในคิวส่ง" = the RUNNING mission's own assignment (mission_status
  // .assigned) when the feed is live — NOT the local editor state, which can
  // lag behind a selection saved elsewhere (bug seen 2026-08-12: pad 3 showed
  // queued from a stale page-load assignment). Editor SEL is only the
  // fallback when no live mission is feeding.
  var q=(!stale&&ms.assigned&&ms.assigned.length)?ms.assigned:SEL;
- for(var oid in lpads){if(!(oid in pm)){lmap.removeLayer(lpads[oid]);delete lpads[oid];}}
- for(var id in pm){
+ // drawable = confirmed pads + identified pads that CARRY coordinates
+ var drawable={};for(var ck in pm)drawable[ck]=1;
+ for(var ik in pi){if(pi[ik]!=null)drawable[ik]=1;}
+ for(var oid in lpads){if(!(oid in drawable)){lmap.removeLayer(lpads[oid]);delete lpads[oid];}}
+ for(var id in drawable){
   if(o.lat==null)break;
-  var en=pm[id],pos=aavcEN(en[0],en[1],o.lat,o.lon),pid=parseInt(id);
+  var conf=(id in pm);
+  var en=conf?pm[id]:pi[id],pos=aavcEN(en[0],en[1],o.lat,o.lon),pid=parseInt(id);
   var done=deliv.indexOf(pid)>=0;
-  var cls=done?'padbox done':(q.indexOf(pid)>=0?'padbox queue':'padbox todo');
-  var st=done?'ส่งแล้ว':(q.indexOf(pid)>=0?'อยู่ในคิวส่ง':'เจอแล้ว');
+  var cls=done?'padbox done':(!conf?'padbox ident'
+           :(q.indexOf(pid)>=0?'padbox queue':'padbox todo'));
+  var st=done?'ส่งแล้ว':(!conf?'เห็นแล้ว รอยืนยัน'
+          :(q.indexOf(pid)>=0?'อยู่ในคิวส่ง':'เจอแล้ว'));
   var icon=L.divIcon({className:'padicon',iconSize:[36,36],iconAnchor:[18,18],
    html:'<div class="'+cls+'"><i>✓</i><span>'+id+'</span></div>'});
   if(!lpads[id])lpads[id]=L.marker(pos,{icon:icon}).addTo(lmap).bindTooltip('Pad '+id+' — '+st,{direction:'top'});
@@ -3622,6 +3665,7 @@ async function tick(){
  try{renderMissionLock(s)}catch(e){}
  try{renderServos(s)}catch(e){}
  try{renderPadStatus(s)}catch(e){}
+ try{renderPadLive(s)}catch(e){}
  try{layoutTop()}catch(e){}
 }
 function gfActName(a){var m={0:'ปิด',1:'เตือน',2:'Hold',3:'RTL',4:'Terminate',5:'Land'};return (m[a]!=null)?m[a]:a;}
