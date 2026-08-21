@@ -122,6 +122,11 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     "MC_YAWRATE_MAX": 45.0,     # limit body yaw rate (deg/s); default 200. The hexa's
                                 # Izz dwarfs its yaw authority — it cannot chase 50.
     "MPC_YAWRAUTO_MAX": 25.0,   # gentler auto heading slews (deg/s) — the AUTO yaw cap
+    # 5 = YAW FIXED in AUTO (v1.17 source-verified enum; 0-default yaws
+    # towards every waypoint, spinning the nadir camera at each sweep turn
+    # — rotational blur on top of the in-flight blur budget). The hexa
+    # strafes its legs on one heading instead. Operator 2026-08-21.
+    "MPC_YAW_MODE": 5.0,
     "MPC_XY_VEL_MAX": 5.0,      # horizontal speed ceiling (m/s); KMUTNB: the longest
                                 # leg is ~52 m and accuracy is the brief — 10 m/s
                                 # buys nothing here and doubles the overshoot.
@@ -237,6 +242,7 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
 # shared list can cover it.
 _INT_PARAMS = frozenset({
     "EKF2_RNG_CTRL", "EKF2_OF_CTRL",          # height aiding / flow fusion
+    "MPC_YAW_MODE",                            # AUTO heading enum -> INT32
     # Missing from this list its whole life: the float write was rejected on
     # every connect ("EKF2_HGT_REF=1 failed: TIMEOUT" in every flight log), so
     # the pin never actually reached the board — found 2026-08-20 while

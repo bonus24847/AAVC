@@ -408,6 +408,14 @@ px4_tuning:
                             # the quad's against ~0.4x the yaw authority per
                             # newton of thrust, so it cannot chase 50 deg/s.
   MPC_YAWRAUTO_MAX: 25.0    # gentler auto heading slews (deg/s) — the dominant
+  # Heading behaviour in AUTO. PX4 default 0 = yaw TOWARDS each waypoint —
+  # which spins the body-fixed nadir camera at every sweep-leg turn, adding
+  # rotational blur to already-marginal in-flight frames (G7 attempt #1:
+  # 1-of-457 recorded frames decodable). 5 = YAW FIXED (verified against the
+  # v1.17 source, multicopter_autonomous_params.c — NOT 4, which is
+  # towards-waypoint-yaw-first): the hexa strafes its legs holding one
+  # heading and the image never rotates. Operator decision 2026-08-21.
+  MPC_YAW_MODE: 5
                             # yaw-speed limit in AUTO. Lower further if still snappy.
   MPC_XY_VEL_MAX: 5.0       # horizontal speed ceiling (m/s). KMUTNB: the longest
                             # leg is ~52 m and accuracy is the goal — 10 m/s

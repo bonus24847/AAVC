@@ -305,7 +305,12 @@ vision:
 # mission-fatal). ~1 Hz × 20 min ≈ 200-300 MB — size the CM4 SD card accordingly.
 recording:
   enabled: true
-  hz: 1.0               # nadir frames per second
+  # 1.0 -> 5.0 (operator 2026-08-21): the G7-attempt debrief lived and died
+  # by these frames — at 1 Hz the recorder caught ONE decodable frame while
+  # the 3.3 Hz live detector caught enough to identify two pads. 5 Hz costs
+  # ~8% of one CM4 core + ~0.5 GB per 20-min window and makes post-flight
+  # decode/blur analysis 5x denser.
+  hz: 5.0               # nadir frames per second
   jpeg_quality: 80      # cv2 JPEG quality 0-100
 
 # FC link + egg-release servo (mavlink_adapter.ConnectionConfig). All optional —
@@ -407,6 +412,14 @@ px4_tuning:
                             # the quad's against ~0.4x the yaw authority per
                             # newton of thrust, so it cannot chase 50 deg/s.
   MPC_YAWRAUTO_MAX: 25.0    # gentler auto heading slews (deg/s) — the dominant
+  # Heading behaviour in AUTO. PX4 default 0 = yaw TOWARDS each waypoint —
+  # which spins the body-fixed nadir camera at every sweep-leg turn, adding
+  # rotational blur to already-marginal in-flight frames (G7 attempt #1:
+  # 1-of-457 recorded frames decodable). 5 = YAW FIXED (verified against the
+  # v1.17 source, multicopter_autonomous_params.c — NOT 4, which is
+  # towards-waypoint-yaw-first): the hexa strafes its legs holding one
+  # heading and the image never rotates. Operator decision 2026-08-21.
+  MPC_YAW_MODE: 5
                             # yaw-speed limit in AUTO. Lower further if still snappy.
   MPC_XY_VEL_MAX: 5.0       # horizontal speed ceiling (m/s). KMUTNB: the longest
                             # leg is ~52 m and accuracy is the goal — 10 m/s
