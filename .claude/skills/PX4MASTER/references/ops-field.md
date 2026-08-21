@@ -72,7 +72,27 @@ before a shared field day, diff `tools/preflight_params.py::BOARD` across the
 repos. Approvals do not cross sessions — send data+reasoning+proposal, the
 other repo's operator decides.
 
-## Open items / follow-ups (updated 2026-08-21)
+## Open items / follow-ups (updated 2026-08-21 bench session)
+- [ ] 🔴 **RC does not RE-ACQUIRE after a TX power-cycle** (2026-08-21 bench,
+      undiagnosed — operator parked it): link was available=True 100%, TX
+      off→on, FC stayed available=False. Candidates: TX boot warning screen
+      holding RF off, ELRS model-match, RX in bind mode after today's rapid
+      battery cycles. **MUST be resolved + the RC-loss drill completed before
+      ANY flight** — the safety pilot is the last net. Drill tooling works
+      (rc_status watcher via CM4 router); pick it back up at "turn TX on,
+      wait for ACQUIRED".
+- [x] **FC microSD swap DONE 2026-08-21**: new SanDisk Extreme U3 32 GB —
+      full-surface verified in the laptop (29 GiB write+read, zero
+      mismatches), factory FAT32 kept; old card archived whole
+      (~/aavc_sdcard_archive_2026-08-21) and RETIRED. Post-install: BOARD
+      params 100% from FRAM, fence download answers (dataman alive — the
+      no-card state reproduces the wedge signature, good to know),
+      parameters_backup.bson auto-regenerated (3,387 B, same size as the
+      FRAM-current set). Note: `sd_bench` is NOT in this firmware build —
+      on-board latency benchmarking waits for a fw that includes it.
+- [ ] Pack at 22.17 V resting = gauge 0% (below V_EMPTY) after the field
+      session — CHARGE before any flight; log the charger's returned mAh
+      (first row of the ground-truth table).
 - [ ] **CAMERA FOCUS bench gate** (the new #1 — see SKILL.md shortlist and
       docs/evidence/ulog_review_2026-08-21.md finding 1).
 - [ ] `MPC_THR_HOVER` 0.5 → 0.58 — measured true hover ≈0.60 (motors mean,

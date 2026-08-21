@@ -78,11 +78,18 @@ async def _probe(endpoint: str) -> int:
     try:
         listing = await asyncio.wait_for(
             drone.ftp.list_directory("/fs/microsd"), _FTP_TIMEOUT_S)
-        names = [getattr(entry, "name", str(entry))
-                 for entry in (getattr(listing, "dirs", []) or [])
-                 + (getattr(listing, "files", []) or [])] \
-            if hasattr(listing, "dirs") or hasattr(listing, "files") \
-            else [getattr(entry, "name", str(entry)) for entry in listing]
+        # MAVSDK's ListDirectoryData shape varies by version (dirs/files
+        # attrs, or a plain iterable) — collect defensively; the first field
+        # bench (2026-08-21) hit a TypeError from assuming list-typed attrs.
+        names: list[str] = []
+        for attr in ("dirs", "files"):
+            for entry in (getattr(listing, attr, None) or []):
+                names.append(str(getattr(entry, "name", entry)))
+        if not names:
+            try:
+                names = [str(getattr(e, "name", e)) for e in listing]
+            except TypeError:
+                names = [str(listing)]
         flagged = [n for n in names
                    if any(str(n).lstrip("DF/").startswith(f) for f in _SD_FLAGS)]
         if flagged:
