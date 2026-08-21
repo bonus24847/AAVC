@@ -24,7 +24,7 @@
 #   GRAB_ARGS="..."            extra camera-grabber flags (--nadir-device, --fourcc GREY, --fps, …)
 #   CAM_EXPOSURE=20            v4l2 forced exposure, UVC 100 µs units (20 = 2 ms; 0 = auto)
 #   CAM_GAIN=64                optional fixed gain 0-128 with CAM_EXPOSURE (OV9281 has no auto-gain)
-#   CAM_INTERVAL=0.05          seconds between frame writes (0.05 = 20 Hz with passthrough)
+#   CAM_INTERVAL=0.04          seconds between frame writes (0.04 = 25 Hz with passthrough)
 #   CAM_PASSTHROUGH=0          disable MJPEG passthrough (fall back to YUYV + re-encode)
 #   CAM_MIRROR=1               also write /tmp/aavc_frame.jpg for the WEB dashboard (costs a
 #                              second encode ~12 ms/frame as JPEG; off by default)
@@ -166,7 +166,7 @@ if [ "${NO_CAMERA:-0}" != "1" ]; then
     # numbers and the decode-survival test behind it.
     if [ "${CAM_PASSTHROUGH:-1}" != "0" ] && [ "$BACKEND" = "v4l2" ]; then
         GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--mjpeg-passthrough"
-        CAM_INTERVAL="${CAM_INTERVAL:-0.05}"
+        CAM_INTERVAL="${CAM_INTERVAL:-0.04}"     # 25 Hz (see run_mission.sh)
     fi
     GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--interval-s ${CAM_INTERVAL:-0.1}"
     [ "${CAM_MIRROR:-0}" = "0" ] && GRAB_ARGS="$GRAB_ARGS --no-mirror"

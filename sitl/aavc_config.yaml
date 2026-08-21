@@ -303,14 +303,14 @@ vision:
   # before a fresh frame is picked up. Measured on the CM4: one decode pass is
   # ~67 ms (26 ms PNG read + 41 ms detect), a skipped poll is one stat().
   # Raise it only to throttle a CPU-starved companion.
-  poll_interval_s: 0.05
+  poll_interval_s: 0.02
   # Frames decoded CONCURRENTLY (1 = sequential, the validated default). One
   # decode+detect is ~55 ms of CM4 CPU, so a single worker tops out near 18 Hz.
   # Raise to 2 ONLY together with a camera that actually writes faster than
   # that — i.e. with the grabber's --mjpeg-passthrough, which feeds 20-30 Hz
   # for ~7% of a core. cv2 releases the GIL, so the extra worker is a real
   # core; results stay in frame order either way.
-  decode_workers: 1
+  decode_workers: 2
 
 # Mission frame recorder (R2 — the RECORD half of the rules' "record AND transmit"
 # imaging requirement). Persists a low-rate JPEG trail of the nadir frames
@@ -880,7 +880,9 @@ preflight:
 # target 1.6 s). Move them together or the loop gets twitchy exactly when the
 # camera is struggling.
 align:
-  cycle_hz: 10.0          # detect -> reposition rate; the camera writes 10 Hz
-  lock_cycles: 6          # 0.6 s of in-tolerance before descending a rung
-  max_lost_cycles: 16     # 1.6 s of lost pad before climbing back
-  median_window: 3        # fixes fused per command (lag = window / cycle_hz)
+  cycle_hz: 12.0          # achieved rate (deadline-paced); ~60 ms of work per
+                          # cycle on the CM4 leaves ~38% headroom under it
+  lock_cycles: 9          # 0.75 s of in-tolerance before descending a rung
+  max_lost_cycles: 24     # 2.0 s of lost pad before climbing back
+  median_window: 3        # fixes fused per command (lag = window / cycle_hz
+                          # = 0.25 s; keep ODD and small — see the dataclass)

@@ -303,20 +303,30 @@ other repo's operator decides.
       would ever confirm. Also fixed on the way: the pose is now snapshotted
       BEFORE the decode, not after — every fix used to be geolocated with the
       attitude the aircraft had ~55 ms later.
-- [ ] Landing loop rate doubled 2026-08-21 (operator: land as close to pad
-      centre as possible): `AlignParams.cycle_hz` 5 → 10 with `lock_cycles`
-      3 → 6 and `max_lost_cycles` 8 → 16, so the WALL-CLOCK constants the
-      validated runs flew are unchanged (lock 0.6 s, lost-before-climb 1.6 s)
-      while corrections happen twice as often and the median filter's own lag
-      halves (0.4 → 0.2 s — that lag rides straight into the commanded
-      setpoint, so it IS landing error). Now config-driven under `align:` so
-      `tools/landing_trial.py` can A/B it without touching the flight core.
-      ⚠ the three numbers are ONE setting: two are counted in CYCLES, so a
-      rate change alone silently makes the loop twitchy exactly when the
-      camera is struggling. A test pins the wall-clock constants.
-      REMAINING: measure land-ON precision before/after in SITL
-      (`tools/landing_trial.py --pad-index 0 --n 8`) — the change is
-      argued from first principles and unit-pinned, not yet flown.
+- [ ] **Landing loop retuned 2026-08-21** (operator: land as close to pad
+      centre as possible) — and a REAL BUG found on the way: the loop slept a
+      fixed `1/cycle_hz` AFTER its work, so the configured rate was never the
+      achieved one. With ~60 ms of detect on the CM4, "5 Hz" ran at **3.7**,
+      and `lock_cycles`/`max_lost_cycles` — counted in cycles — silently
+      tracked whatever the detector cost, so a faster camera would have
+      shortened the very timeouts that keep the descent honest. Fixed with
+      deadline pacing (`_Pacer`: sleep only the remainder; an overrunning
+      cycle returns immediately instead of stacking debt). Now
+      `cycle_hz=12` truly means 12, with `lock_cycles=9` / `max_lost_cycles=24`
+      holding the wall-clock band every validated run flew (lock ~0.75 s,
+      lost ~2.0 s). The win is LAG, not raw rate: the median filter's own
+      delay drops ~0.8 s → **0.25 s**, and at even 1 m/s of drift that delay
+      alone was a quarter-metre of landing error. Config-driven under
+      `align:`; a test pins the wall-clock band so the trio cannot drift
+      apart. ⚠ ~60 ms of work per cycle puts the honest ceiling near 16 Hz —
+      12 keeps ~38% headroom for CPU contention with the vision worker.
+      REMAINING: measure land-ON precision (`tools/landing_trial.py
+      --pad-index 0 --n 8`, or the real flight) — argued from measurement and
+      unit-pinned, not yet flown.
+- [x] `/tmp` on the CM4 is **tmpfs (RAM)**, 3.9 GB free of 7.8 GB total —
+      checked 2026-08-21 before raising the frame rate. Frame files therefore
+      cost no SD wear and no SD write latency at any rate we can produce,
+      which is what makes 25 Hz frames a free choice rather than a trade.
 - [ ] aavc-gcs launcher `start_infra` sshes as the LOCAL username
       (`bonus-linux@10.42.0.1` → Permission denied, seen 2026-08-21 on
       console restart) instead of `drone@` — harmless while the CM4 stack is

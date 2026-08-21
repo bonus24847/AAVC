@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import math
 import statistics
+import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -89,24 +90,27 @@ class AlignParams:
     # crawl, not this. Indexed defensively (min(i, len-1)) so a shorter ``rungs``
     # (low ceiling) still maps cleanly.
     rung_descent_mps: tuple[float, ...] = (3.0, 3.0, 1.5, 0.8, 0.5, 0.4)
-    # ⚠ lock_cycles, max_lost_cycles and cycle_hz are ONE setting in three
-    # numbers: the first two are counted in CYCLES, so changing the rate alone
+    # ⚠ cycle_hz, lock_cycles and max_lost_cycles are ONE setting in three
+    # numbers: the last two are counted in CYCLES, so changing the rate alone
     # silently rescales how long the loop confirms a lock and how long it
-    # tolerates a lost pad. Keep the WALL-CLOCK constants when you touch the
-    # rate — lock 0.6 s, lost 1.6 s — which is what the 5 Hz/3/8 era flew and
-    # what test_tactical_align pins.
-    # Raised 5 -> 10 Hz on 2026-08-21 (operator: land as close to pad centre as
-    # possible): the camera now writes 10 Hz, so at 5 Hz half the frames were
-    # thrown away, and each cycle costs ~56 ms of CM4 CPU since the frames
-    # became JPEG (was ~74 ms). Doubling the rate halves the median filter's
-    # own lag (paper C: 3 samples ≈ 0.4 s at 5 Hz, ≈ 0.2 s at 10) — that lag
-    # rides directly into the commanded setpoint, so it IS landing error.
-    lock_cycles: int = 6              # consecutive in-tolerance cycles (0.6 s)
-    cycle_hz: float = 10.0            # detect→reposition loop rate
+    # tolerates a lost pad. Hold the WALL-CLOCK constants — lock ~0.75 s,
+    # lost ~2.0 s — which is the band every validated run flew; a test pins it.
+    #
+    # Retuned 2026-08-21 (operator: land as close to pad centre as possible).
+    # 5 -> 12 Hz, and the rate is now HONEST: the loop used to sleep a fixed
+    # 1/cycle_hz AFTER the work, so "5 Hz" was really 3.7 on the CM4 (60 ms of
+    # detect + a 200 ms sleep) and the wall-clock constants moved with detector
+    # speed. With deadline pacing (_Pacer) and a ~60 ms cycle, 12 Hz leaves
+    # ~38% headroom for CPU contention while more than tripling the correction
+    # rate. What that buys is mostly LAG: the median filter's own delay drops
+    # from ~0.8 s to 0.25 s, and at even 1 m/s of drift that delay is a
+    # quarter-metre of landing error all by itself.
+    lock_cycles: int = 9              # consecutive in-tolerance cycles (0.75 s)
+    cycle_hz: float = 12.0            # detect→reposition loop rate (achieved)
     acquire_timeout_s: float = 12.0   # search budget before deferring
     rung_timeout_s: float = 18.0      # per-rung align budget
     min_confidence: float = 0.45      # pad-hit acceptance
-    max_lost_cycles: int = 16         # lost detections before climbing (1.6 s)
+    max_lost_cycles: int = 24         # lost detections before climbing (2.0 s)
     search_radius_m: float = 4.0      # expanding-box search step if not acquired
     settle_after_land_s: float = 2.0  # pause after touchdown before the release
     touchdown_timeout_s: float = 40.0  # wait for the PX4 land detector this long
@@ -129,7 +133,12 @@ class AlignParams:
     # exceeded the final rung's 0.35 m tolerance and could deadlock the descent.
     reissue_px: float = 4.0
     # Median-fuse the last N accepted world fixes before commanding (paper C):
-    # kills single-frame projection outliers at ~0.2-0.4 s of added latency.
+    # kills single-frame projection outliers, at window/cycle_hz of latency —
+    # 0.25 s at 12 Hz. Keep it ODD (a 2-window is a mean, not a median) and
+    # keep it SMALL: the projection noise it rejects is centimetres at these
+    # altitudes (GSD is 7 mm/px at 12 m, 0.9 mm/px at 1.5 m), while its own
+    # lag against any drift is decimetres. 3 is the floor that still rejects a
+    # single outlier.
     median_window: int = 3
     # Tilt gate (deg): skip a cycle while |roll| or |pitch| exceeds this. A
     # near-hover rung shouldn't hold large tilt; a mid-correction transient is
@@ -233,6 +242,27 @@ def _running(state: OrchestratorState) -> bool:
     return state.terminal == TerminalState.RUNNING
 
 
+class _Pacer:
+    """Cycle pacing that holds a RATE, not a gap.
+
+    ``asyncio.sleep(period)`` after the work gives period + work, so the
+    configured rate is never the achieved one and it moves with whatever the
+    detector happens to cost. This sleeps only what is left of the cycle; an
+    overrunning cycle yields immediately and the next one starts on time
+    rather than accumulating the debt."""
+
+    def __init__(self, period_s: float) -> None:
+        self.period = period_s
+        self._next = time.monotonic()
+
+    async def wait(self) -> None:
+        now = time.monotonic()
+        self._next = max(now, self._next + self.period)
+        delay = self._next - now
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+
 async def acquire_and_land_drop(
     commander: DroneCommander,
     state: OrchestratorState,
@@ -253,7 +283,15 @@ async def acquire_and_land_drop(
     the watchdog's RTH is not fought.
     """
     res = AlignResult()
-    dt = 1.0 / max(params.cycle_hz, 1.0)
+    # PACE TO A DEADLINE, don't sleep a fixed dt after the work (fixed 2026-08-21).
+    # ``await pacer.wait()`` at the end of a cycle makes the real period
+    # work + dt, so cycle_hz never meant the achieved rate: with a ~60 ms
+    # detect on the CM4, "10 Hz" ran at 6.3 and the 5 Hz era ran at 3.7. Worse,
+    # it made lock_cycles/max_lost_cycles silently drift with detector speed —
+    # a faster camera would have shortened the very timeouts that keep the
+    # descent honest. Sleeping only the REMAINDER makes cycle_hz the rate, and
+    # a cycle that overruns simply returns immediately instead of stacking.
+    pacer = _Pacer(1.0 / max(params.cycle_hz, 1.0))
     cruise_alt = params.rungs[0]
 
     def _phase(p: MissionPhase) -> None:
@@ -366,7 +404,7 @@ async def acquire_and_land_drop(
         slat, slon = _offset_latlon(target.lat, target.lon,
                                     off * math.cos(ang), off * math.sin(ang))
         await _goto(slat, slon, cruise_alt)
-        await asyncio.sleep(dt)
+        await pacer.wait()
     if not res.acquired:
         if not params.gps_fallback:
             # Defer instead of landing on coarse GPS: an unread pad + a blind
@@ -396,7 +434,7 @@ async def acquire_and_land_drop(
             # least trustworthy — wait it out WITHOUT counting it as a lost
             # detection (else a multi-cycle correction trips the climb-back).
             if _too_tilted():
-                await asyncio.sleep(dt)
+                await pacer.wait()
                 continue
             hit = await _read_nadir()
             fix = _accept(hit)
@@ -409,7 +447,7 @@ async def acquire_and_land_drop(
                 in_tol = in_tol + 1 if last_err <= tol else 0
                 if in_tol >= params.lock_cycles:
                     break        # locked at this rung → descend to next
-                await asyncio.sleep(dt)
+                await pacer.wait()
                 continue
             # lost / unprojectable / off-target / wrong-size
             lost += 1
@@ -423,7 +461,7 @@ async def acquire_and_land_drop(
                 lost = 0
             else:
                 await _goto(best_latlon[0], best_latlon[1], rung_alt)
-            await asyncio.sleep(dt)
+            await pacer.wait()
         final_locked = in_tol >= params.lock_cycles
         logger.info(f"[align] #{stop_index}: rung {rung_alt:.0f} m err="
                     f"{last_err:.2f} m locked={final_locked}")

@@ -335,17 +335,19 @@ def _wall_clock(p: AlignParams) -> tuple[float, float, float]:
 
 def test_align_rate_change_preserves_the_wall_clock_constants() -> None:
     lock_s, lost_s, median_lag_s = _wall_clock(AlignParams())
-    assert lock_s == pytest.approx(0.6, abs=0.05)
-    assert lost_s == pytest.approx(1.6, abs=0.1)
+    assert lock_s == pytest.approx(0.75, abs=0.1)
+    assert lost_s == pytest.approx(2.0, abs=0.2)
     # the median filter's own lag rides into the commanded setpoint, so it IS
     # landing error — a faster loop must SHRINK it, never grow it
     assert median_lag_s <= 0.3
 
 
 def test_align_loop_is_not_slower_than_the_camera() -> None:
-    """A loop slower than the frame rate throws frames away; the camera writes
-    10 Hz (sitl/camera_grabber.py DEFAULT_INTERVAL_S = 0.1)."""
-    assert AlignParams().cycle_hz >= 10.0
+    """A loop slower than the camera throws frames away, and one faster than
+    it can actually run just slips. The camera writes 20-25 Hz with MJPEG
+    passthrough; a cycle costs ~60 ms on the CM4, so the honest ceiling is
+    ~16 Hz and the setting must leave headroom under it."""
+    assert 10.0 <= AlignParams().cycle_hz <= 15.0
 
 
 def test_align_config_block_moves_the_trio_together() -> None:
@@ -362,5 +364,5 @@ def test_align_config_block_moves_the_trio_together() -> None:
     tuning = _align_tuning(cfg)
     assert {"cycle_hz", "lock_cycles", "max_lost_cycles"} <= set(tuning)
     lock_s, lost_s, _ = _wall_clock(_align_for(COMPETITION, 2.0, tuning))
-    assert lock_s == pytest.approx(0.6, abs=0.05)
-    assert lost_s == pytest.approx(1.6, abs=0.1)
+    assert lock_s == pytest.approx(0.75, abs=0.1)
+    assert lost_s == pytest.approx(2.0, abs=0.2)

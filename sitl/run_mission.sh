@@ -121,7 +121,8 @@ EOF
             # CAM_PASSTHROUGH=0 กลับไปทาง YUYV + re-encode ได้ทันที
             if [ "${CAM_PASSTHROUGH:-1}" != "0" ] && [ "${BACKEND:-v4l2}" = "v4l2" ]; then
                 GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--mjpeg-passthrough"
-                CAM_INTERVAL="${CAM_INTERVAL:-0.05}"     # 20 Hz — it is nearly free now
+                CAM_INTERVAL="${CAM_INTERVAL:-0.04}"     # 25 Hz — /tmp is tmpfs (RAM) on
+                                         # the CM4, so frames cost no SD wear
             fi
             GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--interval-s ${CAM_INTERVAL:-0.1}"
             [ "${CAM_MIRROR:-0}" = "0" ] && GRAB_ARGS="$GRAB_ARGS --no-mirror"
