@@ -108,6 +108,13 @@ EOF
                 GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--exposure-100us $CAM_EXPOSURE"
                 [ -n "${CAM_GAIN:-}" ] && GRAB_ARGS="$GRAB_ARGS --gain $CAM_GAIN"
             fi
+            # ทุกเฟรมที่เขียน = โอกาสอ่าน marker เพิ่มหนึ่งครั้ง (vision worker
+            # decode ทุกเฟรมใหม่ตั้งแต่ 2026-08-21) — เซนเซอร์ให้ 10 fps ที่
+            # 1280x720 จึงเขียน 10 Hz; ปิด mirror เพราะเป็น PNG encode ตัวที่
+            # สอง (วัดบน CM4 = 62 ms/เฟรม พอ ๆ กับตัว detect ทั้งตัว) ซึ่งมีแค่
+            # dashboard เว็บที่อ่าน — จอ GCS กับ vision worker ใช้ nadir ทั้งคู่
+            GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--interval-s ${CAM_INTERVAL:-0.1}"
+            [ "${CAM_MIRROR:-0}" = "0" ] && GRAB_ARGS="$GRAB_ARGS --no-mirror"
             echo "[run_mission] starting camera grabber (BACKEND=${BACKEND:-v4l2}${GRAB_ARGS:+ $GRAB_ARGS})"
             setsid make -C "$REPO_ROOT" camera-real BACKEND="${BACKEND:-v4l2}" \
                 GRAB_ARGS="${GRAB_ARGS:-}" \

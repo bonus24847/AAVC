@@ -297,6 +297,13 @@ vision:
   # transient). Set to 0 to DISABLE (e.g. a slow bench camera). Feeds both the
   # VisionWorker and AlignParams.frame_max_age_s.
   frame_max_age_s: 2.0
+  # How often the worker LOOKS for a new frame — not how often it decodes.
+  # A new-frame guard (mtime) sits in front of the decode since 2026-08-21, so
+  # the decode rate is the camera's write rate and this only bounds the wait
+  # before a fresh frame is picked up. Measured on the CM4: one decode pass is
+  # ~67 ms (26 ms PNG read + 41 ms detect), a skipped poll is one stat().
+  # Raise it only to throttle a CPU-starved companion.
+  poll_interval_s: 0.05
 
 # Mission frame recorder (R2 — the RECORD half of the rules' "record AND transmit"
 # imaging requirement). Persists a low-rate JPEG trail of the nadir frames

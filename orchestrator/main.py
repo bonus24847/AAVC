@@ -58,7 +58,11 @@ from .state import OrchestratorMode, OrchestratorState, TerminalState
 from .tactical_align import AlignParams
 from .target_tracker import TargetState, TargetTracker
 from .time_policy import TimePolicy
-from .vision_worker import DEFAULT_FRAME_MAX_AGE_S, VisionWorker
+from .vision_worker import (
+    DEFAULT_FRAME_MAX_AGE_S,
+    DEFAULT_INTERVAL_S,
+    VisionWorker,
+)
 
 
 def _load_config(path: Path) -> dict[str, Any]:
@@ -926,7 +930,9 @@ async def run(args: argparse.Namespace) -> int:
         vc = cfg.get("vision", {}) or {}
         frame_max_age_s = float(vc.get("frame_max_age_s", DEFAULT_FRAME_MAX_AGE_S))
         vision = VisionWorker(state, target_description=profile.default_target,
-                              frame_max_age_s=frame_max_age_s)
+                              frame_max_age_s=frame_max_age_s,
+                              interval_s=float(vc.get("poll_interval_s",
+                                                      DEFAULT_INTERVAL_S)))
         vision.on_fix(tracker.ingest)     # discovery: confirm targets from fixes
         # AAVC GCS console feed: registered AFTER tracker.ingest (same ordering
         # rule as the dashboard pusher below) and independent of it, so

@@ -224,10 +224,13 @@ other repo's operator decides.
 - [ ] docs/REAL_FLIGHT_GCS.md + docs/FLIGHT.md still describe the pre-🚀
       stack-start; status_beacon.main() age logic untested;
       test_status_beacon positional indexing brittle (code-review backlog).
-- [ ] 🔴 **Latch servos dead 2026-08-21 — CONFIRMED: the BEC wire feeding
-      the AUX servo rail is BROKEN** (operator, multimeter: no power, wire
-      ขาด). FLIGHT-BLOCKING for any delivery mission — no egg can release
-      until it is repaired. Evidence chain that ruled everything else out:
+- [x] ✅ **Latch servos dead 2026-08-21 — FIXED THE SAME DAY: the BEC was
+      dead, replaced with a new one; all four latches cycled open→hold and
+      the operator confirmed every corner moves.** Root cause was purely
+      electrical: the wire feeding the AUX servo rail was broken and the BEC
+      itself had failed. Evidence chain that ruled everything else out
+      (worth keeping — it is how a "the software is broken" report was
+      turned into a 5-minute electrical fix):
       GCS press → radio → FC all working (`mavlink status`: TELEM1 GCS
       heartbeat valid, rx 3.2 KB/s; `pwm_out status` DURING the press showed
       func 301-304 driven at 1900/1990 — the GCS ACTUATOR_TEST supervisor's
@@ -255,6 +258,28 @@ other repo's operator decides.
       OUTPUT (expect ~5-6 V) → the pin at an FMU PWM OUT connector — plus a
       check that the servo plugs are not reversed on the 3-row header
       (SIG/+5/GND), since a mirrored plug is silent in exactly the same way.
+      **Spares rule from this incident: carry a spare BEC to every field
+      day.** It is the single component whose failure silently costs every
+      point on the scoreboard while the aircraft flies a perfect mission.
+- [ ] **ArUco throughput raised 3.4x on 2026-08-21** (operator: "ดันให้
+      ประมวลผลได้มากที่สุด"). Measured on the CM4 first, which moved the
+      target: per analysed frame the pipeline spent **123 ms writing two PNGs
+      + 26 ms reading one back = 78% of all CPU on the FILE FORMAT**, against
+      41 ms of actual detection (of which detectMarkers is 19 ms; a blank
+      frame costs the same, so the ROI booster is not the cost). Changes:
+      grabber writes 10 Hz instead of 5 (the sensor's own YUYV rate at
+      1280x720) with the dashboard mirror OFF (`--no-mirror`), one-deep V4L2
+      queue, and the vision worker now decodes on a NEW-FRAME guard (mtime)
+      while polling at 20 Hz — so the decode rate is the camera's rate and a
+      fresh frame waits ≤50 ms instead of ≤300 ms (at 6 m/s that alone was
+      1.8 m of pad-position error riding into every fix). Result: 2.9 → ~10
+      analysed frames/s, grabber 56% → 74% of ONE core, whole SoC ~35%.
+      NEXT LEVER if more is ever needed (NOT done — wide blast radius):
+      the transport itself. JPEG encodes in 11.6 ms vs PNG's 61.6, and the
+      sensor offers **MJPG 1280x720 @ 120 fps** vs YUYV's 10 — together they
+      would unlock 20-30 Hz, but `/tmp/aavc_nadir.png` is a contract shared by
+      the worker, dashboard, replay tools, HITL camera, beacon and console.
+      Validate MJPG's lossy artifacts against a real marker before trusting it.
 - [ ] aavc-gcs launcher `start_infra` sshes as the LOCAL username
       (`bonus-linux@10.42.0.1` → Permission denied, seen 2026-08-21 on
       console restart) instead of `drone@` — harmless while the CM4 stack is

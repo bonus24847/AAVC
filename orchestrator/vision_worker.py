@@ -45,7 +45,13 @@ except Exception:  # pragma: no cover
     cv2 = None  # type: ignore[assignment]
 
 DEFAULT_NADIR_FRAME = Path("/tmp/aavc_nadir.png")
-DEFAULT_INTERVAL_S = 0.3                        # ~3 Hz monitoring cadence
+# Poll period, NOT the decode rate. Since 2026-08-21 a new-frame guard sits in
+# front of the decode, so this only bounds how long a freshly written frame
+# waits before it is looked at; the actual decode rate is the CAMERA's write
+# rate. 0.3 s used to mean "~3 Hz decoding" and, worse, up to 300 ms of extra
+# staleness on every frame — at 6 m/s that is 1.8 m of pad-position error for
+# free. Polling at 20 Hz costs one stat() per poll and nothing else.
+DEFAULT_INTERVAL_S = 0.05
 # In-flight frame-staleness gate (S2): the camera bridge/grabber writes each
 # frame by atomic replace, so a dead writer leaves the LAST frame frozen on
 # disk. A reader that only checks existence would keep decoding that stale pad —
@@ -123,6 +129,15 @@ class VisionWorker:
         self._on_detected_objects: list[Callable[[list[Any]], None]] = []
         self._on_fix: list[Callable[[TargetFix], None]] = []
         self._task: asyncio.Task[None] | None = None
+        # mtime of the last frame actually decoded. The worker polls a FILE
+        # the grabber overwrites, so its poll rate and the write rate are
+        # independent: without this it re-decoded whichever frame happened to
+        # be on disk (measured 67 ms of CM4 CPU per pass — 26 ms of PNG decode
+        # plus 41 ms of detection) even when nothing had changed, while a
+        # faster poll used to be the only way to shorten the worst-case wait
+        # for a NEW frame. With the guard, polling fast is nearly free and the
+        # effective decode rate becomes the CAMERA's rate, not the poll rate.
+        self._last_frame_mtime: float = -1.0
 
     # ---------- subscriber registry ----------
 
@@ -165,6 +180,8 @@ class VisionWorker:
             await asyncio.sleep(self.interval_s)
             if self.state.phase not in self.active_phases:
                 continue
+            if not self.has_new_frame():
+                continue          # same frame as last pass — nothing to learn
             try:
                 await asyncio.to_thread(self._tick)
             except Exception as e:  # never let a frame kill the worker
@@ -202,6 +219,17 @@ class VisionWorker:
                     except Exception:
                         logger.exception("[vision] on_detected_objects callback raised")
 
+    def has_new_frame(self) -> bool:
+        """True when the grabber has written a frame we have not decoded yet.
+
+        Cheap (one stat) compared with a decode pass, so the run loop can poll
+        far faster than the camera writes without paying for it."""
+        try:
+            mtime = self.nadir_frame.stat().st_mtime
+        except OSError:
+            return False
+        return mtime != self._last_frame_mtime
+
     def _detect_one(self, frame_path: Path, camera: CameraModel) -> list[TargetFix]:
         if cv2 is None or not frame_path.exists():
             return []
@@ -211,6 +239,10 @@ class VisionWorker:
         if frame_too_old(frame_path, self.frame_max_age_s):
             self.state.record_anomaly(f"{camera.name}_frame_stale")
             return []
+        try:                       # claim this frame BEFORE the expensive part
+            self._last_frame_mtime = frame_path.stat().st_mtime
+        except OSError:
+            pass
         img = cv2.imread(str(frame_path))
         if img is None:
             return []

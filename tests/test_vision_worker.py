@@ -95,3 +95,44 @@ def test_no_assignment_at_all_designates_nothing() -> None:
     events = worker._detected_object_events([_fix(3)])
 
     assert events[0].is_designated_match is False
+
+
+# ── new-frame guard (2026-08-21): decode the CAMERA's rate, not the poll rate ──
+# The worker polls a file the grabber overwrites, so poll rate and write rate
+# are independent. Before the guard, a poll that landed between writes paid a
+# full decode pass (measured 67 ms on the CM4 — 26 ms PNG read + 41 ms detect)
+# to re-learn what it already knew, and the only way to shorten the wait for a
+# NEW frame was to poll faster, which made the waste worse.
+
+
+def test_has_new_frame_is_false_until_the_grabber_writes(tmp_path) -> None:
+    import os
+
+    frame = tmp_path / "aavc_nadir.png"
+    frame.write_bytes(b"first")
+    worker = VisionWorker(_state(), nadir_frame=frame)
+
+    assert worker.has_new_frame() is True        # never decoded -> new
+    worker._last_frame_mtime = frame.stat().st_mtime
+    assert worker.has_new_frame() is False       # same frame -> skip the decode
+
+    os.utime(frame, (frame.stat().st_atime, frame.stat().st_mtime + 1.0))
+    assert worker.has_new_frame() is True        # grabber wrote -> decode again
+
+
+def test_has_new_frame_is_false_when_no_frame_exists(tmp_path) -> None:
+    # A camera that never started must not spin the decode path on a missing
+    # file (the not-exists guard inside _detect_one already returns []).
+    worker = VisionWorker(_state(), nadir_frame=tmp_path / "missing.png")
+    assert worker.has_new_frame() is False
+
+
+def test_poll_interval_is_far_shorter_than_a_decode_pass() -> None:
+    """The default poll must be short enough that a fresh frame is picked up
+    promptly (its staleness rides straight into the pixel->lat/lon fix: at
+    6 m/s, 300 ms of waiting was 1.8 m of pad-position error), and the guard
+    is what makes polling that fast cost one stat() instead of a decode."""
+    from orchestrator.vision_worker import DEFAULT_INTERVAL_S
+
+    assert DEFAULT_INTERVAL_S <= 0.1
+    assert VisionWorker(_state()).interval_s == DEFAULT_INTERVAL_S

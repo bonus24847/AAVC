@@ -68,6 +68,19 @@ class V4l2Backend:
                  fps: float | None = None, fourcc: str | None = None) -> None:
         cap_arg: int | str = int(device) if str(device).isdigit() else device
         self._cap = cv2.VideoCapture(cap_arg)
+        # ONE-DEEP QUEUE (2026-08-21). V4L2 hands OpenCV a queue of captured
+        # frames; reading slower than the sensor produces (5-10 Hz reads vs a
+        # 10-120 fps sensor) means every read can return a frame several
+        # periods OLD. That is not just latency: vision_worker stamps each
+        # decode with the CURRENT telemetry, so a stale frame geolocates the
+        # pad where the aircraft ISN'T — at 6 m/s, 3 queued frames is ~1.8 m
+        # of pure error fed into the pad registry. Ask the driver for the
+        # shallowest queue it will give us; the grab-drain below covers
+        # backends that ignore this.
+        try:
+            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:      # noqa: BLE001 — not all backends expose it
+            pass
         # FOURCC first: switching the pixel format can reset the frame size on
         # some UVC drivers, so size/rate are applied after it. "GREY" selects
         # the OV9281's native mono stream; "MJPG" unlocks high fps on colour cams.
@@ -82,6 +95,12 @@ class V4l2Backend:
             raise RuntimeError(f"v4l2 device {device!r} did not open")
 
     def grab(self) -> np.ndarray | None:
+        # NOTE: do NOT "drain" the queue with a fixed grab() loop — grab()
+        # BLOCKS when no frame is pending, so draining N frames costs N frame
+        # periods on an idle queue and makes the grabber slower, not fresher.
+        # Freshness comes from the one-deep queue above plus reading at the
+        # sensor's own rate (--interval-s ~= 1/fps), which never lets a
+        # backlog build in the first place.
         ok, frame = self._cap.read()            # OpenCV returns BGR (or 2-D mono)
         if not ok or frame is None:
             return None
@@ -203,6 +222,12 @@ def main() -> int:
     ap.add_argument("--nadir-out", type=Path, default=Path("/tmp/aavc_nadir.png"))
     ap.add_argument("--frame-out", type=Path, default=Path("/tmp/aavc_frame.png"),
                     help="dashboard endpoint; mirror of the nadir frame")
+    ap.add_argument("--no-mirror", action="store_true",
+                    help="skip the --frame-out mirror. It is a SECOND full PNG "
+                         "encode (measured 62 ms per frame on the CM4 — as much "
+                         "as the entire ArUco decode) and only the web dashboard "
+                         "reads it; the GCS console and the vision worker both "
+                         "use the nadir frame. Use on the real aircraft")
     ap.add_argument("--swap-rb", action="store_true",
                     help="swap R/B on every frame (use if a coloured reference looks wrong)")
     ap.add_argument("--exposure-100us", type=int, default=0,
@@ -221,8 +246,11 @@ def main() -> int:
                           fps=args.fps, fourcc=args.fourcc)
     if args.backend == "v4l2":
         _force_short_exposure(args.nadir_device, args.exposure_100us, args.gain)
+    mirror = not args.no_mirror
     print(f"[grabber] nadir {args.backend} dev={args.nadir_device} "
-          f"-> {args.nadir_out} (+ {args.frame_out})")
+          f"-> {args.nadir_out}"
+          + (f" (+ {args.frame_out})" if mirror else " (mirror OFF)")
+          + f" every {args.interval_s:.2f}s")
 
     stop = {"flag": False}
     signal.signal(signal.SIGINT, lambda *_: stop.__setitem__("flag", True))
@@ -240,7 +268,8 @@ def main() -> int:
             if frame is not None:
                 frame = _emit(frame)
                 _write_png(frame, args.nadir_out)
-                _write_png(frame, args.frame_out)
+                if mirror:
+                    _write_png(frame, args.frame_out)
                 n_ok += 1
             else:
                 n_fail += 1
