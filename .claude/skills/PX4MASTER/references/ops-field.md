@@ -72,7 +72,18 @@ before a shared field day, diff `tools/preflight_params.py::BOARD` across the
 repos. Approvals do not cross sessions — send data+reasoning+proposal, the
 other repo's operator decides.
 
-## Open items / follow-ups (2026-08-20)
+## Open items / follow-ups (updated 2026-08-21)
+- [ ] **CAMERA FOCUS bench gate** (the new #1 — see SKILL.md shortlist and
+      docs/evidence/ulog_review_2026-08-21.md finding 1).
+- [ ] `MPC_THR_HOVER` 0.5 → 0.58 — measured true hover ≈0.60 (motors mean,
+      flight 3) while the board holds the 0.5 default and HTE logged NaN;
+      AWAITING OPERATOR APPROVAL, then write + re-verify.
+- [ ] Prop balance / camera-mount stiffness — 60 Hz per-rev vibration peak
+      (~1 m/s²) measured; control band clean, so non-blocking.
+- [x] CM4 archives + frames pulled (2026-08-21, ~/aavc_cm4_runs) · ULog
+      discovery loop ran on all three flights · old SD archived whole
+      (~/aavc_sdcard_archive_2026-08-21) + evidence files in
+      docs/evidence/sdcard_old_2026-08-21.
 - [ ] Work the ranked bench/field actions in `community-watchlist.md`
       (RC-loss drill · SD card swap · ESC LVC · CM4-AP-vs-GPS EMI A/B ·
       ArUco decode floor · powerbank idle-cut · MPC_THR_HOVER re-seed ·

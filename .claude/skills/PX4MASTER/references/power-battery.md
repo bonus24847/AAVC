@@ -27,6 +27,18 @@ VOLTAGE (divider) and a correct PERCENTAGE (endpoints).
 converter wiring; one multimeter-vs-GCS check ON THE PM02D re-closes it
 (three real flights flew it with plausible voltages — re-verify, not fault).
 
+## Measured sag per flight (ULog ground truth, 2026-08-20 session)
+
+| flight | % start → min under load | V/cell min under load |
+|---|---|---|
+| 1 (42 s) | 78 → 61 | 3.864 |
+| 2 (100 s) | 75 → 40 | 3.761 |
+| 3 (121 s) | 61 → 18 | 3.684 |
+
+Flight 3's floor-RTH fired at a read of 28% sustained while resting SoC was
+~60% — the 30-40 point sag is now MEASURED, not modeled
+(docs/evidence/ulog_review_2026-08-21.md).
+
 ## Measured sag — read this before "fixing" a battery RTH
 No current sensing → no load compensation → the % SAGS under thrust and
 rebounds. **Measured 2026-08-20 (flight 3): 28% under load at ~65-70% resting

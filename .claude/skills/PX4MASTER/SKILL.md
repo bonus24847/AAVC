@@ -100,13 +100,21 @@ trust a home-MSL cache taken while the frame was still moving.
 
 ## Before the next scored flight (unverified-risk shortlist)
 
-Work `references/community-watchlist.md` ranked actions — the top three have
-never been verified on this aircraft and are catastrophic-if-wrong:
-1. RC-loss drill + ELRS failsafe mode = **No Pulses** (2 minutes, props off).
-2. FC microSD replacement (SanDisk Extreme U3 32 GB) — the wedge card has a
-   corruption history and all of 1.17 mis-reads SD silently.
-3. ESC low-voltage cutoff vs the semi-solid pack (motors can cut in the air
+1. **CAMERA FOCUS (found 2026-08-21, the current #1)**: 402 real daylight
+   frames decode ZERO — a real paper marker was in frame and its cells are
+   destroyed in the image (all dictionaries, all preprocessing). Prime
+   suspect: M12 lens focused at 0.495 m since the fov calibration. Bench
+   gate before ANY ArUco flight: printed marker at 3–8 m, motors off →
+   refocus far + lock → repeat motors idling → `make replay` decodes.
+   Without this the mission flies perfectly and delivers zero eggs.
+   Full data: docs/evidence/ulog_review_2026-08-21.md.
+2. RC-loss drill + ELRS failsafe mode = **No Pulses** (2 minutes, props off).
+3. FC microSD replacement (SanDisk Extreme U3 32 GB) — in progress
+   2026-08-21 (old card archived + retired; new card pending f3/format/
+   install/sd_bench).
+4. ESC low-voltage cutoff vs the semi-solid pack (motors can cut in the air
    with charge remaining; no current sensor will warn us).
+Backlog: `references/community-watchlist.md` ranked actions.
 
 ## New-bug rule
 
