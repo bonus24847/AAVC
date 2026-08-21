@@ -110,12 +110,13 @@ trust a home-MSL cache taken while the frame was still moving.
    marker and confirm live decode DURING flight. Mitigations: prop balance,
    camera-mount stiffness, forced short exposure if needed.
    Full data: docs/evidence/ulog_review_2026-08-21.md (finding 1 + addendum).
-2. RC-loss drill + ELRS failsafe mode = **No Pulses** (2 minutes, props off).
-3. FC microSD replacement (SanDisk Extreme U3 32 GB) — in progress
-   2026-08-21 (old card archived + retired; new card pending f3/format/
-   install/sd_bench).
-4. ESC low-voltage cutoff vs the semi-solid pack (motors can cut in the air
+2. RC-loss drill + ELRS failsafe mode = **No Pulses** — AND the 🔴 open
+   finding first: RC did not RE-ACQUIRE after a TX power-cycle (2026-08-21,
+   undiagnosed — see ops-field.md).
+3. ESC low-voltage cutoff vs the semi-solid pack (motors can cut in the air
    with charge remaining; no current sensor will warn us).
+   (FC microSD replacement: ✅ DONE 2026-08-21 — full-surface-verified
+   SanDisk Extreme 32 GB installed, BOARD+dataman+param-backup verified.)
 Backlog: `references/community-watchlist.md` ranked actions.
 
 ## New-bug rule
