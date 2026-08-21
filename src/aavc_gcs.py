@@ -2550,6 +2550,11 @@ body.side-collapsed .colside{width:0;padding:0;border-right:none;overflow:hidden
    dashed border); a delivered pad turns full colour — white face, green
    border, green ✓ badge. */
 .padicon{background:transparent;border:0}
+/* Fix 3 (2026-08-21): mission-plan waypoint numbers — where is it going NEXT */
+.planicon{background:transparent;border:0}
+.planseq{width:18px;height:18px;border-radius:50%;background:#a371f7;color:#fff;
+ font-size:11px;font-weight:700;line-height:18px;text-align:center;
+ box-shadow:0 1px 3px rgba(0,0,0,.5)}
 .padbox{width:30px;height:30px;background:#fff;border:3px solid #3fb950;border-radius:5px;
  box-shadow:0 1px 5px rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;position:relative}
 .padbox::before{content:'';position:absolute;inset:3px;border:2px solid #0d1117;border-radius:50%}
@@ -2914,6 +2919,7 @@ var lmap=null,lmarker=null,ltrack=null,lhome=null,lgfcircle=null,gfWant=null,map
 var SEL=[],PADS_INIT=false,lpads={},lzones=[],lhomeMarker=null,MCLOCK={base:null,at:0,done:false};
 var FT={start:null,frozen:null};   // mission budget clock: starts on ARMED+OFFBOARD (telemetry), not the mission file
 var frect=null,fmarkers=[],fcorners=[],lupfence=null;
+var lplan=[];   // Fix 3: mission-plan polyline + numbered stop markers
 var SLAB={gyro:'Gyro',accel:'Accel',mag:'Mag',baro:'Baro',gps:'GPS',rc:'RC',ahrs:'AHRS',battery:'Batt',lidar:'Lidar',cam:'กล้องล่าง',radio:'วิทยุ',cm4:'CM4'};
 var SORD=['gyro','accel','mag','baro','gps','rc','ahrs','battery','lidar','cam','radio','cm4'];
 function droneIcon(){return L.divIcon({className:'dicon',html:'<div class=dm>▲</div>',iconSize:[26,26],iconAnchor:[13,13]});}
@@ -3591,6 +3597,30 @@ function aavcMap(s){
  // WiFi feed ships coordinates; the radio ships ids with null coords, which
  // light the sidebar ladder but cannot place a marker.
  var pi=stale?{}:(ms.pads_identified||{});
+ // Fix 3 (2026-08-21): the LIVE mission plan — polyline + numbered stops so
+ // the operator can see where the aircraft is going NEXT (the G7 takeover
+ // came early precisely because the screen could not answer that). Arrives
+ // over WiFi only ("plan" in mission_status.json, first written at gate
+ // release while the launch-point WiFi still holds) and is deliberately
+ // KEPT drawn while the feed is stale — that is exactly when it is needed.
+ var plan=(ms.plan&&ms.plan.length)?ms.plan:(window.PLAN_KEEP||[]);
+ if(ms.plan&&ms.plan.length)window.PLAN_KEEP=ms.plan;
+ var psig=JSON.stringify(plan);
+ if(window.PSIG!==psig){
+  window.PSIG=psig;
+  for(var lp=0;lp<lplan.length;lp++)lmap.removeLayer(lplan[lp]);lplan=[];
+  if(plan.length>=1){
+   var ppts=plan.map(function(r){return [r[0],r[1]];});
+   lplan.push(L.polyline(ppts,{color:'#a371f7',weight:3,dashArray:'6 6',opacity:.85})
+    .addTo(lmap).bindTooltip('เส้นทาง mission'));
+   for(var pj=0;pj<plan.length;pj++){
+    var prow=plan[pj];
+    lplan.push(L.marker([prow[0],prow[1]],{icon:L.divIcon({className:'planicon',
+     html:'<div class=planseq>'+prow[3]+'</div>',iconSize:[18,18],iconAnchor:[9,9]}),
+     zIndexOffset:-100}).addTo(lmap).bindTooltip('#'+prow[3]+' '+prow[2],{direction:'top'}));
+   }
+  }
+ }
  // "อยู่ในคิวส่ง" = the RUNNING mission's own assignment (mission_status
  // .assigned) when the feed is live — NOT the local editor state, which can
  // lag behind a selection saved elsewhere (bug seen 2026-08-12: pad 3 showed
