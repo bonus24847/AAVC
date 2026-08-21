@@ -799,7 +799,12 @@ class Link:
                 if msg.lat or msg.lon:
                     g["lat"] = round(msg.lat / 1e7, 6)
                     g["lon"] = round(msg.lon / 1e7, 6)
-                    g["alt"] = round(msg.alt / 1000, 1)   # AMSL (m)
+                    # RAW GPS altitude goes to its OWN key (2026-08-21): it
+                    # wanders metres while the fused (baro-ref) altitude is
+                    # steady, and both writing g["alt"] made the status-bar
+                    # MSL readout bounce — the pilot's in-flight sanity
+                    # number must be the FUSED estimate only.
+                    g["alt_raw"] = round(msg.alt / 1000, 1)   # raw GPS AMSL (m)
             elif t == "GLOBAL_POSITION_INT":
                 gg = self.s["gps"]
                 if msg.lat or msg.lon:
