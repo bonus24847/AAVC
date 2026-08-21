@@ -100,14 +100,16 @@ trust a home-MSL cache taken while the frame was still moving.
 
 ## Before the next scored flight (unverified-risk shortlist)
 
-1. **CAMERA FOCUS (found 2026-08-21, the current #1)**: 402 real daylight
-   frames decode ZERO — a real paper marker was in frame and its cells are
-   destroyed in the image (all dictionaries, all preprocessing). Prime
-   suspect: M12 lens focused at 0.495 m since the fov calibration. Bench
-   gate before ANY ArUco flight: printed marker at 3–8 m, motors off →
-   refocus far + lock → repeat motors idling → `make replay` decodes.
-   Without this the mission flies perfectly and delivers zero eggs.
-   Full data: docs/evidence/ulog_review_2026-08-21.md.
+1. **IN-FLIGHT IMAGE BLUR (re-scoped 2026-08-21, still #1)**: the static
+   camera is PROVEN GOOD — bench walk test with the real 38 cm marker
+   decoded continuously 1.9→14 m and intermittently to ~20 m with NO lens
+   adjustment (walk_test_decode_2026-08-21.log). Yet 402 in-FLIGHT frames
+   decoded zero — so the blur is dynamic: prime suspects are the measured
+   ~60 Hz per-rev vibration on the hard-mounted camera and exposure during
+   translation. Gate before the next scored flight: HOVER over the printed
+   marker and confirm live decode DURING flight. Mitigations: prop balance,
+   camera-mount stiffness, forced short exposure if needed.
+   Full data: docs/evidence/ulog_review_2026-08-21.md (finding 1 + addendum).
 2. RC-loss drill + ELRS failsafe mode = **No Pulses** (2 minutes, props off).
 3. FC microSD replacement (SanDisk Extreme U3 32 GB) — in progress
    2026-08-21 (old card archived + retired; new card pending f3/format/

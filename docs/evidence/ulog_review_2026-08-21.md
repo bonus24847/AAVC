@@ -94,3 +94,30 @@ whole; final state preserved. Replacement: SanDisk Extreme U3 32 GB
 3. New-card install per plan (f3 → FAT32 → FC → preflight → sd_bench →
    param export → fence-probe).
 4. Prop balance + camera-mount stiffness check (finding 3, non-blocking).
+
+---
+
+## ADDENDUM (same day, bench walk test) — finding 1 RESOLVED and RE-SCOPED
+
+Static decode gate run 2026-08-21 with a REAL 38 cm printed marker (id 2),
+aircraft on its side, a person walking the marker out (live loop:
+docs/evidence/walk_test_decode_2026-08-21.log):
+
+| range | result |
+|---|---|
+| 1.9 m (174 px) → ~14 m (23 px) | **continuous decode, every frame** |
+| ~14 → ~20+ m (15-18 px) | intermittent decode (ROI booster working) |
+| walk back in | seamless re-acquire at every step |
+
+Sharpness sat at 680-780 the whole test **with no lens adjustment at all** —
+the M12 focus was never wrong for 2-20 m. The mission's sweep band (8-12 m)
+carries ~2× decode margin with the competition-size marker.
+
+**Therefore the field-frame mush is NOT static focus.** Revised diagnosis:
+**in-flight blur** — the ~60 Hz per-rev vibration on the hard-mounted camera
+and/or exposure during translation. The camera gate for the next flight is
+re-scoped: hover the aircraft over/near the printed marker and confirm live
+decode DURING flight (the orchestrator's own vision worker + dashboard chip,
+or a hover with frame_recorder and `make replay` after). Mitigations queued:
+prop balance (the 60 Hz peak), camera mount stiffness check, and if needed a
+forced short exposure on the OV9281.
