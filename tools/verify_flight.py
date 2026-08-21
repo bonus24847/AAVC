@@ -27,10 +27,11 @@ two indices exactly as ``orchestrator/mission.py`` and
 
 TELEM lines additionally carry ``batt=<pct> vbat=<V>`` since 2026-08-20 (the
 first grammar field the energy analysis can mine — before that no battery
-series existed anywhere). Both fields are OPTIONAL in the parser so archives
-recorded earlier still verify; when present they feed a report-only battery
-readout per flight (no new FAIL conditions — thresholds stay the in-flight
-watchdog's job).
+series existed anywhere) and ``mode=<FLIGHT_MODE>`` since 2026-08-21 (the G7
+zombie takeovers were undiagnosable without the FC mode in the audit). All
+three fields are OPTIONAL in the parser so archives recorded earlier still
+verify; when present they feed report-only readouts (no new FAIL conditions —
+thresholds and takeover enforcement stay the in-flight watchdog's job).
 
 Exit code 0 = all checks pass; 1 = violations (each printed, prefixed FAIL).
 Warnings (WARN) don't fail the run. Pass --ulog <file> for an optional PX4
@@ -75,7 +76,12 @@ _TELEM = re.compile(
     # batt/vbat joined the grammar 2026-08-20 — OPTIONAL so every archive
     # recorded before that day (the CM4's real Aug-17/18 flights included)
     # still parses; absent fields surface as None groups.
-    r"(?: batt=(?P<batt>[-\d.nan]+) vbat=(?P<vbat>[-\d.nan]+))?")
+    r"(?: batt=(?P<batt>[-\d.nan]+) vbat=(?P<vbat>[-\d.nan]+))?"
+    # mode= joined 2026-08-21 (G7 zombie debrief: the FC flight mode was
+    # recorded nowhere companion-side, so neither takeover could be diagnosed
+    # from the audit). OPTIONAL for the same archive reason; report-only —
+    # takeover enforcement stays the in-flight watchdog's job.
+    r"(?: mode=(?P<mode>\S+))?")
 _TRANSIT = re.compile(
     r"t=(?P<t>[\d.]+)s TRANSIT_(?P<kind>PASS|MISS) P(?P<n>\d) "
     r"(?P<dir>ingress|egress) flight=(?P<flight>\d+) d=(?P<d>[-\d.nan]+)m")

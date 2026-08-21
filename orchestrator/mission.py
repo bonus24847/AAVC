@@ -336,11 +336,18 @@ async def run_delivery_mission(
             # and it never sampled the pack), so the real-consumption numbers
             # could not be reconstructed after a field day. NaN prints as
             # "nan", which the verifier's [-\d.nan]+ idiom already accepts.
+            # mode= joined the grammar 2026-08-21 (G7 zombie debrief): both
+            # takeover incidents were undiagnosable from the audit alone
+            # because the FC flight mode was recorded nowhere companion-side.
+            # Appended LAST so prefix-anchored parsers keep matching; the
+            # verifier's _TELEM carries it as an optional group (lockstep:
+            # emitter + tools/verify_flight.py + its goldens + CLAUDE.md §5).
             state.record_audit(
                 f"t={state.time_elapsed_s():.1f}s TELEM phase={state.phase.value} "
                 f"flight={state.sortie_index} lat={t.lat:.7f} lon={t.lon:.7f} "
                 f"alt={t.relative_alt_m:.2f} armed={int(bool(t.is_armed))} "
-                f"batt={t.battery_percent:.1f} vbat={t.battery_voltage_v:.2f}")
+                f"batt={t.battery_percent:.1f} vbat={t.battery_voltage_v:.2f} "
+                f"mode={t.flight_mode}")
             if refresh_energy is not None:
                 try:
                     refresh_energy()

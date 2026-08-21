@@ -42,13 +42,13 @@ _CFG = {"mission": {"altitude_ceiling_m": 20.0, "transit_alt_m": 20.0,
 
 
 def _telem(t: float, alt: float, phase: str = "transit_ingress",
-           batt: float = 81.0, vbat: float = 24.58) -> str:
+           batt: float = 81.0, vbat: float = 24.58, mode: str = "HOLD") -> str:
     # Mirrors mission.py::_telemetry_sampler's CURRENT shape (batt/vbat joined
-    # the grammar 2026-08-20). test_telem_legacy_format_still_parses covers
-    # the pre-addition archives.
+    # the grammar 2026-08-20; mode joined 2026-08-21, G7 zombie debrief).
+    # test_telem_legacy_format_still_parses covers the older archives.
     return (f"t={t:.1f}s TELEM phase={phase} flight=1 lat=13.7303000 "
             f"lon=100.7874000 alt={alt:.2f} armed=1 "
-            f"batt={batt:.1f} vbat={vbat:.2f}")
+            f"batt={batt:.1f} vbat={vbat:.2f} mode={mode}")
 
 
 def _run(entries: list[str]):
@@ -568,27 +568,39 @@ def test_delivered_with_missing_release_line_warns() -> None:
 
 
 def test_telem_legacy_format_still_parses() -> None:
-    # Every archive recorded before 2026-08-20 (the CM4's real Aug-17/18
-    # flights included) has no batt/vbat tail — the optional group must keep
-    # them verifiable, with the battery groups simply absent.
-    legacy = ("t=5.0s TELEM phase=transit_ingress flight=1 lat=13.7303000 "
-              "lon=100.7874000 alt=19.50 armed=1")
-    m = vf._TELEM.match(legacy)
+    # All three TELEM vintages must parse: pre-2026-08-20 (no batt/vbat/mode
+    # — the CM4's real Aug-17/18 flights), the batt-era (2026-08-20 field
+    # day: batt/vbat, no mode), and the absent groups must surface as None.
+    pre_batt = ("t=5.0s TELEM phase=transit_ingress flight=1 lat=13.7303000 "
+                "lon=100.7874000 alt=19.50 armed=1")
+    m = vf._TELEM.match(pre_batt)
     assert m is not None
     assert m.group("alt") == "19.50"
     assert m.group("batt") is None and m.group("vbat") is None
+    assert m.group("mode") is None
+
+    batt_era = ("t=240.6s TELEM phase=search flight=1 lat=13.8228179 "
+                "lon=100.5119188 alt=-0.03 armed=0 batt=50.0 vbat=23.85")
+    m = vf._TELEM.match(batt_era)          # verbatim G7 attempt-1 line
+    assert m is not None
+    assert m.group("batt") == "50.0" and m.group("vbat") == "23.85"
+    assert m.group("mode") is None
 
 
 def test_telem_emitter_shape_fullmatches_parser() -> None:
     # Lockstep pin: a line in the CURRENT emitter shape (mission.py
-    # _telemetry_sampler f-string, NaN battery included) must fullmatch.
-    for batt, vbat in ((81.0, 24.58), (float("nan"), float("nan"))):
+    # _telemetry_sampler f-string — batt/vbat + mode, NaN battery and the
+    # UNKNOWN mode fallback included) must fullmatch.
+    for batt, vbat, mode in ((81.0, 24.58, "HOLD"),
+                             (float("nan"), float("nan"), "UNKNOWN"),
+                             (62.0, 24.13, "POSCTL")):
         line = (f"t=12.3s TELEM phase=search flight=2 lat=13.8227944 "
                 f"lon=100.5116412 alt=8.52 armed=1 "
-                f"batt={batt:.1f} vbat={vbat:.2f}")
+                f"batt={batt:.1f} vbat={vbat:.2f} mode={mode}")
         m = vf._TELEM.fullmatch(line)
         assert m is not None, line
         assert m.group("batt") is not None
+        assert m.group("mode") == mode
 
 
 def test_battery_readout_reported_per_flight() -> None:

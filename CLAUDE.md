@@ -427,7 +427,9 @@ dev = pytest, ruff, mypy.
 - **Audit trail** (`runs/<mission_id>/audit.jsonl`): the grammar broke
   2026-07-24 from `SORTIE n …`/`sortie=` to **FLIGHT/DELIVERY**, in lockstep
   with `tools/verify_flight.py` (keep them in lockstep on any future change).
-  1 Hz `TELEM phase=… flight=n lat=… lon=… alt=… armed=…` samples +
+  1 Hz `TELEM phase=… flight=n lat=… lon=… alt=… armed=… batt=… vbat=…
+  mode=…` samples (batt/vbat since 2026-08-20, mode since 2026-08-21 — all
+  three OPTIONAL in the verifier so older archives still parse) +
   `TRANSIT_PASS|MISS Pn ingress|egress flight=n d=…m` (once per flight, each
   direction — NOT once per delivery) + `FLIGHT n START eggs=… ids=…
   remaining=…s` / `FLIGHT n END delivered=x/y d_home=…m remaining=…s` +
