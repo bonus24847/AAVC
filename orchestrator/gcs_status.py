@@ -14,6 +14,7 @@ File contract (aavc_gcs.py header + its ``aavcEN`` map helper)::
     {"phase": str, "assigned": [ids], "delivered": [ids],
      "pads_mapped": {"<marker_id>": [east_m, north_m]},
      "pads_identified": {"<marker_id>": [east_m, north_m]},   # orange lane
+     "plan": [[lat, lon, kind, seq], ...], "plan_ptr": int,   # console map path
      "updated": epoch}
 
 ``pads_mapped`` ENU is about the field yaml's ``local_origin`` (== this
@@ -88,6 +89,14 @@ class GcsMissionStatus:
         # pulled down while ids 4,5 were being identified live, because the
         # screen showed nothing until CONFIRMED).
         self._pads_identified: dict[str, list[float]] = {}
+        # Live-plan polyline for the console map ([[lat, lon, kind, seq], …]
+        # + the leg being flown) — first written at gate release while the
+        # launch-point WiFi still reaches the console, so the operator can
+        # see where the aircraft is going NEXT after the link dies (Fix 3,
+        # G7 debrief 2026-08-21: takeover-before-time because the screen
+        # could not answer exactly that).
+        self._plan: list[list[Any]] = []
+        self._plan_ptr = 0
         self._delivered: list[int] = []
         self._assigned = [int(i) for i in assigned]
         self._phase = "recon (preflight)"
@@ -152,6 +161,18 @@ class GcsMissionStatus:
             self._pads_identified = {str(k): list(v) for k, v in mapping.items()}
         for k in sorted(new_ids, key=str):
             self._event(f"🔶 เห็น pad {k} (รอยืนยัน)")
+        self._write()
+
+    def set_plan(self, points: list[list[Any]], pointer: int) -> None:
+        """Replace the console-map plan path ([[lat, lon, kind, seq], …]) and
+        the index of the leg being flown. Written on CHANGE only: a rebuild
+        fires per gate release and per serve (cheap), but the pointer rides
+        every rebuild too, so identical payloads short-circuit."""
+        with self._lock:
+            if points == self._plan and int(pointer) == self._plan_ptr:
+                return
+            self._plan = [list(p) for p in points]
+            self._plan_ptr = int(pointer)
         self._write()
 
     def set_phase(self, phase: str) -> None:
@@ -375,6 +396,8 @@ class GcsMissionStatus:
                     "delivered": list(self._delivered),
                     "pads_mapped": dict(self._pads),
                     "pads_identified": dict(self._pads_identified),
+                    "plan": [list(p) for p in self._plan],
+                    "plan_ptr": self._plan_ptr,
                     "progress": int(self._progress),
                     "progress_label": self._progress_label,
                     "eta_s": self._eta_s,

@@ -43,7 +43,7 @@ from mavlink_adapter.telemetry import TelemetrySubscriber
 from mission_brain.flights import budgeted_flights_for, chunk_flights, remaining_owed
 from mission_brain.live_plan import render_live_plan
 from mission_brain.profile import load_profile
-from mission_brain.schemas import Coordinate, MissionPhase
+from mission_brain.schemas import CommandKind, Coordinate, MissionPhase
 from mission_brain.search_pattern import build_search_pattern
 from vision.detectors.aruco import VALID_MARKER_IDS
 from vision.projection import configure_cameras
@@ -965,7 +965,7 @@ async def run(args: argparse.Namespace) -> int:
             skip_preflight=args.skip_preflight,
             commander=commander, rc_go=args.rc_go,
         )
-        on_plan_update = _plan_pusher(dash)
+        on_plan_update = _plan_pusher(dash, gcs_feed)
 
         # 1 Hz mirror of the REAL mission phase + flight clock onto the AAVC
         # GCS console's stepper (user report 2026-08-12: the mission bar never
@@ -1154,18 +1154,39 @@ def _confirm_pusher(tracker: TargetTracker, broadcaster: Any) -> Any:
     return _push
 
 
-def _plan_pusher(dash: Any) -> Any:
-    """A closure that pushes a rebuilt live plan to the dashboard, or None when
-    headless / the broadcaster can't take it."""
+def _plan_pusher(dash: Any, gcs_feed: Any) -> Any:
+    """A closure that pushes every rebuilt live plan to the dashboard
+    broadcaster (when present) AND the GCS console feed (always):
+    mission_status.json gains ``plan``/``plan_ptr`` so the operator's map can
+    show where the aircraft is going NEXT — the first write lands at gate
+    release, while the launch-point WiFi still reaches the console (Fix 3,
+    G7 debrief 2026-08-21: the takeover came early precisely because the
+    screen could not answer that question). DROP_PAYLOAD commands ride their
+    GOTO's position and are skipped; ``kind`` is the command's mission-phase
+    tag and ``seq`` a 1-based display index."""
     b = getattr(dash, "broadcaster", None) if dash is not None else None
-    if b is None or not hasattr(b, "push_plan"):
-        return None
+    if b is not None and not hasattr(b, "push_plan"):
+        b = None
 
     def _push(plan: Any, pointer: int) -> None:
+        if b is not None:
+            try:
+                b.push_plan(json.loads(plan.model_dump_json()), pointer)
+            except Exception:
+                logger.exception("[main] plan push failed")
         try:
-            b.push_plan(json.loads(plan.model_dump_json()), pointer)
+            pts: list[list[Any]] = []
+            for c in plan.commands:
+                coord = getattr(c, "coord", None)
+                if coord is None or c.kind == CommandKind.DROP_PAYLOAD:
+                    continue
+                pts.append([round(float(coord.lat), 7),
+                            round(float(coord.lon), 7),
+                            str(getattr(c.phase, "value", c.phase)),
+                            len(pts) + 1])
+            gcs_feed.set_plan(pts, int(pointer))
         except Exception:
-            logger.exception("[main] plan push failed")
+            logger.exception("[main] gcs plan push failed")
 
     return _push
 

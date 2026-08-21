@@ -272,3 +272,59 @@ def test_home_reason_maps_the_preflight_refusals(tmp_path: Path) -> None:
     g2 = GcsMissionStatus(q, _LAT0, _LON0, assigned=[1])
     g2.on_audit("t=5.0s sortie 1 refused (time reserve)")
     assert _read(q)["home_reason_code"] == "time-gate"
+
+
+def test_plan_pusher_writes_the_console_map_path(tmp_path: Path) -> None:
+    """Fix 3 (G7 debrief 2026-08-21): the console map must show where the
+    aircraft is going NEXT — _plan_pusher mirrors every rebuilt live plan
+    into mission_status.json as [[lat, lon, kind, seq], ...] + plan_ptr,
+    dashboard present or not. DROP_PAYLOAD rides its GOTO's position and is
+    skipped; seq is a 1-based display index over the kept points."""
+    from mission_brain.schemas import (
+        CommandKind,
+        Coordinate,
+        MissionCommand,
+        MissionPhase,
+        MissionPlan,
+    )
+    from orchestrator.main import _plan_pusher
+
+    p = tmp_path / "s.json"
+    feed = GcsMissionStatus(p, _LAT0, _LON0, assigned=[])
+    coord = Coordinate(lat=_LAT0, lon=_LON0, alt_m=16.0)
+    cmds = [
+        MissionCommand(seq=0, kind=CommandKind.TAKEOFF, phase=MissionPhase.TAKEOFF,
+                       coord=coord, altitude_m=16.0),
+        MissionCommand(seq=1, kind=CommandKind.GOTO, phase=MissionPhase.LOCALIZE,
+                       coord=coord, altitude_m=16.0, stop_index=0),
+        MissionCommand(seq=2, kind=CommandKind.DROP_PAYLOAD, phase=MissionPhase.DROP,
+                       coord=coord, payload_id=0, stop_index=0),
+        MissionCommand(seq=3, kind=CommandKind.RTH, phase=MissionPhase.RTH,
+                       coord=coord),
+    ]
+    plan = MissionPlan(mission_id="plan-test", expected_duration_s=100.0,
+                       commands=cmds, target_group_strategy="x",
+                       fallback_strategy="y")
+    push = _plan_pusher(None, feed)          # headless: no dashboard at all
+    push(plan, 2)
+    doc = _read(p)
+    assert doc["plan_ptr"] == 2
+    assert [row[2] for row in doc["plan"]] == ["takeoff", "localize", "rth"]
+    assert [row[3] for row in doc["plan"]] == [1, 2, 3]
+    assert abs(doc["plan"][0][0] - _LAT0) < 1e-6
+    assert abs(doc["plan"][0][1] - _LON0) < 1e-6
+
+    # unchanged plan + pointer -> no rewrite (same guard class as the
+    # identified lane); a moved pointer alone DOES rewrite.
+    writes = 0
+    orig = feed._write
+
+    def _counting() -> None:
+        nonlocal writes
+        writes += 1
+        orig()
+    feed._write = _counting                   # type: ignore[method-assign]
+    push(plan, 2)
+    assert writes == 0
+    push(plan, 3)
+    assert writes == 1 and _read(p)["plan_ptr"] == 3

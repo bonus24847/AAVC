@@ -102,14 +102,27 @@ other repo's operator decides.
       so a post-takeover operator click can still arm/fly a pilot-owned
       aircraft. `/vehicle_disarm` + `/kill` must STAY unguarded (legitimate
       post-takeover safing).
-- [ ] **GCS must show pads AS THEY ARE FOUND (operator request 2026-08-21)**:
-      in-flight WiFi death kills the mission_status.json sync path, and the
-      radio beacon only broadcasts CONFIRMED pads — so the operator saw
-      nothing while markers 4,5 were identified live. Fix chain: beacon
-      broadcasts IDENTIFIED ids too (e.g. `AAVC ids=…` line) + GCS padbox
-      lights an intermediate state (identified=orange, confirmed=green) from
-      `_parse_beacon`. Verify MAV_1_FORWARD is ACTIVE (post-reboot) on the
-      same bench pass.
+- [x] **GCS shows pads AS THEY ARE FOUND — DONE 2026-08-21** (mission repo
+      d3f01cd + aavc-gcs 9e34b4f). Symptom: operator pulled flight 1 down
+      while ids 4,5 were being identified live behind a blank console.
+      Mechanism: in-flight WiFi death killed the mission_status sync AND the
+      beacon carried CONFIRMED pads only. Fix: `pads_identified` {id:[e,n]}
+      lane in mission_status.json (tracker.identified_unconfirmed, write-on-
+      change), beacon line `AAVC seen=4,5`, GCS orange `.padbox.ident` +
+      revived 4-state per-pad ladder (renderPadLive was dead code). Caught-by:
+      `tests/test_gcs_status.py` promotion/no-rewrite pins +
+      `tests/test_status_beacon.py` seen-line goldens. MAV_1_FORWARD verified
+      ACTIVE live this session (radio_mission/cam/stale/prog fresh on the
+      console API over the CP2102 radio). Console restart applies it.
+- [x] **Plan path + stop order on the console map — DONE 2026-08-21**
+      (mission repo + aavc-gcs 525853c; no prior open item — the G7 takeover
+      root: operator could not see "where is it going NEXT"). Fix:
+      `_plan_pusher` now also writes `plan` [[lat,lon,kind,seq],…] +
+      `plan_ptr` into mission_status.json at every rebuild (first write at
+      gate release, WiFi still up); console draws a purple dashed polyline +
+      numbered stops, kept on screen when the feed goes stale. WiFi-only by
+      design (too big for the radio). Caught-by:
+      `tests/test_gcs_status.py::test_plan_pusher_writes_the_console_map_path`.
 - [ ] G7 attempt #1 analysis pending: why sweep legs stalled from wp7
       (wind? speed?), why only 2/6 markers decoded (coverage vs camera) —
       ULog from the FC card + frames from the CM4.
