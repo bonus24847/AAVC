@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -127,6 +128,53 @@ def _make_backend(name: str, device: str, width: int, height: int,
     raise ValueError(f"unknown backend {name!r}")
 
 
+def _force_short_exposure(device: str, n_100us: int, gain: int) -> None:
+    """Force a fixed short exposure (and optionally a fixed gain) on the V4L2
+    nadir camera via ``v4l2-ctl`` — the in-flight-blur lever (G7 2026-08-21:
+    flight frames scored Laplacian 41-76 vs 680-780 static while the OV9281
+    sat in auto_exposure=3 "Aperture Priority" at 16.6 ms; a translating,
+    hard-mounted camera needs ~1-3 ms). Subprocess over CAP_PROP
+    deliberately: the UVC control names are explicit, they apply to the node
+    even while cv2 holds it open, and the readback shows what the driver kept.
+
+    FAIL-SOFT by design: a missing binary/control logs and continues — this
+    must never join the nadir open's fail-hard class (auto exposure beats no
+    mission). ``device`` may be a bare index ("0"): v4l2-ctl needs a path, so
+    it is rewritten to /dev/video<N>. ``n_100us`` is the UVC
+    exposure_time_absolute unit (100 µs): 20 = 2 ms; 0 = leave auto exposure
+    alone. ``gain`` < 0 = leave the sensor gain alone (this module has NO
+    auto-gain, so a short exposure darkens frames with no automatic
+    compensation — raise the gain if the bench A/B comes out too dark)."""
+    controls: list[str] = []
+    if n_100us > 0:
+        controls += ["auto_exposure=1", f"exposure_time_absolute={int(n_100us)}"]
+    if gain >= 0:
+        controls.append(f"gain={int(gain)}")
+    if not controls:
+        return
+    dev = f"/dev/video{device}" if str(device).isdigit() else str(device)
+    cmd = ["v4l2-ctl", "-d", dev]
+    for ctl in controls:
+        cmd += ["-c", ctl]
+    names = ",".join(ctl.split("=")[0] for ctl in controls)
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=5.0)
+        back = subprocess.run(["v4l2-ctl", "-d", dev, "-C", names],
+                              check=False, capture_output=True, text=True,
+                              timeout=5.0)
+        readback = " ".join((back.stdout or "").split()) or "n/a"
+        print(f"[grabber] exposure forced on {dev}: {' '.join(controls)} "
+              f"(readback: {readback})")
+    except FileNotFoundError:
+        print("[grabber] v4l2-ctl not installed — exposure left on AUTO")
+    except subprocess.TimeoutExpired:
+        print(f"[grabber] v4l2-ctl timed out on {dev} — exposure left on AUTO")
+    except subprocess.CalledProcessError as e:
+        err = (e.stderr or b"").decode(errors="replace").strip()
+        print(f"[grabber] v4l2-ctl failed on {dev} ({err or e}) — "
+              "exposure left on AUTO")
+
+
 def _write_png(bgr: np.ndarray, out_path: Path) -> None:
     """Atomic BGR-PNG write: temp sibling (``.tmp.png`` so cv2 maps the codec),
     ``0600`` perms, then rename. Identical to ``sitl/gz_camera_bridge.py``."""
@@ -157,11 +205,22 @@ def main() -> int:
                     help="dashboard endpoint; mirror of the nadir frame")
     ap.add_argument("--swap-rb", action="store_true",
                     help="swap R/B on every frame (use if a coloured reference looks wrong)")
+    ap.add_argument("--exposure-100us", type=int, default=0,
+                    help="v4l2 only: force manual exposure via v4l2-ctl "
+                         "(auto_exposure=1 + exposure_time_absolute=N, unit 100 µs "
+                         "— 20 = 2 ms). 0 = leave the driver's auto exposure alone. "
+                         "Fail-soft when the tool/control is missing")
+    ap.add_argument("--gain", type=int, default=-1,
+                    help="v4l2 only: fixed sensor gain (OV9281: 0-128, no auto-gain "
+                         "— pair with --exposure-100us if frames come out dark). "
+                         "-1 = leave unchanged")
     args = ap.parse_args()
 
     # NADIR is the sole control-authority camera — fail hard if it won't open.
     nadir = _make_backend(args.backend, args.nadir_device, args.width, args.height,
                           fps=args.fps, fourcc=args.fourcc)
+    if args.backend == "v4l2":
+        _force_short_exposure(args.nadir_device, args.exposure_100us, args.gain)
     print(f"[grabber] nadir {args.backend} dev={args.nadir_device} "
           f"-> {args.nadir_out} (+ {args.frame_out})")
 

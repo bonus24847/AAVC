@@ -62,8 +62,12 @@ if ! ssh "${SSH_ID[@]}" -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChe
 fi
 
 if [ "$CHECK" -eq 1 ]; then
-    # Same file set and same recipe that verified the 2026-08-20 deploy live.
+    # Same file set and same recipe that verified the 2026-08-20 deploy live —
+    # plus the two sitl/ files the REAL stack actually executes (the grabber
+    # and the 🚀 launcher; added 2026-08-21 with the exposure fix, which would
+    # otherwise deploy invisible to this check since sitl/ isn't hashed).
     MD5_CMD='find orchestrator mission_brain vision mavlink_adapter tools cm4 gcs \
+        sitl/camera_grabber.py sitl/run_mission.sh \
         -name "*.py" -o -name "*.sh" | sort | xargs md5sum | md5sum | cut -d" " -f1'
     LOCAL_MD5=$(cd "$REPO_ROOT" && eval "$MD5_CMD")
     REMOTE_MD5=$(ssh "${SSH_ID[@]}" "$HOST" "cd ~/$DIR && $MD5_CMD" || echo "unreachable")

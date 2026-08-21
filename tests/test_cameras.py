@@ -112,3 +112,76 @@ def test_grabber_write_png_atomic_bgr_0600(tmp_path: Path) -> None:
     assert back is not None and back.shape == (480, 640, 3)
     # red must survive as red (BGR), not swapped to blue — the detector keys on it
     assert int(back[0, 0, 2]) == 255 and int(back[0, 0, 0]) == 0
+
+
+# ── 1c: forced short exposure — the G7 2026-08-21 in-flight-blur lever ───────
+# Flight frames scored Laplacian 41-76 vs 680-780 static because the OV9281
+# sat in auto_exposure=3 (Aperture Priority) at 16.6 ms. The flag must
+# translate to exactly the UVC controls measured on the real module, and it
+# must be fail-soft: exposure never joins the nadir open's fail-hard class.
+
+
+def test_force_short_exposure_builds_the_v4l2_ctl_command(monkeypatch) -> None:
+    """auto_exposure=1 (Manual Mode — activates exposure_time_absolute, unit
+    100 µs) on the given device path; a bare index is rewritten to
+    /dev/video<N> (v4l2-ctl cannot take "0"); gain is untouched unless asked."""
+    g = _load_grabber()
+    calls: list[list[str]] = []
+
+    class _Done:
+        stdout = "auto_exposure: 1 exposure_time_absolute: 20"
+        stderr = ""
+
+    def _fake_run(cmd, **kw):
+        calls.append(list(cmd))
+        return _Done()
+
+    monkeypatch.setattr(g.subprocess, "run", _fake_run)
+    g._force_short_exposure("/dev/v4l/by-id/usb-cam-video-index0", 20, -1)
+    set_cmd = calls[0]
+    assert set_cmd[:3] == ["v4l2-ctl", "-d", "/dev/v4l/by-id/usb-cam-video-index0"]
+    assert "auto_exposure=1" in set_cmd
+    assert "exposure_time_absolute=20" in set_cmd
+    assert not any(c.startswith("gain=") for c in set_cmd)
+
+    calls.clear()
+    g._force_short_exposure("0", 30, 96)
+    assert calls[0][2] == "/dev/video0"
+    assert "gain=96" in calls[0]
+
+
+def test_force_short_exposure_is_fail_soft(monkeypatch) -> None:
+    """A laptop with no v4l2-ctl (FileNotFoundError), a hung tool (timeout),
+    or an unknown control (non-zero exit) must LOG and return — never raise
+    into the grabber's startup."""
+    g = _load_grabber()
+
+    def _missing(cmd, **kw):
+        raise FileNotFoundError("v4l2-ctl")
+
+    monkeypatch.setattr(g.subprocess, "run", _missing)
+    g._force_short_exposure("/dev/video0", 20, -1)          # must not raise
+
+    def _denied(cmd, **kw):
+        raise g.subprocess.CalledProcessError(1, cmd, stderr=b"unknown control")
+
+    monkeypatch.setattr(g.subprocess, "run", _denied)
+    g._force_short_exposure("/dev/video0", 20, -1)          # must not raise
+
+    def _hangs(cmd, **kw):
+        raise g.subprocess.TimeoutExpired(cmd, 5.0)
+
+    monkeypatch.setattr(g.subprocess, "run", _hangs)
+    g._force_short_exposure("/dev/video0", 20, -1)          # must not raise
+
+
+def test_force_short_exposure_zero_is_a_noop(monkeypatch) -> None:
+    """--exposure-100us 0 with gain -1 (the default, and the SITL/laptop
+    path) = leave the driver's auto exposure alone — no subprocess at all."""
+    g = _load_grabber()
+
+    def _boom(cmd, **kw):
+        raise AssertionError("subprocess must not run for the no-op defaults")
+
+    monkeypatch.setattr(g.subprocess, "run", _boom)
+    g._force_short_exposure("/dev/video0", 0, -1)

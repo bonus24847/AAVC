@@ -98,6 +98,16 @@ EOF
                 cam_dev=$(ls /dev/v4l/by-id/*-video-index0 2>/dev/null | head -1)
                 [ -n "$cam_dev" ] && GRAB_ARGS="--nadir-device $cam_dev"
             fi
+            # บังคับ exposure สั้นบนกล้องจริงเป็นค่าเริ่มต้น (G7 2026-08-21:
+            # เฟรมบิน blur ~10x เพราะ auto_exposure ค้าง 16.6 ms) — ensure_infra
+            # รันเฉพาะฝั่ง REAL อยู่แล้ว SITL/gz ไม่โดน. หน่วยคือ 100 µs ของ UVC
+            # (20 = 2 ms); CAM_EXPOSURE=0 = กลับไป auto; CAM_GAIN (0-128)
+            # ชดเชยความสว่าง — OV9281 ไม่มี auto-gain
+            CAM_EXPOSURE="${CAM_EXPOSURE:-20}"
+            if [ "$CAM_EXPOSURE" != "0" ] && [ "${BACKEND:-v4l2}" = "v4l2" ]; then
+                GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--exposure-100us $CAM_EXPOSURE"
+                [ -n "${CAM_GAIN:-}" ] && GRAB_ARGS="$GRAB_ARGS --gain $CAM_GAIN"
+            fi
             echo "[run_mission] starting camera grabber (BACKEND=${BACKEND:-v4l2}${GRAB_ARGS:+ $GRAB_ARGS})"
             setsid make -C "$REPO_ROOT" camera-real BACKEND="${BACKEND:-v4l2}" \
                 GRAB_ARGS="${GRAB_ARGS:-}" \

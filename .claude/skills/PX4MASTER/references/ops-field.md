@@ -133,8 +133,21 @@ other repo's operator decides.
 - [ ] Pack at 22.17 V resting = gauge 0% (below V_EMPTY) after the field
       session — CHARGE before any flight; log the charger's returned mAh
       (first row of the ground-truth table).
-- [ ] **CAMERA FOCUS bench gate** (the new #1 — see SKILL.md shortlist and
-      docs/evidence/ulog_review_2026-08-21.md finding 1).
+- [ ] **CAMERA in-flight blur gate** (the new #1 — see SKILL.md shortlist and
+      docs/evidence/ulog_review_2026-08-21.md finding 1 + addendum: static
+      focus is FINE 1.9-14 m; flight frames scored 41-76 vs 680-780 static).
+      **Code lever LANDED 2026-08-21**: `camera_grabber.py --exposure-100us N`
+      (+ optional `--gain`) forces `auto_exposure=1` +
+      `exposure_time_absolute=N` via v4l2-ctl (fail-soft; unit 100 µs), wired
+      as `CAM_EXPOSURE` env with a REAL-side default of 20 (= 2 ms, was auto
+      16.6 ms) in `run_mission.sh` ensure_infra + `cm4/launch_flight.sh`;
+      bench-verified on the CM4 (readback: Manual Mode, 20). Caught-by:
+      `tests/test_cameras.py` exposure trio; `cm4/deploy.sh --check` now
+      hashes the two executed sitl/ files so a stale grabber shows as DRIFT.
+      ⚠ the OV9281 has NO auto-gain — if outdoor frames come out dark, raise
+      CAM_GAIN, don't lengthen the exposure first. GATE STILL OPEN: outdoor
+      sharpness A/B (auto vs 10/20/30) then hover-decode over the printed
+      marker DURING flight.
 - [ ] `MPC_THR_HOVER` 0.5 → 0.58 — measured true hover ≈0.60 (motors mean,
       flight 3) while the board holds the 0.5 default and HTE logged NaN;
       AWAITING OPERATOR APPROVAL, then write + re-verify.

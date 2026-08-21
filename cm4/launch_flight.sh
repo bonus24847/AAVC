@@ -22,6 +22,8 @@
 #   ROUTERD=mavlink-routerd    router binary (or an absolute path to a local build)
 #   BACKEND=v4l2|picamera2     camera backend (default v4l2)
 #   GRAB_ARGS="..."            extra camera-grabber flags (--nadir-device, --fourcc GREY, --fps, …)
+#   CAM_EXPOSURE=20            v4l2 forced exposure, UVC 100 µs units (20 = 2 ms; 0 = auto)
+#   CAM_GAIN=64                optional fixed gain 0-128 with CAM_EXPOSURE (OV9281 has no auto-gain)
 #   CONFIG=sitl/aavc_config.yaml
 #   NO_CAMERA=1                skip the grabber (bench test with synthetic/gz frames)
 #   HEADLESS=1                 run --no-dashboard (auto-GO; unattended field runs)
@@ -38,6 +40,7 @@ CONNECT="${CONNECT:-udpin://0.0.0.0:14540}"
 ROUTERD="${ROUTERD:-mavlink-routerd}"
 BACKEND="${BACKEND:-v4l2}"
 GRAB_ARGS="${GRAB_ARGS:-}"
+CAM_EXPOSURE="${CAM_EXPOSURE:-20}"
 CONFIG="${CONFIG:-sitl/aavc_config.yaml}"
 DASH_HOST="${DASH_HOST:-127.0.0.1}"
 
@@ -145,6 +148,13 @@ if [ "${NO_CAMERA:-0}" != "1" ]; then
         sleep 1
     fi
     rm -f /tmp/aavc_nadir.png /tmp/aavc_frame.png   # never inherit a stale frame
+    # Short-exposure default (mirrors run_mission.sh ensure_infra — this
+    # launcher IS the real bird; G7 2026-08-21 in-flight blur). CAM_EXPOSURE=0
+    # restores the driver's auto exposure.
+    if [ "$CAM_EXPOSURE" != "0" ] && [ "$BACKEND" = "v4l2" ]; then
+        GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--exposure-100us $CAM_EXPOSURE"
+        [ -n "${CAM_GAIN:-}" ] && GRAB_ARGS="$GRAB_ARGS --gain $CAM_GAIN"
+    fi
     echo "[flight] camera grabber: backend=$BACKEND args='$GRAB_ARGS'"
     keep_alive "camera-grabber" make camera-real BACKEND="$BACKEND" GRAB_ARGS="$GRAB_ARGS"
     # let the first frames land so the preflight camera-age check passes
