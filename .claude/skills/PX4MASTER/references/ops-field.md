@@ -197,25 +197,28 @@ other repo's operator decides.
 - [ ] docs/REAL_FLIGHT_GCS.md + docs/FLIGHT.md still describe the pre-🚀
       stack-start; status_beacon.main() age logic untested;
       test_status_beacon positional indexing brittle (code-review backlog).
-- [ ] 🔴 **Latch servos dead on the bench 2026-08-21 — every DIGITAL layer
-      verified working; suspect: AUX servo-rail power (BEC)**. Evidence
-      chain: GCS press → radio → FC all confirmed (`mavlink status`: TELEM1
-      GCS heartbeat valid, rx 3.2 KB/s; `pwm_out status` DURING the press
-      showed func 301-304 driven at 1900/1990 — the GCS ACTUATOR_TEST
-      supervisor's own values — for ~20 min straight) and CM4-side
-      ACTUATOR_TEST also ACK=0 on all four; zero physical motion anywhere.
-      The 6X does NOT power the AUX rail itself; the BEC feed likely came
-      loose in the PM03D→converter→PM02D rewires (no egg release has
-      actually happened since 2026-08-18). The ORIGINAL "8 s late release"
-      report now reads as the same fault intermittent (loose feed browning
-      out), not radio queueing. NEXT: multimeter the AUX rail centre pin
-      (expect ~5 V), trace the BEC. ⚠ Field rule learned: press เก็บ (re-latch)
-      on the console BEFORE restoring rail power — the supervisor holds all
-      four latches commanded OPEN, and they will snap open the instant power
-      returns. Lessons: (a) `SERVO_OUTPUT_RAW`/`ACTUATOR_OUTPUT_STATUS` on
-      this setup carry MAIN only — telemetry is BLIND to the AUX bank; the
-      only software view of AUX values is nsh `pwm_out status`; (b) a
-      console restart wipes the ACTUATOR_TEST hold set silently.
+- [ ] 🔴 **Latch servos dead 2026-08-21 — CONFIRMED: the BEC wire feeding
+      the AUX servo rail is BROKEN** (operator, multimeter: no power, wire
+      ขาด). FLIGHT-BLOCKING for any delivery mission — no egg can release
+      until it is repaired. Evidence chain that ruled everything else out:
+      GCS press → radio → FC all working (`mavlink status`: TELEM1 GCS
+      heartbeat valid, rx 3.2 KB/s; `pwm_out status` DURING the press showed
+      func 301-304 driven at 1900/1990 — the GCS ACTUATOR_TEST supervisor's
+      own values — for ~20 min straight); CM4-side ACTUATOR_TEST ACK=0 on
+      all four; zero physical motion. The 6X does NOT power the AUX rail
+      itself; the wire most likely broke in the PM03D→converter→PM02D
+      rewires (no real egg release since 2026-08-18). The ORIGINAL "8 s
+      late release" report = the same fault while intermittent (failing
+      contact), NOT radio queueing. REMAINING: repair/re-solder the BEC
+      feed → verify rail ~5 V → press-to-move re-test (expect < 1 s; the
+      command path is already proven) and re-latch check on all four.
+      ⚠ Field rule: press เก็บ (re-latch) on the console BEFORE restoring
+      rail power — the supervisor holds all four latches commanded OPEN and
+      they snap open the instant power returns. Lessons: (a)
+      `SERVO_OUTPUT_RAW`/`ACTUATOR_OUTPUT_STATUS` here carry MAIN only —
+      telemetry is BLIND to the AUX bank; the only software view of AUX
+      values is nsh `pwm_out status`; (b) a console restart silently wipes
+      the ACTUATOR_TEST hold set.
 - [ ] aavc-gcs launcher `start_infra` sshes as the LOCAL username
       (`bonus-linux@10.42.0.1` → Permission denied, seen 2026-08-21 on
       console restart) instead of `drone@` — harmless while the CM4 stack is
