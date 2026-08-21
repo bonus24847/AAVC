@@ -12,7 +12,9 @@ holding a finished mission's layout).
 File contract (aavc_gcs.py header + its ``aavcEN`` map helper)::
 
     {"phase": str, "assigned": [ids], "delivered": [ids],
-     "pads_mapped": {"<marker_id>": [east_m, north_m]}, "updated": epoch}
+     "pads_mapped": {"<marker_id>": [east_m, north_m]},
+     "pads_identified": {"<marker_id>": [east_m, north_m]},   # orange lane
+     "updated": epoch}
 
 ``pads_mapped`` ENU is about the field yaml's ``local_origin`` (== this
 repo's ``site.center``), and the console converts it back with a SPHERICAL
@@ -80,6 +82,12 @@ class GcsMissionStatus:
         self._origin = (float(origin_lat), float(origin_lon))
         self._lock = threading.Lock()
         self._pads: dict[str, list[float]] = {}
+        # Identified-but-unconfirmed pads (marker id decoded at least once,
+        # still short of the confirm votes) — the operator sees these ORANGE
+        # the moment they are first read (request 2026-08-21: flight 1 was
+        # pulled down while ids 4,5 were being identified live, because the
+        # screen showed nothing until CONFIRMED).
+        self._pads_identified: dict[str, list[float]] = {}
         self._delivered: list[int] = []
         self._assigned = [int(i) for i in assigned]
         self._phase = "recon (preflight)"
@@ -123,7 +131,27 @@ class GcsMissionStatus:
     def pad_confirmed(self, marker_id: int, lat: float, lon: float) -> None:
         with self._lock:
             self._pads[str(int(marker_id))] = self._enu(lat, lon)
+            # a pad that just got CONFIRMED leaves the identified lane
+            self._pads_identified.pop(str(int(marker_id)), None)
         self._event(f"🎯 เจอ pad {int(marker_id)}!")
+        self._write()
+
+    def set_identified(self, mapping: dict[str, list[float]]) -> None:
+        """Replace the identified-but-unconfirmed pad set ({id: [e, n]}).
+
+        Writes only on CHANGE: this rides the vision on_fix cadence (~3 Hz
+        while a pad is in view), and an unconditional write would hammer the
+        CM4's SD — the same class of bug
+        test_a_recurring_anomaly_is_not_rewritten_every_tick guards against.
+        A pad promoted to CONFIRMED simply stops appearing in ``mapping``
+        (the tracker's identified_unconfirmed() no longer returns it)."""
+        with self._lock:
+            if mapping == self._pads_identified:
+                return
+            new_ids = [k for k in mapping if k not in self._pads_identified]
+            self._pads_identified = {str(k): list(v) for k, v in mapping.items()}
+        for k in sorted(new_ids, key=str):
+            self._event(f"🔶 เห็น pad {k} (รอยืนยัน)")
         self._write()
 
     def set_phase(self, phase: str) -> None:
@@ -312,7 +340,13 @@ class GcsMissionStatus:
         id-DECODED pad to the map the moment the tracker promotes it —
         independent of the web dashboard's own pusher, so headless
         (--no-dashboard) runs feed the console too. Unidentified blob-only
-        clusters are withheld: the operator's map shows pads, not maybes."""
+        clusters are withheld: the operator's map shows pads, not maybes.
+
+        Since 2026-08-21 it ALSO pushes the identified-but-unconfirmed lane
+        (id decoded, votes still short → ``pads_identified``): the G7 flight
+        was pulled down while ids 4,5 were being identified live because the
+        confirmed-only feed showed nothing. The confirmed ``seen`` latch is
+        untouched — a pad flows identified → confirmed independently."""
         from .target_tracker import TargetState
         show = (TargetState.CONFIRMED, TargetState.SERVING, TargetState.SERVED)
         seen: set[int] = set()
@@ -326,6 +360,9 @@ class GcsMissionStatus:
                 self.pad_confirmed(t.marker_id, t.lat, t.lon)
                 logger.info(f"[gcs_status] pad {t.marker_id} on the GCS map "
                             f"({t.lat:.7f}, {t.lon:.7f})")
+            self.set_identified({
+                str(t.marker_id): self._enu(t.lat, t.lon)
+                for t in tracker.identified_unconfirmed()})
 
         return _push
 
@@ -337,6 +374,7 @@ class GcsMissionStatus:
                     "assigned": list(self._assigned),
                     "delivered": list(self._delivered),
                     "pads_mapped": dict(self._pads),
+                    "pads_identified": dict(self._pads_identified),
                     "progress": int(self._progress),
                     "progress_label": self._progress_label,
                     "eta_s": self._eta_s,

@@ -68,13 +68,59 @@ def test_tracker_pusher_shows_only_confirmed_decoded_pads(tmp_path: Path) -> Non
         types.SimpleNamespace(target_id=2, marker_id=None, lat=_LAT0, lon=_LON0,
                               state=TargetState.CONFIRMED),   # blob-only: hidden
         types.SimpleNamespace(target_id=3, marker_id=5, lat=_LAT0, lon=_LON0,
-                              state=TargetState.CANDIDATE),   # unconfirmed: hidden
+                              state=TargetState.CANDIDATE),   # unconfirmed: orange lane
     ]
-    tracker = types.SimpleNamespace(snapshot=lambda: targets)
+    tracker = types.SimpleNamespace(
+        snapshot=lambda: targets,
+        identified_unconfirmed=lambda marker_id=None: [targets[2]])
     push = feed.tracker_pusher(tracker)
     push(None)
     push(None)                                # idempotent on repeat fixes
-    assert sorted(_read(p)["pads_mapped"]) == ["3"]
+    doc = _read(p)
+    assert sorted(doc["pads_mapped"]) == ["3"]
+    # 2026-08-21: the identified-but-unconfirmed id is no longer hidden — it
+    # rides its own lane so the console can show it ORANGE.
+    assert sorted(doc["pads_identified"]) == ["5"]
+
+
+def test_identified_lane_promotes_and_does_not_rewrite_every_tick(
+        tmp_path: Path) -> None:
+    """G7 2026-08-21: ids seen live must reach the console immediately —
+    but at the ~3 Hz on_fix cadence an UNCHANGED identified set must not
+    rewrite the file (SD hammer, same class as the anomaly-rewrite guard),
+    and a pad that CONFIRMS must leave the orange lane for the map lane."""
+    p = tmp_path / "s.json"
+    feed = GcsMissionStatus(p, _LAT0, _LON0, assigned=[])
+    cand = types.SimpleNamespace(target_id=3, marker_id=5, lat=_LAT0, lon=_LON0,
+                                 state=TargetState.CANDIDATE)
+    identified = [cand]
+    tracker = types.SimpleNamespace(
+        snapshot=lambda: [cand],
+        identified_unconfirmed=lambda marker_id=None: list(identified))
+    push = feed.tracker_pusher(tracker)
+    push(None)
+    assert sorted(_read(p)["pads_identified"]) == ["5"]
+
+    writes = 0
+    orig = feed._write
+
+    def _counting() -> None:
+        nonlocal writes
+        writes += 1
+        orig()
+    feed._write = _counting                   # type: ignore[method-assign]
+    push(None)
+    push(None)
+    assert writes == 0                        # unchanged set -> no rewrite
+
+    identified.clear()                        # the tracker promoted id 5
+    promoted = types.SimpleNamespace(target_id=3, marker_id=5, lat=_LAT0,
+                                     lon=_LON0, state=TargetState.CONFIRMED)
+    tracker.snapshot = lambda: [promoted]
+    push(None)
+    doc = _read(p)
+    assert sorted(doc["pads_mapped"]) == ["5"]
+    assert doc["pads_identified"] == {}       # orange lane cleared on confirm
 
 
 def test_progress_maps_real_phases_onto_the_console_stepper(tmp_path: Path) -> None:

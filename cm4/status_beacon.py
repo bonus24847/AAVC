@@ -125,6 +125,19 @@ def compose_lines(status: dict | None, frame_age_s: float | None,
             line += " " + ent
         if line != "AAVC pads":
             lines.append((_SEV_INFO, line))
+        # Identified-but-unconfirmed ids (operator request 2026-08-21): the
+        # moment a marker id is first DECODED it must reach the screen over
+        # the radio — the WiFi sync dies in flight, and the pads line above
+        # carries CONFIRMED pads only, so G7 flight 1 was pulled down while
+        # ids 4,5 were being identified live behind a blank console. Ids
+        # only (all six = "AAVC seen=1,2,3,4,5,6", 21 chars — one packet);
+        # omitted entirely when none, like the pads line.
+        ident = status.get("pads_identified") or {}
+        ident_ids = sorted(ident, key=lambda p: (not str(p).isdigit(), str(p)))
+        if ident_ids:
+            lines.append((_SEV_INFO,
+                          ("AAVC seen=" +
+                           ",".join(str(i) for i in ident_ids))[:_MAX_TEXT]))
         # Progress bar + milestone strip over the radio (operator 2026-08-18:
         # "ที่เราคุยกันว่าข้อมูลทั้งหมดบนวิทยุ มันหายไปไหน"). `progress` is not
         # one readout among many — it is the SWITCH the console tests to decide
