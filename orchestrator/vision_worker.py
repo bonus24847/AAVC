@@ -4,7 +4,7 @@ Background asyncio task. While the mission is in an active phase it reads the
 NADIR camera frame written by ``sitl/gz_camera_bridge.py`` (real flight: the
 UVC grabber on the CM4):
 
-  * NADIR (/tmp/aavc_nadir.png) — straight-down (gimbal-stabilized on the real
+  * NADIR (/tmp/aavc_nadir.jpg) — straight-down (gimbal-stabilized on the real
     bird), drives the world fix used to seed the precise approach and the
     dashboard map pin. The SOLE control-authority sensor.
 
@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from loguru import logger
 
 from mission_brain.schemas import DetectedTarget, MissionPhase, VisionAnalysis
@@ -44,7 +45,7 @@ try:  # cv2 is a hard dep in flight, but keep the import soft for headless tests
 except Exception:  # pragma: no cover
     cv2 = None  # type: ignore[assignment]
 
-DEFAULT_NADIR_FRAME = Path("/tmp/aavc_nadir.png")
+DEFAULT_NADIR_FRAME = Path("/tmp/aavc_nadir.jpg")
 # Poll period, NOT the decode rate. Since 2026-08-21 a new-frame guard sits in
 # front of the decode, so this only bounds how long a freshly written frame
 # waits before it is looked at; the actual decode rate is the CAMERA's write
@@ -115,6 +116,7 @@ class VisionWorker:
         active_phases: frozenset[MissionPhase] = DEFAULT_ACTIVE_PHASES,
         observation_maxlen: int = DEFAULT_OBSERVATION_MAXLEN,
         frame_max_age_s: float = DEFAULT_FRAME_MAX_AGE_S,
+        decode_workers: int = 1,
     ) -> None:
         self.state = state
         self.target_description = target_description
@@ -122,6 +124,16 @@ class VisionWorker:
         self.interval_s = interval_s
         self.frame_max_age_s = frame_max_age_s
         self.active_phases = active_phases
+        # Frames decoded CONCURRENTLY. 1 = the sequential path (the validated
+        # default). One decode+detect costs ~55 ms of CM4 CPU, so a single
+        # worker tops out near 18 Hz — fine while the camera writes 10, but
+        # MJPEG passthrough can feed 20-30 Hz for ~7% of a core, and past 18 Hz
+        # the DECODE becomes the limit. cv2 releases the GIL for both the
+        # imdecode and the detection, so extra threads are real cores (the CM4
+        # has 4, ~2.5 idle in flight). Results are still emitted in FRAME
+        # ORDER — the tracker's vote span (last_t - first_t) would go negative
+        # on an out-of-order fix and the cluster would never confirm.
+        self.decode_workers = max(1, int(decode_workers))
         self._observations: collections.deque[VisionAnalysis] = collections.deque(
             maxlen=observation_maxlen
         )
@@ -176,6 +188,9 @@ class VisionWorker:
             await asyncio.gather(self._task, return_exceptions=True)
 
     async def _run(self) -> None:
+        if self.decode_workers > 1:
+            await self._run_parallel()
+            return
         while self.state.terminal == TerminalState.RUNNING:
             await asyncio.sleep(self.interval_s)
             if self.state.phase not in self.active_phases:
@@ -192,8 +207,12 @@ class VisionWorker:
     def _tick(self) -> None:
         # find_landing_pads sorts decoded-then-confidence, so element 0 is the
         # strongest hit in frame.
-        nadir_fixes = self._detect_one(self.nadir_frame, NADIR)
+        self._emit(self._detect_one(self.nadir_frame, NADIR))
 
+    def _emit(self, nadir_fixes: list[TargetFix]) -> None:
+        """Fan one frame's fixes out to the subscribers. Split out of _tick so
+        the parallel path can call it IN FRAME ORDER from the event loop while
+        the decodes themselves run on pool threads."""
         # Feed the pad registry with EVERY pad seen. Fires on THIS worker thread.
         for fix in nadir_fixes:
             for cb_fix in self._on_fix:
@@ -230,6 +249,90 @@ class VisionWorker:
             return False
         return mtime != self._last_frame_mtime
 
+    async def _run_parallel(self) -> None:
+        """Decode up to ``decode_workers`` frames at once, EMIT IN ORDER.
+
+        The frame BYTES are claimed on the event loop (a ~1 ms read of a 33 KB
+        JPEG) so each in-flight decode owns its own frame — dispatching a path
+        instead would let two threads race to read whatever the grabber had
+        most recently overwritten, and the older result would then land last.
+        The pose is snapshotted at the same instant for the same reason.
+
+        Backpressure: with the queue full the loop awaits the OLDEST decode,
+        so a CPU that falls behind simply drops back to the sequential rate
+        instead of growing an unbounded backlog of stale frames."""
+        pending: collections.deque[asyncio.Task[list[TargetFix]]] = collections.deque()
+
+        async def drain_one() -> None:
+            task = pending.popleft()
+            try:
+                self._emit(await task)
+            except Exception as e:      # never let one frame kill the worker
+                logger.warning(f"[vision] decode failed: {e}")
+
+        try:
+            while self.state.terminal == TerminalState.RUNNING:
+                await asyncio.sleep(self.interval_s)
+                while pending and pending[0].done():
+                    await drain_one()
+                if self.state.phase not in self.active_phases:
+                    continue
+                claim = self._claim_frame()
+                if claim is None:
+                    continue
+                data, pose = claim
+                pending.append(asyncio.create_task(
+                    asyncio.to_thread(self._decode_and_detect, data, pose)))
+                while len(pending) >= self.decode_workers:
+                    await drain_one()
+        finally:
+            for task in pending:
+                task.cancel()
+
+    def _claim_frame(self) -> tuple[bytes, Any] | None:
+        """Take the current frame's BYTES + pose, and mark it decoded. Cheap
+        enough for the event loop; returns None when there is nothing new,
+        the frame is stale, or it vanished mid-read."""
+        if cv2 is None or not self.has_new_frame():
+            return None
+        if frame_too_old(self.nadir_frame, self.frame_max_age_s):
+            self.state.record_anomaly(f"{NADIR.name}_frame_stale")
+            return None
+        try:
+            mtime = self.nadir_frame.stat().st_mtime
+            data = self.nadir_frame.read_bytes()
+        except OSError:
+            return None
+        self._last_frame_mtime = mtime
+        return data, self._pose_now()
+
+    def _decode_and_detect(
+        self, data: bytes, pose: Any) -> list[TargetFix]:
+        """Pool-thread half: decode the claimed bytes and detect. Touches no
+        worker state, so N of these can run at once."""
+        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return []
+        return self._fixes_from_image(img, NADIR, pose)
+
+    def _pose_now(self) -> tuple[float, float, float, float, float, float] | None:
+        """Snapshot the pose the frame ON DISK RIGHT NOW was taken at.
+
+        Taken BEFORE the decode, not after (2026-08-21). ``state.telemetry`` is
+        a live object the subscriber keeps rewriting, so reading it after a
+        ~55 ms decode geolocated every pad with the pose the aircraft had
+        AFTER the frame — pure lag straight into the fix, and it grows with
+        every worker running in parallel. Returns None when the position is
+        NaN (nothing can be projected)."""
+        t = self.state.telemetry
+        if math.isnan(t.lat) or math.isnan(t.lon):
+            return None
+        return (t.lat, t.lon,
+                t.relative_alt_m if not math.isnan(t.relative_alt_m) else 0.0,
+                t.heading_deg if not math.isnan(t.heading_deg) else 0.0,
+                t.roll_deg if not math.isnan(t.roll_deg) else 0.0,
+                t.pitch_deg if not math.isnan(t.pitch_deg) else 0.0)
+
     def _detect_one(self, frame_path: Path, camera: CameraModel) -> list[TargetFix]:
         if cv2 is None or not frame_path.exists():
             return []
@@ -243,23 +346,29 @@ class VisionWorker:
             self._last_frame_mtime = frame_path.stat().st_mtime
         except OSError:
             pass
+        pose = self._pose_now()    # …and the pose it belongs to, likewise
         img = cv2.imread(str(frame_path))
         if img is None:
             return []
+        return self._fixes_from_image(img, camera, pose)
+
+    def _fixes_from_image(
+        self, img: Any, camera: CameraModel,
+        pose: tuple[float, float, float, float, float, float] | None,
+    ) -> list[TargetFix]:
+        """Detect + project one decoded frame. Pure with respect to worker
+        state (the pose is passed in, not read), so it is safe to run on a
+        pool thread while another frame is being decoded."""
         hits = find_landing_pads(img)
         if not hits:
             return []
-        t = self.state.telemetry
-        if math.isnan(t.lat) or math.isnan(t.lon):
+        if pose is None:
             return []
-        alt = t.relative_alt_m if not math.isnan(t.relative_alt_m) else 0.0
-        yaw = t.heading_deg if not math.isnan(t.heading_deg) else 0.0
-        roll = t.roll_deg if not math.isnan(t.roll_deg) else 0.0
-        pitch = t.pitch_deg if not math.isnan(t.pitch_deg) else 0.0
+        lat, lon, alt, yaw, roll, pitch = pose
         now = time.monotonic()
         fixes: list[TargetFix] = []
         for hit in hits:
-            gf = project_pixel((hit.cx, hit.cy), t.lat, t.lon, alt, yaw, camera,
+            gf = project_pixel((hit.cx, hit.cy), lat, lon, alt, yaw, camera,
                                roll_deg=roll, pitch_deg=pitch)
             if gf is None:
                 continue

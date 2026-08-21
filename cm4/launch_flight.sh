@@ -24,9 +24,10 @@
 #   GRAB_ARGS="..."            extra camera-grabber flags (--nadir-device, --fourcc GREY, --fps, …)
 #   CAM_EXPOSURE=20            v4l2 forced exposure, UVC 100 µs units (20 = 2 ms; 0 = auto)
 #   CAM_GAIN=64                optional fixed gain 0-128 with CAM_EXPOSURE (OV9281 has no auto-gain)
-#   CAM_INTERVAL=0.1           seconds between frame writes (0.1 = 10 Hz = the sensor's rate)
-#   CAM_MIRROR=1               also write /tmp/aavc_frame.png for the WEB dashboard (costs a
-#                              second PNG encode ~62 ms/frame on the CM4; off by default)
+#   CAM_INTERVAL=0.05          seconds between frame writes (0.05 = 20 Hz with passthrough)
+#   CAM_PASSTHROUGH=0          disable MJPEG passthrough (fall back to YUYV + re-encode)
+#   CAM_MIRROR=1               also write /tmp/aavc_frame.jpg for the WEB dashboard (costs a
+#                              second encode ~12 ms/frame as JPEG; off by default)
 #   CONFIG=sitl/aavc_config.yaml
 #   NO_CAMERA=1                skip the grabber (bench test with synthetic/gz frames)
 #   HEADLESS=1                 run --no-dashboard (auto-GO; unattended field runs)
@@ -150,7 +151,8 @@ if [ "${NO_CAMERA:-0}" != "1" ]; then
         pkill -9 -f 'camera_grabber.p[y]' 2>/dev/null
         sleep 1
     fi
-    rm -f /tmp/aavc_nadir.png /tmp/aavc_frame.png   # never inherit a stale frame
+    rm -f /tmp/aavc_nadir.jpg /tmp/aavc_frame.jpg \
+          /tmp/aavc_nadir.png /tmp/aavc_frame.png   # incl. the pre-JPEG names
     # Short-exposure default (mirrors run_mission.sh ensure_infra — this
     # launcher IS the real bird; G7 2026-08-21 in-flight blur). CAM_EXPOSURE=0
     # restores the driver's auto exposure.
@@ -160,13 +162,19 @@ if [ "${NO_CAMERA:-0}" != "1" ]; then
     fi
     # 10 Hz frames (the sensor's own rate at 1280x720) and no mirror encode —
     # see sitl/run_mission.sh for the measured numbers behind both.
+    # MJPEG passthrough by default — see sitl/run_mission.sh for the measured
+    # numbers and the decode-survival test behind it.
+    if [ "${CAM_PASSTHROUGH:-1}" != "0" ] && [ "$BACKEND" = "v4l2" ]; then
+        GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--mjpeg-passthrough"
+        CAM_INTERVAL="${CAM_INTERVAL:-0.05}"
+    fi
     GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--interval-s ${CAM_INTERVAL:-0.1}"
     [ "${CAM_MIRROR:-0}" = "0" ] && GRAB_ARGS="$GRAB_ARGS --no-mirror"
     echo "[flight] camera grabber: backend=$BACKEND args='$GRAB_ARGS'"
     keep_alive "camera-grabber" make camera-real BACKEND="$BACKEND" GRAB_ARGS="$GRAB_ARGS"
     # let the first frames land so the preflight camera-age check passes
-    for _ in $(seq 1 20); do [ -f /tmp/aavc_nadir.png ] && break; sleep 0.5; done
-    [ -f /tmp/aavc_nadir.png ] || echo "[flight] WARNING: no nadir frame after 10 s — the camera did NOT start (check /dev/video*, and that nothing else holds it)"
+    for _ in $(seq 1 20); do [ -f /tmp/aavc_nadir.jpg ] && break; sleep 0.5; done
+    [ -f /tmp/aavc_nadir.jpg ] || echo "[flight] WARNING: no nadir frame after 10 s — the camera did NOT start (check /dev/video*, and that nothing else holds it)"
 else
     echo "[flight] NO_CAMERA=1 — expecting /tmp/aavc_*.png from a synthetic/gz feeder"
 fi

@@ -4,7 +4,7 @@ In-process FastAPI server hosted alongside the orchestrator. Exposes:
 - `/api/plan` — the active MissionPlan
 - `/api/config` — geofence + search-area polygons
 - `/api/health` — orchestrator running state
-- `/api/camera/frame.png` + `/api/camera/stream` — nadir camera (/tmp/aavc_frame.png)
+- `/api/camera/frame.png` + `/api/camera/stream` — nadir camera (/tmp/aavc_frame.jpg)
 - `/api/cmd/*` — guarded operator command channel
 - `/ws/realtime` — 5 Hz telemetry + event-driven push (vision matches,
   detected objects, MAVLink commands, anomalies, drop predictions)

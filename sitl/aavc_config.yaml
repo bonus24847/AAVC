@@ -304,6 +304,13 @@ vision:
   # ~67 ms (26 ms PNG read + 41 ms detect), a skipped poll is one stat().
   # Raise it only to throttle a CPU-starved companion.
   poll_interval_s: 0.05
+  # Frames decoded CONCURRENTLY (1 = sequential, the validated default). One
+  # decode+detect is ~55 ms of CM4 CPU, so a single worker tops out near 18 Hz.
+  # Raise to 2 ONLY together with a camera that actually writes faster than
+  # that — i.e. with the grabber's --mjpeg-passthrough, which feeds 20-30 Hz
+  # for ~7% of a core. cv2 releases the GIL, so the extra worker is a real
+  # core; results stay in frame order either way.
+  decode_workers: 1
 
 # Mission frame recorder (R2 — the RECORD half of the rules' "record AND transmit"
 # imaging requirement). Persists a low-rate JPEG trail of the nadir frames
@@ -860,3 +867,20 @@ preflight:
   battery_pct: 25.0         # = failsafes.bat_low_thr (critical, cannot be forced)
   gps_sats: 6               # minimum satellites (coarse, no-RTK) (critical)
   camera_max_age_s: 5.0     # nadir frame must be fresher than this (critical)
+
+# ── terminal landing loop (orchestrator/tactical_align.py) ──────────────────
+# Only override what you are A/B-ing; anything omitted keeps the dataclass
+# default, which is the value the validated runs flew. Use
+# tools/landing_trial.py to measure land-ON precision before and after.
+#
+# ⚠ cycle_hz, lock_cycles and max_lost_cycles are ONE setting in three numbers:
+# the last two are counted in CYCLES, so a rate change alone rescales how long
+# the loop confirms a lock (lock_cycles / cycle_hz, target 0.6 s) and how long
+# it tolerates a lost pad before climbing a rung (max_lost_cycles / cycle_hz,
+# target 1.6 s). Move them together or the loop gets twitchy exactly when the
+# camera is struggling.
+align:
+  cycle_hz: 10.0          # detect -> reposition rate; the camera writes 10 Hz
+  lock_cycles: 6          # 0.6 s of in-tolerance before descending a rung
+  max_lost_cycles: 16     # 1.6 s of lost pad before climbing back
+  median_window: 3        # fixes fused per command (lag = window / cycle_hz)

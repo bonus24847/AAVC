@@ -232,7 +232,7 @@ def main() -> int:
                          "(default: the qgc server port on the CM4)")
     ap.add_argument("--captures", type=Path, default=Path("captures"),
                     help="dir holding mission_status.json (default: ./captures)")
-    ap.add_argument("--frame", type=Path, default=Path("/tmp/aavc_nadir.png"),
+    ap.add_argument("--frame", type=Path, default=Path("/tmp/aavc_nadir.jpg"),
                     help="nadir frame the camera grabber writes")
     ap.add_argument("--interval-s", type=float, default=5.0)
     ap.add_argument("--dry-run", action="store_true",

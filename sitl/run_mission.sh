@@ -110,9 +110,19 @@ EOF
             fi
             # ทุกเฟรมที่เขียน = โอกาสอ่าน marker เพิ่มหนึ่งครั้ง (vision worker
             # decode ทุกเฟรมใหม่ตั้งแต่ 2026-08-21) — เซนเซอร์ให้ 10 fps ที่
-            # 1280x720 จึงเขียน 10 Hz; ปิด mirror เพราะเป็น PNG encode ตัวที่
-            # สอง (วัดบน CM4 = 62 ms/เฟรม พอ ๆ กับตัว detect ทั้งตัว) ซึ่งมีแค่
+            # 1280x720 จึงเขียน 10 Hz; ปิด mirror เพราะเป็น encode ตัวที่
+            # สอง (JPEG q95 = 12 ms/เฟรม; ตอนเป็น PNG คือ 62 ms) ซึ่งมีแค่
             # dashboard เว็บที่อ่าน — จอ GCS กับ vision worker ใช้ nadir ทั้งคู่
+            # MJPEG PASSTHROUGH (default): the camera already produces JPEG,
+            # so write ITS bytes — no decode, no re-encode. วัดบน CM4: 20 Hz
+            # ที่ 7% ของคอร์เดียว (ทางเดิม 39%), เฟรม 33 KB, และไม่มีการบีบ
+            # ซ้ำสองรอบ. ทดสอบแล้วว่า ArUco ยัง decode ได้แม้บีบถึง q60 ที่
+            # ขนาด marker 17-42 px (= 8-16 m) ส่วนกล้องส่งมาที่ ~q80-85.
+            # CAM_PASSTHROUGH=0 กลับไปทาง YUYV + re-encode ได้ทันที
+            if [ "${CAM_PASSTHROUGH:-1}" != "0" ] && [ "${BACKEND:-v4l2}" = "v4l2" ]; then
+                GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--mjpeg-passthrough"
+                CAM_INTERVAL="${CAM_INTERVAL:-0.05}"     # 20 Hz — it is nearly free now
+            fi
             GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--interval-s ${CAM_INTERVAL:-0.1}"
             [ "${CAM_MIRROR:-0}" = "0" ] && GRAB_ARGS="$GRAB_ARGS --no-mirror"
             echo "[run_mission] starting camera grabber (BACKEND=${BACKEND:-v4l2}${GRAB_ARGS:+ $GRAB_ARGS})"

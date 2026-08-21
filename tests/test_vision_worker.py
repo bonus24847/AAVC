@@ -11,12 +11,18 @@ actually landing on them (I3, review 2026-07-24).
 
 from __future__ import annotations
 
+import time
+
 from mavlink_adapter.telemetry import CurrentTelemetry
 from mission_brain.live_plan import render_live_plan
 from mission_brain.profile import COMPETITION
-from mission_brain.schemas import Coordinate
+from mission_brain.schemas import Coordinate, MissionPhase
 from mission_brain.search_pattern import build_search_pattern
-from orchestrator.state import OrchestratorMode, OrchestratorState
+from orchestrator.state import (
+    OrchestratorMode,
+    OrchestratorState,
+    TerminalState,
+)
 from orchestrator.vision_worker import TargetFix, VisionWorker
 
 _AREA = [
@@ -136,3 +142,71 @@ def test_poll_interval_is_far_shorter_than_a_decode_pass() -> None:
 
     assert DEFAULT_INTERVAL_S <= 0.1
     assert VisionWorker(_state()).interval_s == DEFAULT_INTERVAL_S
+
+
+# ── parallel decode (opt-in, 2026-08-21) ────────────────────────────────────
+# One decode+detect is ~55 ms of CM4 CPU, so a single worker tops out near
+# 18 Hz. MJPEG passthrough can feed 20-30 Hz for ~7% of a core, and past that
+# the decode is the limit — but only if the extra concurrency does not reorder
+# results: the tracker's confirm span is last_t - first_t, which goes NEGATIVE
+# on an out-of-order fix, and the cluster would then never confirm.
+
+
+def test_decode_workers_defaults_to_the_sequential_path() -> None:
+    w = VisionWorker(_state())
+    assert w.decode_workers == 1
+    assert VisionWorker(_state(), decode_workers=0).decode_workers == 1   # clamped
+
+
+def test_parallel_decodes_emit_in_frame_order(tmp_path) -> None:
+    """Frames are claimed in order and emitted in order even when the decodes
+    finish out of order — the slow one must not overtake."""
+    import asyncio as aio
+
+    frame = tmp_path / "aavc_nadir.jpg"
+    frame.write_bytes(b"\xff\xd8frame")
+    w = VisionWorker(_state(), nadir_frame=frame, interval_s=0.01,
+                     decode_workers=3, frame_max_age_s=0.0)
+    w.state.phase = MissionPhase.SEARCH
+
+    emitted: list[int] = []
+    delays = {0: 0.06, 1: 0.01, 2: 0.0}      # frame 0 finishes LAST
+
+    def fake_decode(data: bytes, pose) -> list[TargetFix]:
+        n = int(data.split(b"#")[1])
+        time.sleep(delays.get(n, 0.0))
+        return [_fix(n)]
+
+    w._decode_and_detect = fake_decode                      # type: ignore[assignment]
+    w._emit = lambda fixes: emitted.extend(                 # type: ignore[assignment]
+        f.marker_id for f in fixes)
+
+    async def drive() -> None:
+        task = aio.create_task(w._run_parallel())
+        for n in range(3):                                  # three frames, in order
+            frame.write_bytes(b"\xff\xd8#%d#" % n)
+            await aio.sleep(0.03)
+        await aio.sleep(0.3)
+        w.state.terminal = TerminalState.COMPLETED
+        await aio.sleep(0.05)
+        task.cancel()
+        await aio.gather(task, return_exceptions=True)
+
+    aio.run(drive())
+    assert emitted == sorted(emitted), f"out of order: {emitted}"
+    assert emitted == [0, 1, 2]
+
+
+def test_pose_is_snapshotted_before_the_decode_not_after() -> None:
+    """The pose belongs to the frame, not to whenever its decode happened to
+    finish — reading state.telemetry after a ~55 ms decode (or after N of them
+    in parallel) geolocates every pad with a pose the aircraft already left."""
+    st = _state()
+    st.telemetry.lat, st.telemetry.lon = 13.7303, 100.7880
+    st.telemetry.relative_alt_m = 12.0
+    w = VisionWorker(st)
+    pose = w._pose_now()
+    assert pose is not None and pose[0] == 13.7303 and pose[2] == 12.0
+
+    st.telemetry.lat = float("nan")           # no position -> nothing projectable
+    assert w._pose_now() is None

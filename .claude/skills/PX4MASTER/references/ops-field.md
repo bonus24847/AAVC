@@ -274,12 +274,49 @@ other repo's operator decides.
       fresh frame waits ≤50 ms instead of ≤300 ms (at 6 m/s that alone was
       1.8 m of pad-position error riding into every fix). Result: 2.9 → ~10
       analysed frames/s, grabber 56% → 74% of ONE core, whole SoC ~35%.
-      NEXT LEVER if more is ever needed (NOT done — wide blast radius):
-      the transport itself. JPEG encodes in 11.6 ms vs PNG's 61.6, and the
-      sensor offers **MJPG 1280x720 @ 120 fps** vs YUYV's 10 — together they
-      would unlock 20-30 Hz, but `/tmp/aavc_nadir.png` is a contract shared by
-      the worker, dashboard, replay tools, HITL camera, beacon and console.
-      Validate MJPG's lossy artifacts against a real marker before trusting it.
+      **FOLLOW-UP THE SAME DAY — the transport went JPEG and the frame files
+      are now `/tmp/aavc_*.jpg`** (writer picks the codec from the path
+      suffix; every consumer moved in one commit — worker, align loop via the
+      shared constant, preflight, dashboard, beacon, status_sync, HITL/gz
+      bridges, launchers, clear_state). CM4-measured: encode 48 → 12 ms,
+      decode 33 → 15, file 280 → 62 KB (which also lightens the WiFi frame
+      sync). Delivered: 10 Hz frames for **39%** of a core instead of 74%, and
+      a worker pass of 57 ms instead of 73.
+      **And the sensor's MJPG mode turns out to be free** — `CAP_PROP_
+      CONVERT_RGB=0` hands back the camera's OWN JPEG bytes, so
+      `--mjpeg-passthrough` writes them with NO decode and NO re-encode:
+      measured **20.1 Hz for 7.2% of a core** (121 fps available), 33 KB
+      frames, and nothing is compressed twice. **It became the REAL default
+      the same day**, once its one risk was closed: the CAMERA picks the JPEG
+      quality, so a test rendered the actual pad artwork at the pixel sizes
+      the mission flies (17-42 px = the 8-16 m band) and pushed it through
+      q95/85/80/70/60 — **every size decoded at every quality**, while the
+      camera's 33 KB frames sit at ~q80-85. Exposure/gain still apply in MJPG
+      mode (auto_exposure=1, exposure_time_absolute=20 read back while
+      streaming) and the format negotiates 1280x720. `CAM_PASSTHROUGH=0`
+      reverts to YUYV + re-encode. Still owed: the same frames through a
+      PRINTED marker in daylight — folded into the exposure A/B already
+      required. Past ~18 Hz the decode becomes
+      the limit, so `vision.decode_workers` (default 1) can run frames
+      concurrently, emitting IN FRAME ORDER — out-of-order fixes would make
+      the tracker's confirm span (last_t - first_t) negative and no cluster
+      would ever confirm. Also fixed on the way: the pose is now snapshotted
+      BEFORE the decode, not after — every fix used to be geolocated with the
+      attitude the aircraft had ~55 ms later.
+- [ ] Landing loop rate doubled 2026-08-21 (operator: land as close to pad
+      centre as possible): `AlignParams.cycle_hz` 5 → 10 with `lock_cycles`
+      3 → 6 and `max_lost_cycles` 8 → 16, so the WALL-CLOCK constants the
+      validated runs flew are unchanged (lock 0.6 s, lost-before-climb 1.6 s)
+      while corrections happen twice as often and the median filter's own lag
+      halves (0.4 → 0.2 s — that lag rides straight into the commanded
+      setpoint, so it IS landing error). Now config-driven under `align:` so
+      `tools/landing_trial.py` can A/B it without touching the flight core.
+      ⚠ the three numbers are ONE setting: two are counted in CYCLES, so a
+      rate change alone silently makes the loop twitchy exactly when the
+      camera is struggling. A test pins the wall-clock constants.
+      REMAINING: measure land-ON precision before/after in SITL
+      (`tools/landing_trial.py --pad-index 0 --n 8`) — the change is
+      argued from first principles and unit-pinned, not yet flown.
 - [ ] aavc-gcs launcher `start_infra` sshes as the LOCAL username
       (`bonus-linux@10.42.0.1` → Permission denied, seen 2026-08-21 on
       console restart) instead of `drone@` — harmless while the CM4 stack is

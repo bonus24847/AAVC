@@ -7,7 +7,7 @@ The AAVC V1.3 mission needs nadir frames to discover the ArUco landing
 pads, so this stand-in watches the flight controller's position over MAVLink and,
 whenever the vehicle is over (or approaching) a KNOWN pad, pastes the REAL pad
 face (vision.detectors.aruco.render_pad_bgr — the same renderer that bakes the
-SITL textures) scaled to the vehicle's altitude into ``/tmp/aavc_nadir.png`` /
+SITL textures) scaled to the vehicle's altitude into ``/tmp/aavc_nadir.jpg`` /
 (nadir only) — otherwise it writes plain ground. The unmodified
 detector (`vision.detectors.aruco`) + projection + tracker then run on the real
 FC's telemetry, so HITL validates the whole decode→confirm→serve→release SEQUENCE
@@ -55,8 +55,8 @@ FX = (WIDTH_PX / 2.0) / math.tan(FOV_RAD / 2.0)
 GROUND_BGR = (45, 110, 60)   # grass green — low-V so the white-pad cue can't fire
 PAD_SIZE_M = 1.0             # rules Fig. 6: 1x1 m white pad
 
-NADIR = Path("/tmp/aavc_nadir.png")
-FRAME_MIRROR = Path("/tmp/aavc_frame.png")   # dashboard camera endpoint
+NADIR = Path("/tmp/aavc_nadir.jpg")
+FRAME_MIRROR = Path("/tmp/aavc_frame.jpg")   # dashboard camera endpoint
 # How long the MAVLink position feed may go quiet before this camera stops
 # writing. Must stay well under the orchestrator's own frame-age gate
 # (vision_worker.DEFAULT_FRAME_MAX_AGE_S) so the gate is what fires, not this.

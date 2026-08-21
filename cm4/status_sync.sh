@@ -12,7 +12,7 @@
 # The mission itself never depends on this link.
 #
 # It ALSO pulls the live nadir frame (2026-08-15): the camera grabber writes
-# /tmp/aavc_nadir.png ON THE CM4, but the console reads /tmp/aavc_nadir.png on
+# /tmp/aavc_nadir.jpg ON THE CM4, but the console reads /tmp/aavc_nadir.jpg on
 # ITS OWN machine (hard-coded in aavc_gcs.py — no flag to point it elsewhere),
 # and captures/ never carried that file. So a perfectly working camera showed
 # up on the console as "no camera" forever. The frame is ~1 MB, so it is pulled
@@ -29,8 +29,8 @@ IVL="${3:-2}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CAM_SYNC="${CAM_SYNC:-1}"
 CAM_EVERY="${CAM_EVERY:-2}"
-CAM_REMOTE="${CAM_REMOTE:-/tmp/aavc_nadir.png}"
-CAM_LOCAL="${CAM_LOCAL:-/tmp/aavc_nadir.png}"
+CAM_REMOTE="${CAM_REMOTE:-/tmp/aavc_nadir.jpg}"
+CAM_LOCAL="${CAM_LOCAL:-/tmp/aavc_nadir.jpg}"
 
 mkdir -p "$REPO_ROOT/captures"
 echo "[status-sync] $HOST:~/$DIR/captures/ -> $REPO_ROOT/captures/ every ${IVL}s (Ctrl-C to stop)"

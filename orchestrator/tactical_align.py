@@ -89,12 +89,24 @@ class AlignParams:
     # crawl, not this. Indexed defensively (min(i, len-1)) so a shorter ``rungs``
     # (low ceiling) still maps cleanly.
     rung_descent_mps: tuple[float, ...] = (3.0, 3.0, 1.5, 0.8, 0.5, 0.4)
-    lock_cycles: int = 3              # consecutive in-tolerance cycles to advance
-    cycle_hz: float = 5.0             # detect→reposition loop rate
+    # ⚠ lock_cycles, max_lost_cycles and cycle_hz are ONE setting in three
+    # numbers: the first two are counted in CYCLES, so changing the rate alone
+    # silently rescales how long the loop confirms a lock and how long it
+    # tolerates a lost pad. Keep the WALL-CLOCK constants when you touch the
+    # rate — lock 0.6 s, lost 1.6 s — which is what the 5 Hz/3/8 era flew and
+    # what test_tactical_align pins.
+    # Raised 5 -> 10 Hz on 2026-08-21 (operator: land as close to pad centre as
+    # possible): the camera now writes 10 Hz, so at 5 Hz half the frames were
+    # thrown away, and each cycle costs ~56 ms of CM4 CPU since the frames
+    # became JPEG (was ~74 ms). Doubling the rate halves the median filter's
+    # own lag (paper C: 3 samples ≈ 0.4 s at 5 Hz, ≈ 0.2 s at 10) — that lag
+    # rides directly into the commanded setpoint, so it IS landing error.
+    lock_cycles: int = 6              # consecutive in-tolerance cycles (0.6 s)
+    cycle_hz: float = 10.0            # detect→reposition loop rate
     acquire_timeout_s: float = 12.0   # search budget before deferring
     rung_timeout_s: float = 18.0      # per-rung align budget
     min_confidence: float = 0.45      # pad-hit acceptance
-    max_lost_cycles: int = 8          # lost detections before climbing a rung
+    max_lost_cycles: int = 16         # lost detections before climbing (1.6 s)
     search_radius_m: float = 4.0      # expanding-box search step if not acquired
     settle_after_land_s: float = 2.0  # pause after touchdown before the release
     touchdown_timeout_s: float = 40.0  # wait for the PX4 land detector this long

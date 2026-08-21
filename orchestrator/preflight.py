@@ -30,7 +30,7 @@ from .state import OrchestratorState
 # mission phase), so its file mtime is the right "camera feed alive" signal —
 # the VisionWorker only *detects* during active phases, so its fixes are stale
 # during PREFLIGHT.
-NADIR_FRAME = Path("/tmp/aavc_nadir.png")
+NADIR_FRAME = Path("/tmp/aavc_nadir.jpg")
 
 # Statuses (string-typed so the dict serialises straight onto the WS).
 PASS, WARN, FAIL, PENDING = "pass", "warn", "fail", "pending"

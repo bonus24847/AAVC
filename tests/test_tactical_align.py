@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import asyncio
 import math
+from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 from mavlink_adapter.telemetry import CurrentTelemetry
 from mission_brain.live_plan import render_live_plan
@@ -314,3 +316,51 @@ def test_release_fires_once_the_detector_reports_on_ground(monkeypatch) -> None:
 
     assert res.landed and res.dropped
     assert not any("landed_state_timeout" in a for a in state.anomalies)
+
+
+# ── the landing loop's rate trio is ONE setting (2026-08-21) ────────────────
+# lock_cycles and max_lost_cycles are counted in CYCLES, so raising cycle_hz
+# alone silently shortens how long the loop confirms a lock and how long it
+# tolerates a lost pad — it gets twitchy exactly when the camera is struggling,
+# which is the opposite of what a faster loop is for. The rate went 5 -> 10 Hz
+# when JPEG frames cut a cycle to ~56 ms of CM4 CPU; these wall-clock constants
+# are what the validated 5 Hz/3/8 era flew and must survive any retune.
+
+
+def _wall_clock(p: AlignParams) -> tuple[float, float, float]:
+    return (p.lock_cycles / p.cycle_hz,
+            p.max_lost_cycles / p.cycle_hz,
+            p.median_window / p.cycle_hz)
+
+
+def test_align_rate_change_preserves_the_wall_clock_constants() -> None:
+    lock_s, lost_s, median_lag_s = _wall_clock(AlignParams())
+    assert lock_s == pytest.approx(0.6, abs=0.05)
+    assert lost_s == pytest.approx(1.6, abs=0.1)
+    # the median filter's own lag rides into the commanded setpoint, so it IS
+    # landing error — a faster loop must SHRINK it, never grow it
+    assert median_lag_s <= 0.3
+
+
+def test_align_loop_is_not_slower_than_the_camera() -> None:
+    """A loop slower than the frame rate throws frames away; the camera writes
+    10 Hz (sitl/camera_grabber.py DEFAULT_INTERVAL_S = 0.1)."""
+    assert AlignParams().cycle_hz >= 10.0
+
+
+def test_align_config_block_moves_the_trio_together() -> None:
+    """The config seam exists so landing precision can be A/B'd with
+    tools/landing_trial.py without editing the flight core — but a config that
+    changes the rate alone would break the invariant above, so the shipped
+    block sets all three."""
+    import yaml
+
+    from orchestrator.main import _align_for, _align_tuning
+
+    cfg = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "sitl" / "aavc_config.yaml").read_text())
+    tuning = _align_tuning(cfg)
+    assert {"cycle_hz", "lock_cycles", "max_lost_cycles"} <= set(tuning)
+    lock_s, lost_s, _ = _wall_clock(_align_for(COMPETITION, 2.0, tuning))
+    assert lock_s == pytest.approx(0.6, abs=0.05)
+    assert lost_s == pytest.approx(1.6, abs=0.1)

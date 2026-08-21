@@ -932,7 +932,8 @@ async def run(args: argparse.Namespace) -> int:
         vision = VisionWorker(state, target_description=profile.default_target,
                               frame_max_age_s=frame_max_age_s,
                               interval_s=float(vc.get("poll_interval_s",
-                                                      DEFAULT_INTERVAL_S)))
+                                                      DEFAULT_INTERVAL_S)),
+                              decode_workers=int(vc.get("decode_workers", 1)))
         vision.on_fix(tracker.ingest)     # discovery: confirm targets from fixes
         # AAVC GCS console feed: registered AFTER tracker.ingest (same ordering
         # rule as the dashboard pusher below) and independent of it, so
@@ -962,7 +963,7 @@ async def run(args: argparse.Namespace) -> int:
         await frames.start()
 
         # ── fly (the per-sortie gate holds in PREFLIGHT before every launch) ──
-        align = _align_for(profile, frame_max_age_s)
+        align = _align_for(profile, frame_max_age_s, _align_tuning(cfg))
         policy = _build_time_policy(sc, profile)
         sortie_gate = _sortie_gate_factory(
             state, dash=dash, home=home, geofence=geofence, cfg=cfg,
@@ -1068,7 +1069,27 @@ def _rungs_for(profile: Any) -> tuple[float, ...]:
     return rungs or (min(5.0, ceil),)
 
 
-def _align_for(profile: Any, frame_max_age_s: float) -> AlignParams:
+def _align_tuning(cfg: dict[str, Any]) -> dict[str, Any]:
+    """The landing loop's RATE trio from the ``align:`` config block, as
+    kwargs. Empty when the block is absent, so the dataclass defaults (the
+    flown values) stand. Exposed for the field: ``tools/landing_trial.py``
+    A/Bs land-ON precision, and the operator should be able to try a slower
+    or faster loop without editing the flight core.
+
+    Anything set here MUST keep the wall-clock constants intact — lock_cycles
+    and max_lost_cycles are counted in cycles, so they scale WITH cycle_hz
+    (see AlignParams)."""
+    ac = cfg.get("align", {}) or {}
+    out: dict[str, Any] = {}
+    for key, cast in (("cycle_hz", float), ("lock_cycles", int),
+                      ("max_lost_cycles", int), ("median_window", int)):
+        if key in ac:
+            out[key] = cast(ac[key])
+    return out
+
+
+def _align_for(profile: Any, frame_max_age_s: float,
+               tuning: dict[str, Any] | None = None) -> AlignParams:
     """AlignParams matched to the profile's altitude band AND field geometry.
 
     A very low ceiling (<= 6 m) also needs the short 4-rung ladder with
@@ -1081,6 +1102,7 @@ def _align_for(profile: Any, frame_max_age_s: float) -> AlignParams:
     than its 14.5 m pad spacing.)"""
     rungs = _rungs_for(profile)
     accept = profile.terminal_accept_radius_m
+    tune = dict(tuning or {})
     if profile.altitude_ceiling_m <= 6.0:
         return AlignParams(
             rungs=rungs,
@@ -1088,9 +1110,10 @@ def _align_for(profile: Any, frame_max_age_s: float) -> AlignParams:
             rung_descent_mps=(1.5, 0.8, 0.5, 0.4),
             accept_radius_m=accept,
             frame_max_age_s=frame_max_age_s,
+            **tune,
         )
     return AlignParams(rungs=rungs, accept_radius_m=accept,
-                       frame_max_age_s=frame_max_age_s)
+                       frame_max_age_s=frame_max_age_s, **tune)
 
 
 def _build_spec(area: list[tuple[float, ...]], home: Coordinate,

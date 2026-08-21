@@ -3,8 +3,8 @@
 GET  /api/plan                  — full MissionPlan JSON (one-shot at page load)
 GET  /api/config                — controlled_airspace + search_area + transit polygons
 GET  /api/health                — orchestrator status
-GET  /api/camera/frame.png      — single nadir frame from /tmp/aavc_frame.png
-GET  /api/camera/stream         — multipart/x-mixed-replace MJPEG from /tmp/aavc_frame.png
+GET  /api/camera/frame.png      — single nadir frame from /tmp/aavc_frame.jpg
+GET  /api/camera/stream         — multipart/x-mixed-replace MJPEG from /tmp/aavc_frame.jpg
 GET  /api/camera/spectator.png  — single spectator frame from /tmp/aavc_spectator.png
 GET  /api/tiles/{z}/{x}/{y}.jpg — pre-cached satellite tiles (404 → MapView empty cell)
 WS   /ws/realtime               — live event stream
@@ -32,7 +32,7 @@ from orchestrator.state import OrchestratorState, TerminalState
 
 from .realtime import RealtimeBroadcaster
 
-CAMERA_FRAME_PATH = Path("/tmp/aavc_frame.png")
+CAMERA_FRAME_PATH = Path("/tmp/aavc_frame.jpg")
 CAMERA_SPECTATOR_PATH = Path("/tmp/aavc_spectator.png")
 CAMERA_STREAM_HZ = 5.0
 # Pre-cached OSM/ESRI tiles for the AAVC field. The directory may not
@@ -119,7 +119,7 @@ def make_router(
     # Single-frame snapshot endpoint. Some browsers no longer render
     # multipart/x-mixed-replace via <img>, so the CameraFeed widget polls
     # this URL with a cache-busting query param instead. Reads
-    # /tmp/aavc_frame.png at request time, or 503 if no frame yet.
+    # /tmp/aavc_frame.jpg at request time, or 503 if no frame yet.
     @r.get("/api/camera/frame.png")
     async def camera_frame() -> FileResponse:
         if not camera_frame_path.is_file():
@@ -129,7 +129,10 @@ def make_router(
             )
         return FileResponse(
             camera_frame_path,
-            media_type="image/png",
+            # the frame file is JPEG since 2026-08-21 (the URL keeps its
+            # historical .png name; browsers follow the Content-Type)
+            media_type="image/jpeg" if camera_frame_path.suffix.lower()
+            in (".jpg", ".jpeg") else "image/png",
             headers={"Cache-Control": "no-store"},
         )
 

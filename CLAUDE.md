@@ -364,9 +364,18 @@ dev = pytest, ruff, mypy.
 > and the mission loop (multi-sortie + transit). Those were authorised by the
 > locked-decision change above; the contracts below are the current ones.
 
-- **Camera frames:** NADIR = `/tmp/aavc_nadir.png` (the single camera; 1280 px
-  wide in SITL). The nadir frame is mirrored to
-  `/tmp/aavc_frame.png` (the dashboard camera endpoint).
+- **Camera frames:** NADIR = `/tmp/aavc_nadir.jpg` (the single camera; 1280 px
+  wide in SITL). The nadir frame is mirrored to `/tmp/aavc_frame.jpg` (the
+  dashboard camera endpoint) unless the writer runs `--no-mirror`, which the
+  REAL launchers do. **JPEG q95 since 2026-08-21** — the writers pick the codec
+  from the path suffix; CM4-measured 48→12 ms to encode and 33→15 to decode,
+  which is what pays for decoding every frame instead of every other one.
+  The REAL launchers additionally default to `--mjpeg-passthrough` (2026-08-21):
+  the camera already emits JPEG, so its bytes are written verbatim — no decode,
+  no re-encode, nothing compressed twice — measured **20 Hz for 7% of one CM4
+  core** (121 fps available) with 33 KB frames. Decode survival was tested
+  across JPEG q95→q60 at 17-42 px markers (the 8-16 m band): all decode, and
+  the camera sits at ~q80-85. `CAM_PASSTHROUGH=0` reverts to YUYV + re-encode.
 - **Dashboard DetectedObjectEvent** fields (unchanged set): `t_monotonic, label,
   clothing_color, member_count, pose, confidence, lat, lon,
   is_designated_match`. Values now: `label="aruco pad <id>"|"landing pad"`,
@@ -457,7 +466,7 @@ dev = pytest, ruff, mypy.
 make install        # .venv + pip install -e .[dev]
 make sitl           # PX4 SITL + Gazebo with the IAAI KMITL field
 make spawn-targets  # spawn the 6 ArUco pads, ids 1-6 (SEED=n re-rolls ids + positions)
-make camera-bridge  # gz camera -> /tmp/aavc_nadir.png (+frame mirror; system python3)
+make camera-bridge  # gz camera -> /tmp/aavc_nadir.jpg (+frame mirror; system python3)
 make run            # orchestrator (TRUTH=path → truth audit). Headless sorties:
                     #   .venv/bin/python -m orchestrator.main --assigned-ids "3,1,4,6" …
 make web-build      # build the Svelte dashboard

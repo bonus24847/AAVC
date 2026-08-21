@@ -4,17 +4,17 @@
 Subscribes to the onboard NADIR camera on the x500_mono_cam model AND the
 static world spectator camera, writing BGR PNGs:
 
-  NADIR     topic `camera`           -> /tmp/aavc_nadir.png  AND  /tmp/aavc_frame.png
+  NADIR     topic `camera`           -> /tmp/aavc_nadir.jpg  AND  /tmp/aavc_frame.jpg
   SPECTATOR topic `spectator_camera` -> /tmp/aavc_spectator.png
 
-The nadir frame is mirrored to /tmp/aavc_frame.png because that is the
+The nadir frame is mirrored to /tmp/aavc_frame.jpg because that is the
 dashboard camera endpoint (the flight core's contract). The spectator camera
 is a fixed third-person ground camera (sitl/models/spectator_cam) that watches
 the launch pad / sys-ID hover column for the Tuning view's right rail; it is
 best-effort (a world without it just gets no spectator frames).
 
 No GStreamer / H.264 / RTP — this bridge writes PNG files only. The flight
-core's vision_worker reads the files; the dashboard serves /tmp/aavc_frame.png.
+core's vision_worker reads the files; the dashboard serves /tmp/aavc_frame.jpg.
 
 INVOKE WITH /usr/bin/python3 (NOT .venv/bin/python). `python3-gz-transport13`
 is an apt-installed Debian package at /usr/lib/python3/dist-packages/gz/, not
@@ -61,12 +61,21 @@ def _decode(msg: GzImage) -> np.ndarray:
     return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
 
 
-def _write_png(bgr: np.ndarray, out_path: Path) -> None:
-    """Atomic-ish PNG write: write to a temp sibling, set owner-only perms, then
-    rename. 0o600 + /tmp's sticky bit stops another local user reading or
-    swapping the frame the flight loop / dashboard trust (defense-in-depth)."""
-    tmp = out_path.with_suffix(".tmp.png")
-    cv2.imwrite(str(tmp), bgr)
+def _write_frame(bgr: np.ndarray, out_path: Path, jpeg_quality: int = 95) -> None:
+    """Atomic-ish frame write: temp sibling carrying the SAME suffix (that is
+    what cv2 maps to a codec), owner-only perms, then rename. 0o600 + /tmp's
+    sticky bit stops another local user reading or swapping the frame the
+    flight loop / dashboard trust (defense-in-depth).
+
+    Format follows the path: the pipeline moved to JPEG q95 on 2026-08-21
+    (CM4-measured 48 -> 12 ms to encode, 33 -> 15 to decode); keep this in
+    step with sitl/camera_grabber.py::_write_frame so SITL and the real bird
+    feed the detector the same thing."""
+    suffix = out_path.suffix or ".jpg"
+    tmp = out_path.with_suffix(f".tmp{suffix}")
+    params = ([int(cv2.IMWRITE_JPEG_QUALITY), int(jpeg_quality)]
+              if suffix.lower() in (".jpg", ".jpeg") else [])
+    cv2.imwrite(str(tmp), bgr, params)
     try:
         tmp.chmod(0o600)
     except OSError:
@@ -76,8 +85,8 @@ def _write_png(bgr: np.ndarray, out_path: Path) -> None:
 
 def _make_nadir_cb(nadir_path: Path, frame_path: Path, min_interval_s: float,
                    mono: bool = False):
-    """Callback for the NADIR camera: write /tmp/aavc_nadir.png AND mirror to
-    the dashboard endpoint /tmp/aavc_frame.png. ``mono=True`` collapses the gz
+    """Callback for the NADIR camera: write /tmp/aavc_nadir.jpg AND mirror to
+    the dashboard endpoint /tmp/aavc_frame.jpg. ``mono=True`` collapses the gz
     RGB render to replicated-gray (R=G=B) before writing — SITL fidelity for
     the real OV9281 MONO sensor, so a G4 run exercises the mono decode path."""
     def cb(msg: GzImage) -> None:
@@ -91,8 +100,8 @@ def _make_nadir_cb(nadir_path: Path, frame_path: Path, min_interval_s: float,
                 if mono:
                     bgr = cv2.cvtColor(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY),
                                        cv2.COLOR_GRAY2BGR)
-                _write_png(bgr, nadir_path)
-                _write_png(bgr, frame_path)
+                _write_frame(bgr, nadir_path)
+                _write_frame(bgr, frame_path)
                 _state["nadir_last_ts"] = now
                 _state["nadir_file"] += 1
             except Exception as e:
@@ -111,7 +120,7 @@ def _make_spectator_cb(spectator_path: Path, min_interval_s: float):
                 return
             try:
                 bgr = _decode(msg)
-                _write_png(bgr, spectator_path)
+                _write_frame(bgr, spectator_path)
                 _state["spectator_last_ts"] = now
                 _state["spectator_file"] += 1
             except Exception as e:
@@ -121,11 +130,11 @@ def _make_spectator_cb(spectator_path: Path, min_interval_s: float):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--nadir-out", type=Path, default=Path("/tmp/aavc_nadir.png"),
-                    help="NADIR PNG path (default: /tmp/aavc_nadir.png)")
-    ap.add_argument("--frame-out", type=Path, default=Path("/tmp/aavc_frame.png"),
+    ap.add_argument("--nadir-out", type=Path, default=Path("/tmp/aavc_nadir.jpg"),
+                    help="NADIR PNG path (default: /tmp/aavc_nadir.jpg)")
+    ap.add_argument("--frame-out", type=Path, default=Path("/tmp/aavc_frame.jpg"),
                     help="Dashboard endpoint; mirror of the nadir frame "
-                         "(default: /tmp/aavc_frame.png)")
+                         "(default: /tmp/aavc_frame.jpg)")
     ap.add_argument("--spectator-out", type=Path, default=Path("/tmp/aavc_spectator.png"),
                     help="SPECTATOR PNG path; fixed third-person view for the "
                          "Tuning UI (default: /tmp/aavc_spectator.png)")

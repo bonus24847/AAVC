@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Real-camera grabber for the CM4 — file-only output, mirrors the SITL bridge.
 
-Feeds the flight-core vision pipeline the SAME ``/tmp/aavc_*.png`` frames that
+Feeds the flight-core vision pipeline the SAME ``/tmp/aavc_*.jpg`` frames that
 ``sitl/gz_camera_bridge.py`` writes in SITL, but from the REAL nadir camera on
 the Raspberry Pi CM4. Two pluggable backends, chosen by ``--backend``:
 
@@ -10,8 +10,8 @@ the Raspberry Pi CM4. Two pluggable backends, chosen by ``--backend``:
   * ``picamera2``  — CSI-ribbon Pi cameras via libcamera. Run with SYSTEM python3
     (``/usr/bin/python3``); picamera2 is an apt package, not in the ``.venv``.
 
-Contract (identical to ``gz_camera_bridge``): BGR PNG, atomic temp+rename, ``0600``
-perms, rate-limited; the NADIR frame mirrors to ``/tmp/aavc_frame.png`` (the
+Contract (identical to ``gz_camera_bridge``): BGR frame, atomic temp+rename, ``0600``
+perms, rate-limited; the NADIR frame mirrors to ``/tmp/aavc_frame.jpg`` (the
 dashboard endpoint + the flight core's contract).
 
 COLOR ORDER: OpenCV (v4l2) yields BGR already; picamera2 RGB888 is converted
@@ -42,9 +42,10 @@ import numpy as np
 # 1280 width is the decode requirement (400 mm marker ~18 px @ the 12 m sweep).
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
-DEFAULT_INTERVAL_S = 0.2   # ~5 Hz file writes; the vision worker reads at ~3 Hz
+DEFAULT_INTERVAL_S = 0.1   # 10 Hz file writes = the sensor's own rate at
+                           # 1280x720; the vision worker decodes every new one
 # Capture rate requested from the driver. The OV9281 can do 120 fps but the
-# pipeline only consumes ~5 Hz — a moderate rate keeps USB bandwidth + CPU sane
+# pipeline consumes every frame written — a moderate rate keeps USB + CPU sane
 # while the global shutter still freezes motion per frame. Bench-tune at G5.
 DEFAULT_FPS = 50.0
 
@@ -53,8 +54,8 @@ def _to_bgr(frame: np.ndarray) -> np.ndarray:
     """Normalise a captured frame to 3-channel BGR.
 
     A mono UVC camera (OV9281 with the GREY fourcc) can hand OpenCV a 2-D
-    single-channel array; the /tmp PNG contract and the detector both expect
-    3 channels (a replicated-gray PNG round-trips identically through
+    single-channel array; the /tmp frame contract and the detector both expect
+    3 channels (a replicated-gray frame round-trips identically through
     cv2.imread). 3-channel frames pass through untouched."""
     if frame.ndim == 2:
         return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
@@ -108,6 +109,62 @@ class V4l2Backend:
         if frame.shape[1] != self._w or frame.shape[0] != self._h:
             frame = cv2.resize(frame, (self._w, self._h))
         return frame
+
+    def close(self) -> None:
+        self._cap.release()
+
+
+class MjpegPassthroughBackend:
+    """UVC camera in MJPG mode, handing back the camera's OWN JPEG bytes.
+
+    The normal path costs three codec passes per frame — the camera compresses,
+    OpenCV decodes to BGR, we re-encode to write the file — and the middle two
+    are pure waste when the consumer wants a JPEG anyway. With
+    ``CAP_PROP_CONVERT_RGB=0`` the V4L2 backend returns the raw MJPEG buffer,
+    so the grabber becomes a file write: measured on the CM4, 121 fps captured
+    (vs 8.7 for YUYV) and the encode cost gone entirely. The frame on disk is
+    then EXACTLY what the sensor produced — no double compression to soften the
+    marker's cell edges.
+
+    ``grab_bytes`` returns the JPEG payload; callers that need pixels decode it
+    themselves. Trimmed at the EOI marker because the driver pads the buffer."""
+
+    def __init__(self, device: str, width: int, height: int,
+                 fps: float | None = None) -> None:
+        cap_arg: int | str = int(device) if str(device).isdigit() else device
+        self._cap = cv2.VideoCapture(cap_arg)
+        self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if fps and fps > 0:
+            self._cap.set(cv2.CAP_PROP_FPS, fps)
+        try:
+            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:      # noqa: BLE001
+            pass
+        if not self._cap.set(cv2.CAP_PROP_CONVERT_RGB, 0):
+            self._cap.release()
+            raise RuntimeError(
+                "this OpenCV/V4L2 backend will not hand back raw MJPEG "
+                "(CAP_PROP_CONVERT_RGB=0 refused) — drop --mjpeg-passthrough")
+        if not self._cap.isOpened():
+            raise RuntimeError(f"v4l2 device {device!r} did not open")
+
+    def grab_bytes(self) -> bytes | None:
+        ok, raw = self._cap.read()
+        if not ok or raw is None:
+            return None
+        buf = raw.reshape(-1).tobytes()
+        if buf[:2] != b"\xff\xd8":       # not a JPEG — the driver converted
+            return None
+        end = buf.rfind(b"\xff\xd9")     # strip the driver's zero padding
+        return buf[:end + 2] if end > 0 else buf
+
+    def grab(self) -> np.ndarray | None:
+        payload = self.grab_bytes()
+        if payload is None:
+            return None
+        return cv2.imdecode(np.frombuffer(payload, np.uint8), cv2.IMREAD_COLOR)
 
     def close(self) -> None:
         self._cap.release()
@@ -194,11 +251,36 @@ def _force_short_exposure(device: str, n_100us: int, gain: int) -> None:
               "exposure left on AUTO")
 
 
-def _write_png(bgr: np.ndarray, out_path: Path) -> None:
-    """Atomic BGR-PNG write: temp sibling (``.tmp.png`` so cv2 maps the codec),
-    ``0600`` perms, then rename. Identical to ``sitl/gz_camera_bridge.py``."""
-    tmp = out_path.with_suffix(".tmp.png")
-    cv2.imwrite(str(tmp), bgr)
+def _write_frame(bgr: np.ndarray, out_path: Path, jpeg_quality: int = 95) -> None:
+    """Atomic BGR frame write: temp sibling carrying the SAME suffix (cv2 maps
+    the codec from it), ``0600`` perms, then rename. Identical to
+    ``sitl/gz_camera_bridge.py``.
+
+    The suffix chooses the codec, and that choice is the pipeline's single
+    biggest CPU knob — measured on the CM4 at 1280x720: PNG encodes in 48 ms
+    and decodes in 33, JPEG q95 in 12 and 15, for a file 280 KB -> 62 KB (which
+    also shrinks the WiFi frame sync). q95 costs 0.5 ms over q85 and keeps the
+    marker's black/white edges crisp, so the quality is spent where the decode
+    needs it."""
+    suffix = out_path.suffix or ".jpg"
+    tmp = out_path.with_suffix(f".tmp{suffix}")
+    params = ([int(cv2.IMWRITE_JPEG_QUALITY), int(jpeg_quality)]
+              if suffix.lower() in (".jpg", ".jpeg") else [])
+    cv2.imwrite(str(tmp), bgr, params)
+    try:
+        tmp.chmod(0o600)
+    except OSError:
+        pass
+    tmp.replace(out_path)
+
+
+def _write_bytes(payload: bytes, out_path: Path) -> None:
+    """Atomic write of an ALREADY-encoded frame (the camera's own JPEG).
+
+    Same temp+chmod+rename contract as _write_frame — readers must never see a
+    half-written frame — but with no codec pass at all."""
+    tmp = out_path.with_suffix(f".tmp{out_path.suffix or '.jpg'}")
+    tmp.write_bytes(payload)
     try:
         tmp.chmod(0o600)
     except OSError:
@@ -219,15 +301,28 @@ def main() -> int:
                     help="v4l2 pixel format, e.g. GREY (OV9281 mono) or MJPG")
     ap.add_argument("--interval-s", type=float, default=DEFAULT_INTERVAL_S,
                     help="per-camera grab/write period (>= the worker's 0.3s read)")
-    ap.add_argument("--nadir-out", type=Path, default=Path("/tmp/aavc_nadir.png"))
-    ap.add_argument("--frame-out", type=Path, default=Path("/tmp/aavc_frame.png"),
+    ap.add_argument("--nadir-out", type=Path, default=Path("/tmp/aavc_nadir.jpg"))
+    ap.add_argument("--frame-out", type=Path, default=Path("/tmp/aavc_frame.jpg"),
                     help="dashboard endpoint; mirror of the nadir frame")
+    ap.add_argument("--jpeg-quality", type=int, default=95,
+                    help="JPEG quality when the output path ends in .jpg "
+                         "(ignored for .png). 95 keeps the marker's edges "
+                         "crisp and costs 0.5 ms more than 85 on the CM4")
+    ap.add_argument("--mjpeg-passthrough", action="store_true",
+                    help="v4l2 only: capture in MJPG and write the camera's OWN "
+                         "JPEG bytes — no decode, no re-encode. CM4-measured "
+                         "121 fps captured (YUYV manages 8.7) and the encode "
+                         "cost disappears; the file is exactly what the sensor "
+                         "produced, so nothing is compressed twice. ⚠ the "
+                         "camera picks the JPEG quality, so VALIDATE a real "
+                         "marker decodes from these frames before flying it. "
+                         "Incompatible with --swap-rb (no pixels to swap)")
     ap.add_argument("--no-mirror", action="store_true",
-                    help="skip the --frame-out mirror. It is a SECOND full PNG "
-                         "encode (measured 62 ms per frame on the CM4 — as much "
-                         "as the entire ArUco decode) and only the web dashboard "
-                         "reads it; the GCS console and the vision worker both "
-                         "use the nadir frame. Use on the real aircraft")
+                    help="skip the --frame-out mirror. It is a SECOND full "
+                         "encode (CM4-measured: 12 ms per frame as JPEG q95, "
+                         "62 as PNG) and only the web dashboard reads it; the "
+                         "GCS console and the vision worker both use the nadir "
+                         "frame. Use on the real aircraft")
     ap.add_argument("--swap-rb", action="store_true",
                     help="swap R/B on every frame (use if a coloured reference looks wrong)")
     ap.add_argument("--exposure-100us", type=int, default=0,
@@ -242,13 +337,22 @@ def main() -> int:
     args = ap.parse_args()
 
     # NADIR is the sole control-authority camera — fail hard if it won't open.
-    nadir = _make_backend(args.backend, args.nadir_device, args.width, args.height,
-                          fps=args.fps, fourcc=args.fourcc)
+    passthrough = bool(args.mjpeg_passthrough) and args.backend == "v4l2"
+    if passthrough and args.swap_rb:
+        raise SystemExit("[grabber] --mjpeg-passthrough writes the camera's own "
+                         "JPEG; there are no pixels to --swap-rb. Pick one.")
+    if passthrough:
+        nadir = MjpegPassthroughBackend(args.nadir_device, args.width,
+                                        args.height, fps=args.fps)
+    else:
+        nadir = _make_backend(args.backend, args.nadir_device, args.width,
+                              args.height, fps=args.fps, fourcc=args.fourcc)
     if args.backend == "v4l2":
         _force_short_exposure(args.nadir_device, args.exposure_100us, args.gain)
     mirror = not args.no_mirror
-    print(f"[grabber] nadir {args.backend} dev={args.nadir_device} "
-          f"-> {args.nadir_out}"
+    print(f"[grabber] nadir {args.backend}"
+          + (" MJPEG-passthrough" if passthrough else "")
+          + f" dev={args.nadir_device} -> {args.nadir_out}"
           + (f" (+ {args.frame_out})" if mirror else " (mirror OFF)")
           + f" every {args.interval_s:.2f}s")
 
@@ -264,15 +368,25 @@ def main() -> int:
     try:
         while not stop["flag"]:
             t0 = time.monotonic()
-            frame = nadir.grab()
-            if frame is not None:
-                frame = _emit(frame)
-                _write_png(frame, args.nadir_out)
-                if mirror:
-                    _write_png(frame, args.frame_out)
-                n_ok += 1
+            if passthrough:
+                payload = nadir.grab_bytes()
+                if payload is not None:
+                    _write_bytes(payload, args.nadir_out)
+                    if mirror:
+                        _write_bytes(payload, args.frame_out)
+                    n_ok += 1
+                else:
+                    n_fail += 1
             else:
-                n_fail += 1
+                frame = nadir.grab()
+                if frame is not None:
+                    frame = _emit(frame)
+                    _write_frame(frame, args.nadir_out, args.jpeg_quality)
+                    if mirror:
+                        _write_frame(frame, args.frame_out, args.jpeg_quality)
+                    n_ok += 1
+                else:
+                    n_fail += 1
             now = time.monotonic()
             if now - last_log > 2.0:
                 print(f"[grabber] nadir ok={n_ok} fail={n_fail}")
