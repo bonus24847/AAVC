@@ -604,6 +604,12 @@ async def run_delivery_mission(
         ``MPC_Z_V_AUTO_DN`` of 0.4 m/s (~14 s per delivery) for no gain.
         """
         t = state.telemetry
+        # ⚠ The `not t.is_armed` branch is DELIBERATELY UNREACHABLE after a
+        # pilot takeover/disarm (G7 2026-08-21 zombie re-arm): safety.py's
+        # disarm-in-flight-phase detector stands the commander down before the
+        # loop gets here, and arm_and_takeoff itself then refuses. Do not
+        # "fix" this branch back to life for the disarmed-by-takeover case —
+        # its legitimate job is only the first arming of a flight.
         if (not t.is_armed) or (not math.isnan(t.relative_alt_m)
                                 and t.relative_alt_m < 2.0):
             await commander.arm_and_takeoff(sweep_alt)
@@ -997,6 +1003,11 @@ async def run_delivery_mission(
             # Climb out (from the last pad, or from wherever the search left us)
             # to the staged altitude; the egress transit gotos finish the climb.
             t = state.telemetry
+            # ⚠ Same as _climb_out_to_hop_alt: `not t.is_armed` here read a
+            # pilot-disarmed aircraft as "needs arming" and re-armed it ~8 min
+            # after the G7 attempt-1 takeover. The disarm detector + command
+            # guards now kill the loop first — keep this branch for the
+            # legitimate case only (a flight that begins from the ground).
             if (not t.is_armed) or (not math.isnan(t.relative_alt_m)
                                     and t.relative_alt_m < 2.0):
                 await commander.arm_and_takeoff(climb_alt)

@@ -16,6 +16,11 @@ Safety triggers (in order of severity):
  10. Time remaining < 3 min and not yet at egress → RTH unconditionally
  11. Telemetry age > 2 s → suspect link issue
 
+Above all of these sit the takeover detectors (checked FIRST, armed or not,
+fire-once): a sustained RC pilot mode, or a DISARM in a phase that is armed
+by design → the orchestrator stands down COMPLETELY (terminal set directly +
+DroneCommander.stand_down(); no companion command may fight the pilot).
+
 (A twelfth check — one rotor drawing no current while the others are loaded —
 lived here on 2026-08-16/17. It read per-motor ESC current, which this airframe
 does not have: the ESCs are PWM-only with no telemetry lead, so the check could
@@ -52,6 +57,19 @@ _R_EARTH_M = 6_378_137.0
 # watchdog's or the mission's own doing and must not read as a takeover.
 _PILOT_MODES = frozenset(
     {"MANUAL", "ALTCTL", "POSCTL", "ACRO", "STABILIZED", "RATTITUDE"})
+
+# Phases in which the vehicle is ARMED BY DESIGN for their whole duration —
+# the multi-flight conops keeps it armed on a pad between deliveries
+# (COM_DISARM_LAND=-1; re-arming over the field is forbidden). A DISARM seen
+# in one of these means the pilot (or an FC failsafe) killed the flight under
+# the mission loop. Deliberately absent: TAKEOFF (the loop arms DURING that
+# phase, and state.phase BOOTS as TAKEOFF before any gate sets PREFLIGHT),
+# PREFLIGHT/LAND (disarm there is the multi-flight design working), and
+# RTH/ABORT (the watchdog's own terminal actions end in a disarm).
+_ARMED_PHASES = frozenset({
+    MissionPhase.TRANSIT_INGRESS, MissionPhase.SEARCH, MissionPhase.LOCALIZE,
+    MissionPhase.DROP, MissionPhase.TRACK, MissionPhase.TRANSIT_EGRESS,
+})
 
 
 def _dem_lat_lon_to_en(lat: float, lon: float, lat0: float, lon0: float) -> tuple[float, float]:
@@ -207,6 +225,11 @@ class SafetyWatchdog:
         self._battery_rth_since: float | None = None
         self._telemetry_stale_since: float | None = None
         self._manual_mode_since: float | None = None
+        # Fire-once latch for the takeover/disarm detectors: while a prior
+        # terminal action is still settling, _run keeps ticking — without the
+        # latch the fire would repeat every 0.5 s (record_audit does NOT
+        # dedupe) and re-overwrite the terminal during the pilot's landing.
+        self._takeover_fired = False
         # Terminal action in progress: None | "rth" | "abort". The watchdog
         # keeps checking DURING an in-progress RTH (run as a background task,
         # not awaited inline) so a worsening condition can escalate to LAND.
@@ -245,6 +268,14 @@ class SafetyWatchdog:
         st = self.state
         t = st.telemetry
 
+        if self._takeover_fired:
+            # Stood down: the pilot owns the aircraft. No further checks and
+            # no further triggers — a post-takeover battery/geofence tick
+            # would otherwise overwrite the PILOT_TAKEOVER terminal and
+            # dispatch a command against a pilot-owned aircraft. _run exits
+            # once any in-flight terminal action settles.
+            return
+
         # 1. Telemetry stale — record always; if it stays stale while ARMED,
         # escalate to RTH (companion-side backstop). PX4's NAV_DLL_ACT (set at
         # startup) is the FC-level link-loss failsafe; this catches a
@@ -269,41 +300,55 @@ class SafetyWatchdog:
         else:
             self._telemetry_stale_since = None
 
-        if not t.is_armed:
-            # Pre-takeoff or post-landing — nothing further to check
+        # 1.5 Pilot takeover + flight-phase disarm (RC-GO conops 2026-08-12;
+        # reordered ABOVE the armed gate 2026-08-21). The field takeover is
+        # "flip POSCTL, then DISARM within ~0.5 s" — faster than the 1.0 s
+        # debounce at a 0.5 s tick — and this block used to sit BELOW the
+        # armed gate, so the disarm made the watchdog permanently blind the
+        # moment it mattered: stand_down() was never called and the mission
+        # loop later re-armed the parked aircraft (G7 attempt-1 zombie,
+        # ULog-measured 0.46-0.48 s of ARMED+POSCTL in both incidents).
+        #
+        # D2 — a DISARM in a phase that is armed by design (_ARMED_PHASES):
+        # definitive, fires immediately. Checked FIRST: when both conditions
+        # hold on the same tick the disarm is the harder evidence.
+        if (not t.is_armed) and st.phase in _ARMED_PHASES:
+            self._fire_takeover(f"(disarmed in {st.phase.value})",
+                                "disarm_in_flight_phase")
             return
 
-        # 1.5 Pilot takeover (RC-GO conops 2026-08-12): a sustained MANUAL
-        # flight mode while armed and past PREFLIGHT means the safety pilot
-        # flipped the RC switch — stand down COMPLETELY. The terminal is set
-        # DIRECTLY (never via _trigger_rth/_trigger_abort): any companion
-        # command after this point would fight the pilot for the aircraft.
-        # Debounced so a transient mode blip during PX4's own transitions
-        # can't spuriously end the mission. PREFLIGHT is exempt: the RC-GO
-        # hold has the pilot arming in POSCTL on the ground BEFORE the
-        # OFFBOARD flip that launches the flight.
-        if (st.phase != MissionPhase.PREFLIGHT
-                and t.flight_mode in _PILOT_MODES):
+        # D1 — a sustained pilot flight mode. While ARMED: any phase except
+        # PREFLIGHT (the RC-GO hold has the pilot arming in POSCTL on the
+        # ground BEFORE the OFFBOARD flip). While DISARMED: only in
+        # _ARMED_PHASES — at boot state.phase still holds its TAKEOFF default
+        # while RC transmitters sit in POSCTL, and between flights the pilot
+        # legitimately re-stages in POSCTL during the LAND→PREFLIGHT gap;
+        # neither is a takeover. After the field's quick disarm the mode
+        # REMAINS POSCTL, so the debounce completes ~1 s after the flip even
+        # though the vehicle is no longer armed. Debounced so a transient
+        # mode blip during PX4's own transitions can't spuriously end the
+        # mission.
+        if t.is_armed:
+            pilot_mode_watched = st.phase != MissionPhase.PREFLIGHT
+        else:
+            pilot_mode_watched = st.phase in _ARMED_PHASES
+        if pilot_mode_watched and t.flight_mode in _PILOT_MODES:
             now = asyncio.get_running_loop().time()
             if self._manual_mode_since is None:
                 self._manual_mode_since = now
             elif now - self._manual_mode_since >= self.pilot_takeover_threshold_s:
-                logger.critical(
-                    f"[safety] PILOT TAKEOVER ({t.flight_mode}) — orchestrator "
-                    "standing down, no further commands")
-                st.record_anomaly(f"pilot_takeover_{t.flight_mode.lower()}")
-                st.record_audit(
-                    f"t={st.time_elapsed_s():.1f}s PILOT TAKEOVER "
-                    f"mode={t.flight_mode} — orchestrator standing down")
-                st.set_terminal(TerminalState.PILOT_TAKEOVER)
-                # Latch the command OWNER too. Setting the terminal stops the
-                # mission loop between awaits, but a command already queued would
-                # still reach the FC — stand_down() makes DroneCommander refuse
-                # every movement command from here on (RESUME 2026-08-19 §2.2).
-                self.commander.stand_down()
+                self._fire_takeover(f"mode={t.flight_mode}",
+                                    f"pilot_takeover_{t.flight_mode.lower()}")
                 return
         else:
             self._manual_mode_since = None
+
+        if not t.is_armed:
+            # Pre-takeoff or post-landing — nothing FURTHER to check (the
+            # takeover/disarm detectors above already ran; everything below
+            # assumes powered flight). ⚠ This gate sat ABOVE the takeover
+            # check until 2026-08-21, which is exactly what blinded it.
+            return
 
         # 2. Battery — both thresholds require the reading to STAY down.
         #
@@ -550,6 +595,31 @@ class SafetyWatchdog:
             )
             st.record_anomaly("time_budget_exhausted")
             await self._trigger_rth()
+
+    def _fire_takeover(self, detail: str, anomaly_kind: str) -> None:
+        """Stand the orchestrator down — ONCE. The audit line keeps the literal
+        ``PILOT TAKEOVER`` (the GCS home-reason chip matches that needle). The
+        terminal is set DIRECTLY (never via _trigger_rth/_trigger_abort): any
+        companion command after this point would fight the pilot for the
+        aircraft. The first fire may overwrite an in-progress LANDED_RTH —
+        that is a pilot rescuing a watchdog RTL, and the aircraft is theirs;
+        the ``_takeover_fired`` latch stops every later tick from re-firing
+        (and from re-writing the audit trail, which does not dedupe)."""
+        st = self.state
+        self._takeover_fired = True
+        logger.critical(
+            f"[safety] PILOT TAKEOVER {detail} — orchestrator standing down, "
+            "no further commands")
+        st.record_anomaly(anomaly_kind)
+        st.record_audit(
+            f"t={st.time_elapsed_s():.1f}s PILOT TAKEOVER {detail} "
+            "— orchestrator standing down")
+        st.set_terminal(TerminalState.PILOT_TAKEOVER)
+        # Latch the command OWNER too. Setting the terminal stops the mission
+        # loop between awaits, but a command already queued would still reach
+        # the FC — stand_down() makes DroneCommander refuse every movement
+        # command from here on (RESUME 2026-08-19 §2.2).
+        self.commander.stand_down()
 
     def _spawn_action(self, coro: Awaitable[None], cb: Callable[[], None] | None) -> None:
         """Run a terminal action (rth/land) as a tracked background task so the

@@ -24,9 +24,12 @@ Web/console = STAGE ONLY. The pilot releases: ARM (in POSCTL, throttle low)
 → flip OFFBOARD within a few seconds (ground auto-disarm timer) → aircraft
 launches itself. Once airborne: throttle stick to CENTRE so a takeover
 doesn't step the altitude. **POSCTL flip = pilot owns the aircraft, any
-time**; the mission does not fight a takeover (guard at the exception layer —
-see open items). Between attempts: re-open the launcher icon (clear_state
-runs first, by design).
+time**; since 2026-08-21 the takeover is enforced at BOTH layers — the
+watchdog detectors (sustained pilot mode, armed or not; disarm in a flying
+phase) set the terminal + `stand_down()`, and `DroneCommander` then refuses
+every FC-state-changing call. Field rule stays: after ANY takeover, stop the
+mission (⏹) BEFORE approaching the aircraft. Between attempts: re-open the
+launcher icon (clear_state runs first, by design).
 
 ## Battery ops
 - UNPLUG the pack between sessions (0.6-0.76 A parked; 5 h ≈ 3.8 Ah).
@@ -73,14 +76,32 @@ repos. Approvals do not cross sessions — send data+reasoning+proposal, the
 other repo's operator decides.
 
 ## Open items / follow-ups (updated 2026-08-21 — G7 attempt #1 debrief)
-- [ ] 🔴 **Zombie mission RE-ARMED the aircraft after pilot takeover**
-      (2026-08-21 flight: ~8 min after takeover+disarm the stuck mission
-      loop called arm_and_takeoff on the parked aircraft — every command
-      timed out only because the FC was already powered down). TOP code fix:
-      the takeover/disarm must TERMINATE the mission loop at the
-      DroneCommander layer (the peer repo's `_guard()` pattern). Field rule
-      effective immediately: **after ANY takeover, stop the mission (⏹)
-      BEFORE approaching the aircraft.**
+- [x] 🔴 **Zombie mission RE-ARMED the aircraft after pilot takeover —
+      FIXED 2026-08-21** (commit on `fix/safety-review-2026-08-19`).
+      Symptom: no `PILOT TAKEOVER` audit line in either incident; ~8 min
+      after takeover+disarm the loop called arm_and_takeoff on the parked
+      aircraft. Mechanism (ULog-proven): the pilot flips POSCTL then DISARMS
+      in **0.46-0.48 s** — under the detector's 1.0 s debounce at a 0.5 s
+      tick — and `safety.py`'s `if not t.is_armed: return` sat ABOVE the
+      takeover check, so the disarm blinded the watchdog permanently;
+      `stand_down()` never ran; `mission.py`'s egress climb-out read
+      "not armed" as "needs arming". Fix: takeover checks moved ABOVE the
+      armed gate (disarmed evaluation gated to flying phases so boot/
+      between-flight POSCTL postures don't false-fire), a NEW
+      disarm-in-flight-phase detector (immediate, no debounce), a fire-once
+      latch, and `_guard_pilot` extended to `run_mission`/`_arm_with_retry`
+      (per attempt)/`arm_and_takeoff`'s tail/`_drop_via_set_actuator`/every
+      param+failsafe setter. Caught-by: `tests/test_safety.py` (disarm/boot/
+      between-flight/fire-once cases) + `tests/test_commands.py`
+      (stand_down coverage table). Field rule stays: **after ANY takeover,
+      stop the mission (⏹) BEFORE approaching the aircraft.**
+- [ ] Dashboard raw dispatches BYPASS the pilot guard (follow-up from the
+      2026-08-21 review, deliberately not folded into the fix): web
+      `/api/cmd/takeoff`, `/vehicle_arm`, `/resume`, `/hold` call
+      `commander.system.action.*` directly (dashboard/commands.py:299-390),
+      so a post-takeover operator click can still arm/fly a pilot-owned
+      aircraft. `/vehicle_disarm` + `/kill` must STAY unguarded (legitimate
+      post-takeover safing).
 - [ ] **GCS must show pads AS THEY ARE FOUND (operator request 2026-08-21)**:
       in-flight WiFi death kills the mission_status.json sync path, and the
       radio beacon only broadcasts CONFIRMED pads — so the operator saw
@@ -135,11 +156,12 @@ other repo's operator decides.
 - [ ] KMITL comp config: decide its own height-reference stance
       (`EKF2_HGT_REF=1` there today; 20 m ceiling has 2.5 m watchdog margin
       vs the +2.9 m step measured at KMUTNB — the comp operator's call).
-- [ ] PILOT-takeover guard: move from the exception catcher to the command
-      layer (`DroneCommander` raising from every motion method — flag on the
-      object that owns the sending). Peer repo has the pattern. The 2026-08-20
-      zombie orchestrator (kept sending gotos to a disarmed aircraft for
-      3.5 min) is the motivating incident.
+- [x] PILOT-takeover guard at the command layer — DONE 2026-08-21 as part of
+      the zombie-re-arm fix above: `_guard_pilot` now covers every
+      FC-state-changing method (motion, arming, mission upload, raw drop
+      side-channel, param/failsafe/geofence/gimbal setters); `abort()` alone
+      stays unguarded (emergency motor kill). The 2026-08-20 zombie
+      (gotos to a disarmed aircraft for 3.5 min) was the same mechanism.
 - [ ] Watchdog ceiling cross-check against TFmini below 12 m (would have
       voted down flight 2's phantom breach) — safety-code change, own review.
 - [ ] `kmitl_config.yaml` battery-block comment mirror (only power narrative

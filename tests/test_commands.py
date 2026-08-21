@@ -114,6 +114,92 @@ def test_arm_exhausts_and_raises_runtimeerror():
     assert fake.calls == 4  # gives up after exactly `attempts`, then raises (not ActionError)
 
 
+# ── stand_down must cover EVERYTHING that changes FC state (G7 2026-08-21) ──
+
+
+def test_stand_down_covers_mission_arming_params_and_side_channels() -> None:
+    """G7 attempt-1 zombie re-arm: the original guard set left run_mission
+    (which ARMS), _arm_with_retry, the raw pymavlink drop fallback, and every
+    FC-state setter unguarded — a stood-down commander could still rewrite
+    failsafes under the pilot. Every FC-state-changing method now refuses.
+    (abort() stays deliberately unguarded — it is the emergency motor kill.)"""
+    c = DroneCommander.__new__(DroneCommander)
+    c.stand_down()
+    for make in (lambda: c.run_mission([object()]),          # arms + flies
+                 lambda: c._arm_with_retry(),
+                 lambda: c._drop_via_set_actuator(1),        # raw side-channel
+                 lambda: c.set_param_float("MPC_XY_CRUISE", 5.0),
+                 lambda: c.set_param_int("MIS_TKO_LAND_REQ", 0),
+                 lambda: c.apply_param_overrides({"MPC_XY_CRUISE": 5.0}),
+                 lambda: c.set_gimbal_mount({"MNT_MODE_IN": 4.0}),
+                 lambda: c.set_geofence_action_rtl(),
+                 lambda: c.set_datalink_loss_rtl(),
+                 lambda: c.set_rc_loss_rtl(),
+                 lambda: c.set_battery_failsafe(
+                     low=0.2, crit=0.1, emergen=0.05, action=2),
+                 lambda: c.upload_geofence(
+                     [(13.70, 100.70), (13.71, 100.70), (13.71, 100.71)])):
+        with pytest.raises(PilotInControlError):
+            asyncio.run(make())
+
+
+def test_arm_retry_aborts_when_takeover_lands_mid_retry() -> None:
+    """A takeover mid-retry (a window of up to 15 s) must abort the REMAINING
+    arm attempts — _arm_with_retry is the exact call the G7 zombie hammered
+    ten times against the parked aircraft."""
+    class _DenyAndTakeover(_FakeAction):
+        commander: DroneCommander | None = None
+
+        async def arm(self) -> None:
+            self.calls += 1
+            assert self.commander is not None
+            self.commander.stand_down()    # the takeover lands mid-window
+            raise _Denied()
+
+    fake = _DenyAndTakeover(fail_times=999)
+    c = _commander_with(fake)
+    fake.commander = c
+    with pytest.raises(PilotInControlError):
+        asyncio.run(c._arm_with_retry(attempts=10, delay_s=0.0))
+    assert fake.calls == 1                 # attempt 2's guard refused
+
+
+def test_arm_and_takeoff_reguards_before_the_takeoff_command() -> None:
+    """A3 (design review 2026-08-21): between arm success and
+    action.takeoff() sit a settle sleep + a home-alt refresh (1-6 s). A
+    takeover in that window must stop the takeoff command itself — the entry
+    guard alone cannot."""
+    class _Act:
+        def __init__(self) -> None:
+            self.takeoff_calls = 0
+
+        async def set_takeoff_altitude(self, alt: float) -> None:
+            pass
+
+        async def takeoff(self) -> None:
+            self.takeoff_calls += 1
+
+    act = _Act()
+    c = DroneCommander.__new__(DroneCommander)
+    c.system = type("_Sys", (), {"action": act})()  # type: ignore[assignment]
+
+    async def _not_armed() -> bool:
+        return False
+
+    async def _arm_ok() -> None:
+        pass
+
+    async def _refresh_then_takeover() -> None:
+        c.stand_down()                     # pilot takes over during the settle
+
+    c._is_armed = _not_armed                        # type: ignore[method-assign]
+    c._arm_with_retry = _arm_ok                     # type: ignore[method-assign]
+    c._refresh_home_alt = _refresh_then_takeover    # type: ignore[method-assign]
+    with pytest.raises(PilotInControlError):
+        asyncio.run(c.arm_and_takeoff(12.0))
+    assert act.takeoff_calls == 0
+
+
 # ── FC failsafe pins: NAV_RCL_ACT / battery thresholds (S4) ──
 
 
