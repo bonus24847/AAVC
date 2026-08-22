@@ -130,6 +130,26 @@ AAVC_FIELD = os.path.join(_HERE, "..", "aavc_field.yaml")  # overridden by --fie
 BLACKBOX_DIR = os.path.abspath(os.path.join(_HERE, "..", "blackbox"))
 
 
+# Frame files became JPEG on 2026-08-21 (aircraft-side: 48 -> 12 ms to encode).
+# The console only stats them for the camera-age chip, so accept EITHER name and
+# prefer whichever is fresher — an aircraft that has not been re-deployed still
+# writes the .png, and a chip stuck at "n/a" beside a healthy camera is exactly
+# the kind of false negative the operator cannot debug in the field.
+_NADIR_CANDIDATES = ("/tmp/aavc_nadir.jpg", "/tmp/aavc_nadir.png")
+
+
+def _nadir_frame_path():
+    newest, best = None, -1.0
+    for path in _NADIR_CANDIDATES:
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        if mtime > best:
+            newest, best = path, mtime
+    return newest or _NADIR_CANDIDATES[0]
+
+
 def _read_vendor(name):
     """Bundled Leaflet (src/vendor/) served locally so the map loads with NO internet at
     the field. Only the OSM tiles still need a connection — the vector overlays (zones,
@@ -1963,7 +1983,7 @@ class Link:
         # answers None, so the chip falls to a grey "n/a" unless the beacon spoke.
         try:
             snap["cam_age"] = (None if snap["link_kind"] == "radio" else round(
-                time.time() - os.path.getmtime("/tmp/aavc_nadir.png"), 1))
+                time.time() - os.path.getmtime(_nadir_frame_path()), 1))
         except OSError:
             snap["cam_age"] = None
         # Camera health over the RADIO (status_beacon): measured ON the CM4,
