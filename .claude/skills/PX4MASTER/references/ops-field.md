@@ -564,6 +564,14 @@ other repo's operator decides.
       `tests/test_measure_mount_yaw.py` round-trips it through `project_pixel`
       for 6 pixels × 3 headings so a flipped sign fails the suite instead of
       the flight.
+- [x] **`sync_core.sh` now CHECKS its own hand-maintained tools list.** Writing
+      that tool exposed the trap the script's header already described: `tests/`
+      is copied wholesale, `tools/` is an allowlist, so the new test crossed to
+      aavc-comp and the tool it imports did not — the comp suite stopped at
+      "1 error during collection", 630 tests refusing to run over one missing
+      import. Same shape as the 11 failures recorded there from 2026-08-21.
+      The sync now scans the copied tests for `tools/` imports and FAILS naming
+      the file to add. Verified by withholding the tool and watching it fire.
       It sets both the projection bearing (a 90° error reports a frame-edge pad
       ~13 m from where it is at the 12 m sweep — the aircraft flies to empty
       grass and the cluster never confirms) and the heading the sweep holds.
