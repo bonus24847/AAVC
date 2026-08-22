@@ -239,10 +239,43 @@ class SafetyWatchdog:
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run())
 
-    async def stop(self) -> None:
+    async def stop(self, action_timeout_s: float = 200.0) -> None:
+        """Stop the tick loop, then WAIT for any terminal action still flying.
+
+        ⚠ The wait is the whole point (2026-08-21 review). ``_trigger_rth`` /
+        ``_trigger_abort`` dispatch ``commander.rth()`` / ``land()`` as
+        background tasks, and those coroutines are what finally send the
+        explicit ``disarm()`` — PX4 will not auto-disarm on its own because
+        ``COM_DISARM_LAND=-1`` is pinned for the mid-flight pad landings. The
+        mission loop exits within ~2 s of the terminal flipping, so without
+        this wait ``main``'s teardown reached ``commander.close()`` (which
+        kills mavsdk_server) while the RTL was still descending: PX4 completed
+        the landing, nothing ever disarmed, and the aircraft sat on the ground
+        ARMED with the companion dead and the console already showing DONE.
+
+        The timeout is a backstop above ``rth()``'s own 180 s landing wait —
+        this must never be the thing that hangs a shutdown.
+        """
         if self._task:
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)
+        pending = [t for t in self._action_tasks if not t.done()]
+        if pending:
+            logger.info(
+                f"[safety] waiting for {len(pending)} terminal action(s) to "
+                f"finish before teardown (the disarm rides on them)")
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=action_timeout_s)
+            except asyncio.TimeoutError:
+                logger.error(
+                    f"[safety] terminal action still running after "
+                    f"{action_timeout_s:.0f}s — tearing down anyway; CHECK THE "
+                    "AIRCRAFT IS DISARMED")
+                for t in pending:
+                    t.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
 
     async def _run(self) -> None:
         while True:

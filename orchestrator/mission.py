@@ -355,18 +355,45 @@ async def run_delivery_mission(
                     logger.exception("[mission] energy refresh failed")
             await asyncio.sleep(_TELEM_SAMPLE_S)
 
+    # The climb cap the mission-start px4_tuning pin left on the board, read
+    # once and restored after any leg that lowers it (2026-08-21 review).
+    _climb_pin: list[float | None] = [None]
+
     async def _set_climb_cap(mps: float) -> None:
         """Cap the AUTO climb speed (PX4 MPC_Z_VEL_MAX_UP). The staged 2 m
         closure onto the 20 m transit altitude overshoots ~+0.6 m at the fast
         2 m/s cap — through the ceiling; at 1 m/s the peak is ~+0.15 m.
-        Non-fatal: a failed set leaves the previous cap."""
+        Non-fatal: a failed set leaves the previous cap.
+
+        ⚠ Whatever this writes STAYS on the board for the rest of the mission —
+        there is no scope, no restore. Restore the PINNED value (_climb_cap_pin)
+        rather than a literal when a leg is done: writing a bare 2.0 here left
+        the aircraft climbing at 2 m/s for every later climb, including the
+        align ladder's approach to a rung that sits just under the ceiling,
+        against a config pin of 1.5 that exists precisely because that ceiling
+        is tight (2026-08-21 review). The parity test compares config against
+        DEFAULT_PX4_TUNING and cannot see a runtime override, so nothing caught
+        it."""
         setter = getattr(commander, "set_param_float", None)
         if setter is None:
             return
+        if _climb_pin[0] is None:          # remember what the pin put there
+            getter = getattr(commander, "get_param_float", None)
+            if getter is not None:
+                try:
+                    _climb_pin[0] = float(await getter("MPC_Z_VEL_MAX_UP"))
+                except Exception:          # unreadable — restore is skipped
+                    logger.debug("[mission] MPC_Z_VEL_MAX_UP read failed")
         try:
             await setter("MPC_Z_VEL_MAX_UP", float(mps))
         except Exception:
             logger.debug("[mission] MPC_Z_VEL_MAX_UP set failed (non-fatal)")
+
+    async def _restore_climb_cap() -> None:
+        """Put the climb cap back to whatever the mission-start pin set, so a
+        leg's temporary slow-down cannot outlive the leg."""
+        if _climb_pin[0] is not None:
+            await _set_climb_cap(_climb_pin[0])
 
     async def _set_descent_speed(mps: float) -> None:
         """Set the AUTO descent speed (PX4 MPC_Z_V_AUTO_DN).
@@ -486,7 +513,11 @@ async def run_delivery_mission(
                 state.record_anomaly(
                     f"transit_{'egress' if egress else 'ingress'}_P{n}_missed")
             if k == 1:
-                await _set_climb_cap(2.0)   # captured — restore the fast cap
+                # captured — restore the PINNED cap, not a literal (see
+                # _set_climb_cap: whatever is written here stays for the
+                # whole mission, and the pin is what the ceiling budget
+                # was computed against)
+                await _restore_climb_cap()
 
     async def _sweep_for(flight: int) -> None:
         """Fly the FULL boustrophedon sweep (finish-sweep-then-serve, operator

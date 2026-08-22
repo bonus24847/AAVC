@@ -696,3 +696,52 @@ def test_battery_rth_debounce_is_independent_of_land() -> None:
 
     asyncio.run(run())
 
+
+
+# ── teardown must not outrun the terminal action (2026-08-21 review) ─────────
+# _trigger_rth/_trigger_abort dispatch commander.rth()/land() as BACKGROUND
+# tasks, and those coroutines are what finally send the explicit disarm
+# (COM_DISARM_LAND=-1 means PX4 will not do it). The mission loop exits ~2 s
+# after the terminal flips, so a stop() that only cancelled the tick loop let
+# main reach commander.close() mid-RTL: PX4 landed, nothing disarmed, and the
+# aircraft sat on the ground ARMED with the companion dead.
+
+
+def test_stop_waits_for_an_in_flight_terminal_action() -> None:
+    t = _flying_telemetry()
+    t.battery_percent = 25.0                 # low -> RTH
+    wd, state, cmd = _make_wd(t)
+    landed = []
+
+    async def slow_rth() -> None:
+        await asyncio.sleep(0.2)             # stands in for the RTL + disarm
+        landed.append("disarmed")
+
+    cmd.rth = slow_rth                       # type: ignore[assignment]
+
+    async def run() -> None:
+        await wd._check_once()               # dispatches rth() in the background
+        assert not landed, "rth should still be in flight"
+        await wd.stop()
+
+    asyncio.run(run())
+    assert landed == ["disarmed"], "stop() returned before the disarm"
+
+
+def test_stop_gives_up_on_a_wedged_action_rather_than_hanging() -> None:
+    """The wait is a backstop above rth()'s own 180 s landing wait — it must
+    never become the thing that hangs a shutdown."""
+    t = _flying_telemetry()
+    t.battery_percent = 25.0
+    wd, state, cmd = _make_wd(t)
+
+    async def never_returns() -> None:
+        await asyncio.sleep(3600)
+
+    cmd.rth = never_returns                  # type: ignore[assignment]
+
+    async def run() -> None:
+        await wd._check_once()
+        await wd.stop(action_timeout_s=0.05)  # returns instead of hanging
+
+    asyncio.run(run())

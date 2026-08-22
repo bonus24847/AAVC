@@ -1053,6 +1053,13 @@ async def run(args: argparse.Namespace) -> int:
             pass
 
 
+# Headroom the align ladder's top rung keeps under the profile ceiling — the
+# same 0.5 m the transit and the decode hover already back off by
+# (mission.py::_ALT_BIAS_MARGIN_M), for the same reason: the commanded AGL and
+# the EKF's idea of it disagree by up to ~0.7 m per arming.
+_CEILING_MARGIN_M = 0.5
+
+
 def _rungs_for(profile: Any) -> tuple[float, ...]:
     """Descend rungs clamped under the ceiling, ending near the ground (the
     final 2 m rung tightens the land-ON drift for the 1 m pad).
@@ -1064,9 +1071,22 @@ def _rungs_for(profile: Any) -> tuple[float, ...]:
     ceil = profile.altitude_ceiling_m
     if ceil <= 6.0:
         return (min(4.0, ceil - 1.0), 3.0, 2.0, 1.5)
-    top = min(12.0, ceil)
-    rungs = tuple(r for r in (top, 8.0, 5.0, 3.0, 2.0, 1.5) if r <= ceil)
-    return rungs or (min(5.0, ceil),)
+    # ⚠ THE TOP RUNG MUST KEEP CEILING MARGIN (2026-08-21 review). This used to
+    # be min(12.0, ceil), which is fine at the 20 m KMITL ceiling but becomes
+    # ceil EXACTLY once the ceiling drops to 12 or below — and the KMUTNB
+    # profile's ceiling became 10.0 on 2026-08-18. Every other altitude in the
+    # mission is deliberately backed off (transit commands ceiling-0.5, the
+    # decode hover sits floor+0.5, the sweep is clamped to ceiling-1); this one
+    # alone sat ON the line, then held there for the acquire budget plus rung 0
+    # AND on every defer climb-back. With the documented ~+0.6 m AGL frame bias
+    # and the climb overshoot on top, that is the watchdog's warn line
+    # continuously and its RTH line one gust away — and a watchdog RTH ends the
+    # mission, forfeiting every remaining delivery. Use the SAME margin the
+    # sweep already uses so the ladder can never be the thing that busts the
+    # ceiling.
+    top = min(12.0, ceil - _CEILING_MARGIN_M)
+    rungs = tuple(r for r in (top, 8.0, 5.0, 3.0, 2.0, 1.5) if r <= top)
+    return rungs or (min(5.0, max(1.5, ceil - _CEILING_MARGIN_M)),)
 
 
 def _align_tuning(cfg: dict[str, Any]) -> dict[str, Any]:
