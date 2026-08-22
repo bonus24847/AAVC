@@ -271,6 +271,35 @@ async def _detect_simulator(commander: Any) -> bool | None:
         return None
 
 
+async def _should_push_sim_battery(commander: Any, system_address: str) -> bool:
+    """Whether PX4's battery SIMULATOR params are worth writing.
+
+    Ask the autopilot, not the endpoint. ``_is_sitl_endpoint`` was the gate
+    until 2026-08-23 and its own docstring says why that is wrong here:
+    `cm4/launch_flight.sh` runs the REAL aircraft through a mavlink-router at
+    ``udpin://0.0.0.0:14540``, so the real bird reads as SITL. The 2026-08-20
+    flight logs show the cost — three ``SIM_BAT_* failed: TIMEOUT`` warnings and
+    an "applied 0/3" line at every real mission start, ~9 s of the scored window
+    spent proving a module that is not in the fmu-v6x build is not there. Worse
+    than the seconds: it trains the operator to read "applied 0/N" as normal,
+    and "applied 0/24" is the signature this project relies on to catch a dead
+    param link.
+
+    ``None`` from the detector means the link could not answer at all; the
+    endpoint heuristic is the fallback, because a wrong guess about a battery
+    SIMULATOR costs a param timeout and never safety.
+    """
+    is_sim = await _detect_simulator(commander)
+    if is_sim is None:
+        is_sim = _is_sitl_endpoint(system_address)
+        logger.info("[main] autopilot would not say whether it is a simulator "
+                    f"— falling back to the endpoint ({is_sim})")
+    elif not is_sim:
+        logger.info("[main] sim_battery skipped — the autopilot is real "
+                    "hardware (no SIM_GZ_EN)")
+    return bool(is_sim)
+
+
 async def _wait_for_gps(state: OrchestratorState, timeout_s: float = 30.0) -> bool:
     """Block until a usable GPS fix arrives (lat/lon non-NaN, ≥2D fix)."""
     t0 = asyncio.get_running_loop().time()
@@ -937,20 +966,29 @@ async def run(args: argparse.Namespace) -> int:
                 "restart, or launch with FORCE at your own risk.")
         # SITL only — PX4's battery simulator, so the energy budget is
         # exercisable before hardware. These params do NOT exist on the real 6X
-        # (the module is not in the fmu-v6x build), and cm4/launch_flight.sh
-        # ships the same config file, so gate on the SITL endpoint rather than on
-        # the block's presence: on hardware each write would only burn a param
-        # timeout on the pad, inside the scored window.
+        # (the module is not in the fmu-v6x build), so on hardware each write
+        # only burns a param timeout on the pad, inside the scored window.
+        #
+        # ⚠ ASK THE AUTOPILOT, not the endpoint. `_is_sitl_endpoint` was the
+        # gate here until 2026-08-23 and its own docstring says why that is
+        # wrong: cm4/launch_flight.sh runs the REAL aircraft through a
+        # mavlink-router at `udpin://0.0.0.0:14540`, so the real bird reads as
+        # SITL. The 2026-08-20 flight logs show exactly that — three
+        # `SIM_BAT_* failed: TIMEOUT` warnings and an "applied 0/3" line on
+        # every real mission start, ~9 s of the scored window spent proving a
+        # simulator module is absent. `_detect_simulator` asks for `SIM_GZ_EN`,
+        # which exists only in px4_sitl builds, and was written for this and
+        # then never called. `None` = the link could not answer at all; the
+        # endpoint heuristic is the fallback there, since a wrong guess about a
+        # battery SIMULATOR costs a timeout and never safety.
         sim_bat = cfg.get("sim_battery") or {}
-        if sim_bat and _is_sitl_endpoint(conn.system_address):
+        if sim_bat and await _should_push_sim_battery(
+                commander, conn.system_address):
             try:
                 await commander.apply_param_overrides(
                     {k: float(v) for k, v in sim_bat.items()})
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"[main] sim battery params not applied: {e}")
-        elif sim_bat:
-            logger.info("[main] sim_battery block skipped — not a SITL endpoint "
-                        f"({conn.system_address})")
         # A pack swapped without updating the config and an uncalibrated power
         # module look identical from here, and both make every mAh number
         # fiction. Say so once, loudly, rather than silently trusting it.

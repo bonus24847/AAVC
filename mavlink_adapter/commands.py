@@ -272,6 +272,13 @@ _FENCE_TOL_DEG = 1e-6
 # silent apply-failure turns into a rules bust or a broken egg. verify_envelope_pins
 # reads these back after the tuning block is pushed. Keep the list short: it is
 # "what must be true to fly", not "what we tuned".
+# How many times to try uploading + reading back the fence before calling it
+# do-not-fly. Three, with a short pause: the failure seen in the field is a
+# MAVSDK RPC timeout on an otherwise healthy link, which clears on the next
+# try; anything that survives three attempts is a real problem worth refusing.
+_FENCE_UPLOAD_ATTEMPTS = 3
+_FENCE_UPLOAD_BACKOFF_S = 1.0
+
 _ENVELOPE_PINS = (
     "RTL_RETURN_ALT",     # default 60 m vs the 20 m ceiling — busts it on any RTL
     "GF_MAX_VER_DIST",    # the FC's 20 m altitude fence (rules) — default disabled
@@ -1081,12 +1088,40 @@ class DroneCommander:
         points = [Point(float(lat), float(lon)) for lat, lon in polygon]
         ftype = FenceType.INCLUSION if inclusion else FenceType.EXCLUSION
         data = GeofenceData([Polygon(points, ftype)], [])
-        try:
-            await self.system.geofence.clear_geofence()
-        except Exception as e:
-            logger.debug(f"[mavlink] geofence clear pre-upload: {e}")
-        await self.system.geofence.upload_geofence(data)
-        await self._verify_geofence(polygon, ftype)
+        # RETRY the upload+readback, added 2026-08-23. This used to be one shot,
+        # and on 2026-08-19 it cost two staged flights in one session: the
+        # archived orchestrator.log shows `clear_geofence: TIMEOUT` followed by
+        # the upload erroring, then "FC geofence NOT verified … refusing to
+        # fly" — twice, twenty seconds apart, on a link that was otherwise fine.
+        # Retrying weakens NOTHING: what makes the fence trustworthy is
+        # _verify_geofence reading it back, and that still has to pass on the
+        # attempt that succeeds. What it buys is the difference between a
+        # transient MAVSDK timeout and a grounded aircraft — and the
+        # competition gives 5 minutes of setup before the 20-minute clock runs.
+        last: Exception | None = None
+        for attempt in range(1, _FENCE_UPLOAD_ATTEMPTS + 1):
+            try:
+                await self.system.geofence.clear_geofence()
+            except Exception as e:  # noqa: BLE001 — nothing to clear is fine
+                logger.debug(f"[mavlink] geofence clear pre-upload: {e}")
+            try:
+                await self.system.geofence.upload_geofence(data)
+                await self._verify_geofence(polygon, ftype)
+                break
+            except Exception as e:  # noqa: BLE001 — retried, then re-raised
+                last = e
+                if attempt < _FENCE_UPLOAD_ATTEMPTS:
+                    logger.warning(
+                        f"[mavlink] geofence upload attempt {attempt}/"
+                        f"{_FENCE_UPLOAD_ATTEMPTS} failed ({e}) — retrying")
+                    await asyncio.sleep(_FENCE_UPLOAD_BACKOFF_S)
+        else:
+            # Every attempt failed: the caller must still treat this as
+            # do-not-fly. An unverified fence counts as no fence.
+            raise RuntimeError(
+                f"geofence not verified after {_FENCE_UPLOAD_ATTEMPTS} "
+                f"attempts: {last}"
+            ) from last
         logger.info(
             f"[mavlink] uploaded {ftype.name} geofence ({len(points)} vertices), "
             "read back from the FC and verified — the aircraft is fenced"

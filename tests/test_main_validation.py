@@ -107,3 +107,63 @@ def test_both_shipped_configs_resolve_to_their_own_field() -> None:
     kmitl = yaml.safe_load((root / "sitl" / "kmitl_config.yaml").read_text())
     assert _resolve_site_origin(kmutnb) == (13.8228032, 100.5116267)
     assert _resolve_site_origin(kmitl) == (13.730322, 100.787446)
+
+
+# ── PX4's battery simulator must not be written to real hardware ───────────
+#
+# The gate was `_is_sitl_endpoint`, whose own docstring says the premise is
+# false in this repo: cm4/launch_flight.sh runs the REAL aircraft through a
+# mavlink-router on udpin://0.0.0.0:14540, so the real bird looks like SITL.
+# The 2026-08-20 logs show what that cost — three SIM_BAT_* TIMEOUTs and an
+# "applied 0/3" line at every real mission start, ~9 s of the scored window,
+# and an operator taught that "applied 0/N" is normal. `_detect_simulator` was
+# written for exactly this and then never called.
+
+class _FakeCommander:
+    """Answers param reads the way a given autopilot would."""
+
+    def __init__(self, *, has_sim_gz: bool, link_alive: bool = True) -> None:
+        self.has_sim_gz = has_sim_gz
+        self.link_alive = link_alive
+        self.reads: list[str] = []
+
+    async def get_param_int(self, name: str) -> int:
+        self.reads.append(name)
+        if not self.link_alive:
+            raise TimeoutError("link dead")
+        if name == "SIM_GZ_EN":
+            if not self.has_sim_gz:
+                raise RuntimeError("param not found")
+            return 1
+        return 4001
+
+
+def _decide(commander: object, address: str) -> bool:
+    import asyncio
+
+    from orchestrator.main import _should_push_sim_battery
+
+    return asyncio.run(_should_push_sim_battery(commander, address))
+
+
+def test_real_hardware_behind_a_udp_router_is_not_treated_as_a_simulator() -> None:
+    """The exact shape of the real aircraft: a UDP endpoint, no SIM_GZ_EN."""
+    cmd = _FakeCommander(has_sim_gz=False)
+    assert _decide(cmd, "udpin://0.0.0.0:14540") is False
+    assert "SIM_GZ_EN" in cmd.reads
+
+
+def test_sitl_still_gets_its_battery_simulator() -> None:
+    cmd = _FakeCommander(has_sim_gz=True)
+    assert _decide(cmd, "udpin://0.0.0.0:14540") is True
+
+
+def test_a_dead_link_falls_back_to_the_endpoint_rather_than_guessing() -> None:
+    """"Param absent" and "link dead" look identical from one failed read, so
+    the detector returns None and the caller decides. Getting this wrong costs
+    a param timeout on a battery simulator — never safety — which is why a
+    fallback is acceptable HERE and would not be for a safety pin."""
+    assert _decide(_FakeCommander(has_sim_gz=False, link_alive=False),
+                   "udpin://0.0.0.0:14540") is True
+    assert _decide(_FakeCommander(has_sim_gz=False, link_alive=False),
+                   "serial:///dev/ttyAMA0:921600") is False
