@@ -84,7 +84,7 @@ SERIAL=/dev/ttyAMA0 bash cm4/launch_hitl.sh    # router + synthetic cam + orches
 ```
 - [ ] `spawn-targets` printed the pad ids (record them above — you enter these at GO).
 - [ ] Router log: `mavlink-router: /dev/ttyAMA0@921600 -> :14540 … :14541 …`.
-- [ ] Synthetic camera writing frames: `/tmp/aavc_nadir.png` age < 2 s.
+- [ ] Synthetic camera writing frames: `/tmp/aavc_nadir.jpg` age < 2 s.
 - [ ] Dashboard reachable: `http://127.0.0.1:8765` (bench) — map + camera + GO panel.
 
 ---

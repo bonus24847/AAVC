@@ -364,11 +364,38 @@ other repo's operator decides.
       the check instead of inventing a value to compare against.
 - [ ] `kmitl_config.yaml` battery-block comment mirror (only power narrative
       was synced 2026-08-20).
-- [ ] Automated cross-file battery-endpoint consistency check (manual rule in
-      power-battery.md until then).
-- [ ] docs/REAL_FLIGHT_GCS.md + docs/FLIGHT.md still describe the pre-🚀
-      stack-start; status_beacon.main() age logic untested;
-      test_status_beacon positional indexing brittle (code-review backlog).
+- [x] **Cross-file battery consistency is now a test — 2026-08-23.**
+      `tests/test_battery_consistency.py` executes the rule that lived in
+      power-battery.md as "keep these in step by hand": both field configs must
+      describe the SAME pack, `battery.cells` must equal the `BAT1_N_CELLS` the
+      preflight STOPs on, `power-battery.md`'s quoted `BAT1_V_CHARGED` /
+      `BAT1_V_EMPTY` must equal what `BOARD` enforces (the doc is what gets
+      believed at 07:30; `BOARD` is what stops the day), and the two pins that
+      keep coulomb counting shut — `BAT1_CAPACITY <= 0` and
+      `raw_telemetry_port: 0` — must hold in every config. Plus an arithmetic
+      sanity check on the endpoints against the operator's 25.1 V / ~22.6 V
+      spec, which catches a decimal slip that every equality above would agree
+      on. These numbers have already disagreed once across the two repos
+      (`BAT1_V_CHARGED` 4.15-vs-4.05) and a wrong one never LOOKS wrong: the
+      whole gauge is `interpolate(cell_v, V_EMPTY, V_CHARGED)`.
+- [x] **Runbooks corrected 2026-08-23.** `REAL_FLIGHT_GCS.md` still told the
+      operator the launcher starts `status_sync` alongside the console — removed
+      from the real launchers on 2026-08-18 — so it now states what the real
+      console actually reads (the NOMAD beacon, everything), which three things
+      still ride ssh/WiFi and that all three work only at the launch point
+      (🚀 stage, auto camera+beacon bring-up, the one-shot plan pull), and to
+      read the **📻 ขาด N วิ** badge before believing a quiet screen.
+      `FLIGHT.md` carried three: "props off until G6" (G6 was dropped
+      2026-08-16 — props off through G5, first props-on flight is G7), the
+      retired `.png` frame paths, and — the one that mattered — it documented
+      `HEADLESS=1` **auto-GO** without saying it bypasses the RC gate. There are
+      two real-flight entry points with different launch semantics: the
+      console's 🚀 runs `run_mission.sh REAL=1`, which defaults `RC_GO=1` and
+      only STAGES, while `cm4/launch_flight.sh HEADLESS=1` launches the
+      aircraft itself once preflight passes. The runbook now puts them side by
+      side, because the dangerous one was the command written down first.
+- [ ] status_beacon.main() age logic untested; test_status_beacon positional
+      indexing brittle (code-review backlog).
 - [x] ✅ **Latch servos dead 2026-08-21 — FIXED THE SAME DAY: the BEC was
       dead, replaced with a new one; all four latches cycled open→hold and
       the operator confirmed every corner moves.** Root cause was purely

@@ -5,8 +5,11 @@ drone and out to free flight. Bring it up in the **locked gates** (`CLAUDE.md §
 — do **not** skip to free flight. Each gate gates the next.
 
 > The aircraft is a real hexacopter with real motors and a real payload. Treat every step
-> as flight-test discipline: props off until G6, geofence + battery limits set,
+> as flight-test discipline: **props off through G5**, geofence + battery limits set,
 > a manual kill (QGC / RC) within reach, eyes on the aircraft.
+> (G6 — the tethered gate — was **DROPPED 2026-08-16**, CLAUDE.md §7: the
+> aircraft had already flown, so a tether proved nothing new. The first
+> propellers-on flight is G7.)
 
 ---
 
@@ -16,17 +19,33 @@ drone and out to free flight. Bring it up in the **locked gates** (`CLAUDE.md §
   Pixhawk 6X ──serial /dev/ttyACM0 (USB) or /dev/ttyAMA0 (UART) @921600──► mavlink-router
                                                                             ├─► :14540  orchestrator (MAVSDK, --connect udpin://0.0.0.0:14540)
                                                                             └─► :14550  QGC over the telemetry radio / wifi (manual kill)
-  OV9281 nadir camera (hard-mounted nadir, NO gimbal) ──► sitl/camera_grabber.py ──► /tmp/aavc_{nadir,frame}.png ──► vision_worker
+  OV9281 nadir camera (hard-mounted nadir, NO gimbal) ──► sitl/camera_grabber.py ──► /tmp/aavc_{nadir,frame}.jpg ──► vision_worker
 ```
 
 One command brings the whole stack up onboard (see `cm4/launch_flight.sh`):
 
 ```bash
-# bench (G5/G6): dashboard up, operator GO + in-browser kill
+# bench (G5): dashboard up, operator GO + in-browser kill
 SERIAL=/dev/ttyACM0 BACKEND=v4l2 bash cm4/launch_flight.sh
-# field  (G7/G8): headless, auto-GO when preflight criticals pass
+# field, UNATTENDED: headless, AUTO-GO when preflight criticals pass
 HEADLESS=1 SERIAL=/dev/ttyACM0 BACKEND=v4l2 bash cm4/launch_flight.sh
 ```
+
+⚠ **There are TWO real-flight entry points and they LAUNCH DIFFERENTLY. Know
+which one you started.**
+
+| | `cm4/launch_flight.sh` | `sitl/run_mission.sh` with `REAL=1` |
+|---|---|---|
+| Started by | hand, on the CM4 | the console's 🚀 button, over ssh |
+| `HEADLESS=1` | **AUTO-GO** — the aircraft launches itself once preflight criticals pass | n/a |
+| RC gate | none | **`RC_GO=1` by default** — 🚀 only STAGES; the safety pilot arms on RC and flips OFFBOARD to release |
+
+The console path is the one used at KMUTNB and the one the competition will
+fly, and it cannot launch the aircraft: the web button stages, the pilot
+releases (`docs/REAL_FLIGHT_GCS.md`, "RC-GO"). `HEADLESS=1` here is the older
+unattended path and has **no such interlock** — do not use it with people near
+the aircraft, and do not reach for it out of habit at the field because it is
+the command written down first.
 
 No internet is used in flight (build the `.venv` once offline from `requirements.lock`).
 
@@ -64,7 +83,7 @@ Goal: validate the orchestrator ↔ real-FC seam + the actuators, motors **off t
 - [ ] Start the stack: `bash cm4/launch_flight.sh` (bench mode). Confirm the orchestrator
       logs `cached home MSL altitude`, `home=(…)` at the field, `applied N/N PX4 tuning
       params`, geofence uploaded, telemetry streaming.
-- [ ] **Camera grabber:** frames fresh in `/tmp/aavc_nadir.png` (preflight's camera-age
+- [ ] **Camera grabber:** frames fresh in `/tmp/aavc_nadir.jpg` (preflight's camera-age
       critical passes). OV9281 knobs: `--fourcc GREY --fps 50` (bench-pick the final
       values; gray frames are replicated to BGR before write). If the camera isn't
       ready, run a synthetic feeder and pass `NO_CAMERA=1`.
