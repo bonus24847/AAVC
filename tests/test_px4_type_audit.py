@@ -96,3 +96,36 @@ def test_full_audit_is_clean_against_the_real_worktree() -> None:
         ],
     )
     assert rc == 0
+
+
+def test_hardcoded_setter_scan_finds_the_failsafe_chain(tmp_path: Path) -> None:
+    """Params written with the name spelled inline bypass _INT_PARAMS entirely
+    — the setter is chosen by hand at the call site, so the dict audit above
+    cannot see them. They are the failsafe chain (GF_ACTION, NAV_RCL_ACT,
+    NAV_DLL_ACT, COM_LOW_BAT_ACT…): a wrong setter there means PX4 rejects the
+    write and the aircraft flies on its own defaults, logging a TIMEOUT."""
+    from tools.px4_type_audit import collect_hardcoded_setters
+
+    pkg = tmp_path / "orchestrator"
+    pkg.mkdir()
+    (pkg / "x.py").write_text(
+        'await self.system.param.set_param_int("NAV_RCL_ACT", 2)\n'
+        'await self.system.param.set_param_float("RTL_LAND_DELAY", 0.0)\n'
+        "await self.system.param.set_param_float(name, float(value))\n"  # generic
+    )
+    found = collect_hardcoded_setters(tmp_path)
+    assert set(found) == {"NAV_RCL_ACT", "RTL_LAND_DELAY"}       # not `name`
+    assert found["NAV_RCL_ACT"]["int"] and not found["NAV_RCL_ACT"]["float"]
+    assert found["RTL_LAND_DELAY"]["float"]
+
+
+def test_the_real_repo_hardcodes_the_expected_failsafe_setters() -> None:
+    """Inventory pin: if a NEW hardcoded param write appears, this test fails
+    and the author has to decide whether it belongs in DEFAULT_PX4_TUNING
+    instead (where readback verification and the dict audit already reach it)."""
+    from tools.px4_type_audit import collect_hardcoded_setters
+
+    assert set(collect_hardcoded_setters(_REPO)) == {
+        "COM_DL_LOSS_T", "COM_LOW_BAT_ACT", "COM_RCL_EXCEPT", "GF_ACTION",
+        "MPC_Z_V_AUTO_DN", "NAV_DLL_ACT", "NAV_RCL_ACT", "RTL_LAND_DELAY",
+    }

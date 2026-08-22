@@ -47,7 +47,13 @@ from vision.detectors.aruco import render_pad_bgr  # noqa: E402
 # Match the SITL camera intrinsics so the detector/projection behave identically
 # (nadir = the single decode camera — kept in sync with sitl/aavc_config.yaml
 # cameras: and the x500_mono_cam model).
-FOV_RAD = 1.74
+# ⚠ 1.74 rad (99.7 deg) was the UNMEASURED placeholder, retired everywhere else
+# on 2026-08-17 when the real WSD-9781-v12 lens measured 74.2 deg. Left here, it
+# rendered every pad at 0.64x the pixel size the flight core's projection
+# assumes, so each HITL fix was off by 1.57x in ground offset — and the size
+# prior's 0.4-2.5 band passed that ratio silently. Any HITL run that "validated
+# the vision chain" was validating the wrong geometry (2026-08-22 review).
+FOV_RAD = 1.295
 WIDTH_PX = 1280
 HEIGHT_PX = 720
 FX = (WIDTH_PX / 2.0) / math.tan(FOV_RAD / 2.0)

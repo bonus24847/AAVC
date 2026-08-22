@@ -85,6 +85,44 @@ def collect_pushed_params(config_paths: list[Path]) -> dict[str, set[str]]:
     return pushed
 
 
+# A literal-name param write: ``set_param_int("NAV_RCL_ACT", 2)``. The generic
+# ``set_param_float(name, ...)`` forms (which push DEFAULT_PX4_TUNING and the
+# config blocks) carry a variable, not a literal, so they do not match — those
+# are already covered by collect_pushed_params.
+_HARDCODED_SETTER_RE = re.compile(
+    r"set_param_(float|int)\(\s*[\"']([A-Z][A-Z0-9_]*)[\"']"
+)
+_SCAN_DIRS = ("orchestrator", "mavlink_adapter", "dashboard", "vision",
+              "mission_brain", "tools", "cm4", "sitl")
+
+
+def collect_hardcoded_setters(repo: Path) -> dict[str, dict[str, set[str]]]:
+    """Param writes with the name spelled INLINE, mapped to setter -> sites.
+
+    These bypass ``_INT_PARAMS`` entirely: the caller picked the setter by hand
+    at the call site, so a wrong choice cannot be caught by the dict audit
+    above — and it fails exactly the way ``EKF2_HGT_REF`` did, with a TIMEOUT
+    that reads like a link hiccup. There are eleven of them and they are the
+    failsafe chain: GF_ACTION, NAV_RCL_ACT, NAV_DLL_ACT, COM_LOW_BAT_ACT and
+    the battery thresholds — i.e. the writes whose silent failure leaves the
+    aircraft flying with PX4's defaults where the design assumed ours."""
+    found: dict[str, dict[str, set[str]]] = {}
+    for sub in _SCAN_DIRS:
+        root = repo / sub
+        if not root.is_dir():
+            continue
+        for py in sorted(root.rglob("*.py")):
+            try:
+                lines = py.read_text(errors="ignore").splitlines()
+            except OSError:
+                continue
+            for n, line in enumerate(lines, 1):
+                for setter, name in _HARDCODED_SETTER_RE.findall(line):
+                    entry = found.setdefault(name, {"float": set(), "int": set()})
+                    entry[setter].add(f"{py.relative_to(repo)}:{n}")
+    return found
+
+
 def _walk_module_yaml(node: object, out: dict[str, str]) -> None:
     if not isinstance(node, dict):
         if isinstance(node, list):
@@ -178,6 +216,26 @@ def run_audit(px4_root: Path, config_paths: list[Path]) -> int:
                     f"— the float push is rejected on every connect "
                     f"(pushed from {', '.join(sorted(pushed[name]))})"
                 )
+    hardcoded = collect_hardcoded_setters(_REPO)
+    for name in sorted(hardcoded):
+        ptype = resolve_type(name, index)
+        want = "float" if ptype == "FLOAT" else "int"
+        if ptype is None:
+            unresolved.append(
+                f"UNRESOLVED  {name}  (hardcoded setter at "
+                f"{', '.join(sorted(hardcoded[name]['float'] | hardcoded[name]['int']))}) "
+                f"— not declared anywhere in {px4_root}/src"
+            )
+            continue
+        wrong = hardcoded[name]["int" if want == "float" else "float"]
+        if wrong:
+            violations.append(
+                f"VIOLATION   {name} is {ptype} on the FC but written with "
+                f"set_param_{'int' if want == 'float' else 'float'} at "
+                f"{', '.join(sorted(wrong))} — PX4 rejects the write and the pin "
+                f"never lands (the failure logs as a TIMEOUT)"
+            )
+
     for name in sorted(_INT_PARAMS):
         ptype = resolve_type(name, index)
         if ptype == "FLOAT":
@@ -191,6 +249,7 @@ def run_audit(px4_root: Path, config_paths: list[Path]) -> int:
     print(
         f"[type-audit] {len(pushed)} pushed params · {int_count} INT32 · "
         f"{len(_INT_PARAMS)} in _INT_PARAMS · "
+        f"{len(hardcoded)} hardcoded setter(s) · "
         f"{len(violations)} violation(s) · {len(unresolved)} unresolved"
     )
     if violations or unresolved:

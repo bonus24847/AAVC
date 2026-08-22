@@ -137,9 +137,33 @@ _FATAL_ANOMALIES = (
     "release_skipped_touchdown_unconfirmed",
     "transit_ingress_P", "transit_egress_P", "sweep_leg_timeout",
     "touchdown_unconfirmed_before_release", "watchdog: RTH", "watchdog: ABORT",
+    # A flight the safety pilot had to take away is not a PASS. Until
+    # 2026-08-22 there was no needle for it at all: _fire_takeover sets the
+    # terminal DIRECTLY, so no `FLIGHT n END` is written, the whole L&R and
+    # coverage block is skipped, and the tool printed
+    # "PASS · deliveries: 0/0 across 0 flight(s)" on a flight that ended with
+    # a human grabbing the sticks. (`mode=` was added to TELEM for exactly
+    # this diagnosis and then went unused.)
+    "pilot_takeover", "disarm_in_flight_phase", "PILOT TAKEOVER",
+    "release_failed_delivery",
 )
 # Sub-floor flight is legal only in the delivery descent + ground ops.
 _FLOOR_EXEMPT_PHASES = {"localize", "drop", "land", "takeoff", "preflight", "rth"}
+
+
+def check_flights_completed(entries: list[str], rep: "Report") -> None:
+    """Every ``FLIGHT n START`` needs a matching ``FLIGHT n END``.
+
+    A flight that simply stops — a takeover, a crash of the mission loop, a
+    process killed mid-air — leaves a START with no END, and every downstream
+    check keys off the END. Without this the audit of an aborted flight is
+    indistinguishable from a flight that never happened (2026-08-22 review)."""
+    started = {m.group("flight") for e in entries if (m := _FLIGHT_START.match(e))}
+    ended = {m.group("flight") for e in entries if (m := _FLIGHT_END.match(e))}
+    for flight in sorted(started - ended, key=int):
+        rep.fail(f"FLIGHT {flight} START has no matching END — the flight did "
+                 "not finish (takeover, crash, or the process was killed); "
+                 "every per-flight check below is unverifiable for it")
 
 
 def _dist_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -249,6 +273,10 @@ def verify(entries: list[str], truth: list[dict], cfg: dict,
     # checks that can fail closed before reaching the tail of this function.
     rep.deliveries_done = sum(int(en["n"]) for en in flight_ends)
     rep.deliveries_planned = sum(int(en["of"]) for en in flight_ends)
+    # Runs BEFORE any geometry check can fail closed and return early: a flight
+    # that never finished is the single most misleading thing this tool can be
+    # silent about.
+    check_flights_completed(entries, rep)
     rep.flights_flown = len(flight_ends)
 
     if not win:

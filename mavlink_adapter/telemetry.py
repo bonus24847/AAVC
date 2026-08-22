@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from loguru import logger
@@ -109,25 +110,32 @@ class TelemetrySubscriber:
         self.system = system
         self.state = CurrentTelemetry()
         self._tasks: list[asyncio.Task[None]] = []
+        self._stream_seen: dict[str, float] = {}
+        # How many times a subscriber's stream died and was restarted. Surfaced
+        # so a flight that spent its time re-establishing streams looks
+        # different afterwards from one that did not.
+        self.stream_failures = 0
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
-        self._tasks = [
-            loop.create_task(self._sub_connection()),
-            loop.create_task(self._sub_position()),
-            loop.create_task(self._sub_velocity()),
-            loop.create_task(self._sub_attitude()),
-            loop.create_task(self._sub_attitude_rates()),
-            loop.create_task(self._sub_actuator_outputs()),
-            loop.create_task(self._sub_battery()),
-            loop.create_task(self._sub_armed()),
-            loop.create_task(self._sub_flight_mode()),
-            loop.create_task(self._sub_landed_state()),
-            loop.create_task(self._sub_gps_info()),
-            loop.create_task(self._sub_vehicle_clock()),
-            loop.create_task(self._sub_rc_status()),
-            loop.create_task(self._sub_health()),
-        ]
+        subs = {
+            "connection": self._sub_connection,
+            "position": self._sub_position,
+            "velocity": self._sub_velocity,
+            "attitude": self._sub_attitude,
+            "attitude_rates": self._sub_attitude_rates,
+            "actuator_outputs": self._sub_actuator_outputs,
+            "battery": self._sub_battery,
+            "armed": self._sub_armed,
+            "flight_mode": self._sub_flight_mode,
+            "landed_state": self._sub_landed_state,
+            "gps_info": self._sub_gps_info,
+            "vehicle_clock": self._sub_vehicle_clock,
+            "rc_status": self._sub_rc_status,
+            "health": self._sub_health,
+        }
+        self._tasks = [loop.create_task(self._supervise(name, factory))
+                       for name, factory in subs.items()]
         logger.info(f"[telemetry] subscribed to {len(self._tasks)} streams")
 
     async def stop(self) -> None:
@@ -136,13 +144,57 @@ class TelemetrySubscriber:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         logger.info("[telemetry] stopped")
 
-    def _touch(self) -> None:
+    def _touch(self, stream: str = "") -> None:
         self.state.last_update_monotonic = time.monotonic()
+        if stream:
+            self._stream_seen[stream] = time.monotonic()
+
+    def stream_age_s(self, stream: str) -> float:
+        """Seconds since THIS stream last delivered, or inf if never.
+
+        ``CurrentTelemetry.age_s()`` cannot answer this: all 14 subscribers
+        touch the same timestamp, so a dead stream is invisible — the other 13
+        keep it fresh while the dead one's field stays frozen at its last value
+        forever. That is not academic: a frozen ``is_armed`` blinds the
+        disarm detector permanently (the exact hole the takeover fix closed),
+        and a frozen ``relative_alt_m`` feeds the ceiling watchdog and every
+        climb/descent wait a number that stopped moving (2026-08-22 review)."""
+        seen = self._stream_seen.get(stream)
+        return float("inf") if seen is None else time.monotonic() - seen
+
+    def dead_streams(self, max_age_s: float = 5.0) -> list[str]:
+        """Streams that have gone quiet past ``max_age_s`` (started but stale),
+        so a caller can say WHICH one died rather than "telemetry is old"."""
+        now = time.monotonic()
+        return sorted(name for name, seen in self._stream_seen.items()
+                      if now - seen > max_age_s)
+
+    async def _supervise(self, name: str, factory: Callable[[], Awaitable[None]]) -> None:
+        """Run one subscriber and RESTART it if its stream raises.
+
+        Eight of these had no exception handling at all: a gRPC stream error
+        killed the task silently — no log, no retry, no restart — and the field
+        it fed froze at its last value with the shared freshness stamp still
+        being touched by the survivors. Restarting is the right response
+        (MAVSDK streams do drop and re-establish); recording the death is the
+        part that was missing."""
+        backoff = 0.5
+        while True:
+            try:
+                await factory()
+                logger.warning(f"[telemetry] stream {name} ended — restarting")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001 — one stream must not end the flight
+                logger.warning(f"[telemetry] stream {name} failed ({e}) — restarting")
+            self.stream_failures += 1
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2.0, 5.0)
 
     async def _sub_connection(self) -> None:
         async for st in self.system.core.connection_state():
             self.state.is_connected = st.is_connected
-            self._touch()
+            self._touch("connection")
 
     async def _sub_position(self) -> None:
         async for pos in self.system.telemetry.position():
@@ -150,19 +202,19 @@ class TelemetrySubscriber:
             self.state.lon = pos.longitude_deg
             self.state.alt_m = pos.absolute_altitude_m
             self.state.relative_alt_m = pos.relative_altitude_m
-            self._touch()
+            self._touch("position")
 
     async def _sub_velocity(self) -> None:
         async for vel in self.system.telemetry.velocity_ned():
             self.state.ground_speed_mps = math.hypot(vel.north_m_s, vel.east_m_s)
-            self._touch()
+            self._touch("velocity")
 
     async def _sub_attitude(self) -> None:
         async for att in self.system.telemetry.attitude_euler():
             self.state.heading_deg = att.yaw_deg
             self.state.roll_deg = att.roll_deg
             self.state.pitch_deg = att.pitch_deg
-            self._touch()
+            self._touch("attitude")
 
     async def _sub_attitude_rates(self) -> None:
         """Angular velocity (body-frame) — needed by the dashboard attitude
@@ -181,7 +233,7 @@ class TelemetrySubscriber:
                 self.state.roll_rate_dps = math.degrees(rates.roll_rad_s)
                 self.state.pitch_rate_dps = math.degrees(rates.pitch_rad_s)
                 self.state.yaw_rate_dps = math.degrees(rates.yaw_rad_s)
-                self._touch()
+                self._touch("attitude_rates")
         except Exception as e:
             logger.warning(f"[telemetry] attitude rates stream unavailable: {e}")
 
@@ -214,7 +266,7 @@ class TelemetrySubscriber:
                     else:
                         pwm.append(int(v))
                 self.state.servo_pwm_us = pwm
-                self._touch()
+                self._touch("actuator_outputs")
         except Exception as e:
             logger.warning(f"[telemetry] actuator outputs stream unavailable: {e}")
 
@@ -229,28 +281,28 @@ class TelemetrySubscriber:
             self.state.battery_voltage_v = bat.voltage_v
             self.state.battery_current_a = float(
                 getattr(bat, "current_battery_a", math.nan))
-            self._touch()
+            self._touch("battery")
 
     async def _sub_armed(self) -> None:
         async for armed in self.system.telemetry.armed():
             self.state.is_armed = armed
-            self._touch()
+            self._touch("armed")
 
     async def _sub_flight_mode(self) -> None:
         async for mode in self.system.telemetry.flight_mode():
             self.state.flight_mode = mode.name
-            self._touch()
+            self._touch("flight_mode")
 
     async def _sub_landed_state(self) -> None:
         async for ls in self.system.telemetry.landed_state():
             self.state.landed_state = ls.name
-            self._touch()
+            self._touch("landed_state")
 
     async def _sub_gps_info(self) -> None:
         async for info in self.system.telemetry.gps_info():
             self.state.gps_fix_type = info.fix_type.value
             self.state.gps_satellites = info.num_satellites
-            self._touch()
+            self._touch("gps_info")
 
     async def _sub_vehicle_clock(self) -> None:
         """The aircraft's own time base (orchestrator/flight_clock.py).
@@ -263,7 +315,7 @@ class TelemetrySubscriber:
         """
         async for gps in self.system.telemetry.raw_gps():
             self.state.vehicle_time_s = gps.timestamp_us / 1e6
-            self._touch()
+            self._touch("vehicle_clock")
 
     async def _sub_rc_status(self) -> None:
         # MAVSDK's Telemetry plugin does not expose the dedicated telemetry
@@ -291,7 +343,7 @@ class TelemetrySubscriber:
                 # No RC ever connected (SITL default). Sentinel = -1 means
                 # "not available, do not evaluate"; safety.py honours this.
                 self.state.datalink_rssi = -1
-            self._touch()
+            self._touch("rc_status")
 
     async def _sub_health(self) -> None:
         """EKF / calibration / armable health — the pre-flight readiness gate
@@ -306,6 +358,6 @@ class TelemetrySubscriber:
                 self.state.is_gyrometer_calibrated = h.is_gyrometer_calibration_ok
                 self.state.is_accelerometer_calibrated = h.is_accelerometer_calibration_ok
                 self.state.is_magnetometer_calibrated = h.is_magnetometer_calibration_ok
-                self._touch()
+                self._touch("health")
         except Exception as e:
             logger.warning(f"[telemetry] health stream unavailable: {e}")

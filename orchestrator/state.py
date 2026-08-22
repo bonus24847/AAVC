@@ -244,14 +244,28 @@ class OrchestratorState:
             except Exception:  # noqa: BLE001 — audit persistence is non-fatal
                 pass
 
-    def record_anomaly(self, kind: str) -> None:
-        # Dedupe by KIND, not by the timestamped message: a condition that
-        # persists across watchdog/tactical ticks (NaN battery, tactical-loop
-        # errors) must be recorded once, not once per tick. Stores the
-        # timestamp of first occurrence.
-        if kind in self._seen_anomaly_kinds:
+    def record_anomaly(self, kind: str, *, dedupe_key: str | None = None) -> None:
+        """Record a condition ONCE, keeping the first occurrence's wording.
+
+        Dedupe is by KIND, not by the timestamped message: a condition that
+        persists across watchdog/tactical ticks (NaN battery, tactical-loop
+        errors) must be recorded once, not once per tick. Stores the
+        timestamp of first occurrence.
+
+        ``dedupe_key`` exists because a kind string that INTERPOLATES A
+        MEASUREMENT defeats that dedupe silently: ``altitude_ceiling_warn_20.6m``
+        and ``..._20.7m`` are different strings, so a 0.5 s watchdog holding a
+        warn state for a minute wrote ~120 distinct "unique" anomalies — into
+        the in-memory log, the dashboard list AND the audit file on the SD card.
+        Measurement call sites therefore pass the STABLE part as the key, and the
+        value survives in the recorded text. Sites where the number is an
+        IDENTITY (``flight2_pad5_not_found``, ``no_fly_zone_breach_1``,
+        ``release_failed_delivery_3``) pass nothing — those really are distinct
+        events and must each be recorded."""
+        key = dedupe_key or kind
+        if key in self._seen_anomaly_kinds:
             return
-        self._seen_anomaly_kinds.add(kind)
+        self._seen_anomaly_kinds.add(key)
         entry = f"t={self.time_elapsed_s():.1f}s {kind}"
         self.anomaly_log.append(entry)
         self._persist_audit(entry)

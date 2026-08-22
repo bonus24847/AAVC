@@ -350,14 +350,41 @@ async def acquire_and_land_drop(
         await commander.goto(lat, lon, alt)
         last_goto = (lat, lon, alt)
 
+    # The AUTO descent speed the mission-start pin left on the board, read once
+    # and restored after a delivery's rung ladder has finished with it.
+    _descent_pin: list[float | None] = [None]
+
     async def _set_descent_cap(mps: float) -> None:
-        """Cap the AUTO vertical descent speed (PX4 ``MPC_Z_VEL_MAX_DN``) so the
-        rung descent is fast up high and gentle near the ground. Non-fatal: a
-        failed param set just leaves the previous cap in place."""
+        """Cap the AUTO vertical descent speed so the rung descent is fast up
+        high and gentle near the ground. Non-fatal: a failed set leaves the
+        previous cap in place.
+
+        ⚠ WRITES ``MPC_Z_V_AUTO_DN``, not ``MPC_Z_VEL_MAX_DN`` (fixed
+        2026-08-22). PX4 splits descent speed by mode family: AUTO_DN drives
+        autonomous descents, VEL_MAX_DN only manual/offboard
+        (FlightTaskManualAccelerationSlow). This mission flies AUTO end to end,
+        so the whole rung_descent_mps ladder was INERT — every rung actually
+        descended at the pinned MPC_Z_V_AUTO_DN of 0.4 m/s, including the two
+        the ladder wants at 3.0. Worse, it left VEL_MAX_DN at 3.0 after every
+        delivery — double the config pin — and that IS the parameter that
+        applies to the safety pilot's POSCTL descent during a rescue."""
+        if _descent_pin[0] is None:
+            getter = getattr(commander, "get_param_float", None)
+            if getter is not None:
+                try:
+                    _descent_pin[0] = float(await getter("MPC_Z_V_AUTO_DN"))
+                except Exception:
+                    logger.debug("[align] MPC_Z_V_AUTO_DN read failed")
         try:
-            await commander.set_param_float("MPC_Z_VEL_MAX_DN", float(mps))
+            await commander.set_param_float("MPC_Z_V_AUTO_DN", float(mps))
         except Exception:
-            logger.debug("[align] MPC_Z_VEL_MAX_DN set failed (non-fatal)")
+            logger.debug("[align] MPC_Z_V_AUTO_DN set failed (non-fatal)")
+
+    async def _restore_descent_cap() -> None:
+        """Put the AUTO descent speed back to whatever the mission-start pin
+        set, so a rung ladder's fast top cap cannot outlive the delivery."""
+        if _descent_pin[0] is not None:
+            await _set_descent_cap(_descent_pin[0])
 
     def _on_target(gf: GroundFix) -> bool:
         """True if a projected pad fix is near the COMMANDED target (identity gate)."""
@@ -456,8 +483,17 @@ async def acquire_and_land_drop(
             res.notes.append(f"acquired conf={hit.confidence if hit else 0.0}")
             break
         # Expanding-box search around the coarse GPS while not yet acquired.
+        # ⚠ It did NOT expand until 2026-08-22: `(ring % 4) // 2 or 1` is
+        # 1,1,1,1,… for every ring (0 or 1 -> 1), so the offset was pinned at
+        # search_radius_m and the aircraft just cycled four points on one 4 m
+        # circle for the whole acquire budget. If the registry position was off
+        # by more than the camera swath, the search could never reach the pad.
+        # Now the ring index really grows the radius, capped at the identity
+        # gate (accept_radius_m): searching past it would fly to a place whose
+        # own detections _on_target would reject anyway.
         search_ring += 1
-        off = params.search_radius_m * ((search_ring % 4) // 2 or 1)
+        ring_n = (search_ring - 1) // 4 + 1
+        off = min(params.search_radius_m * ring_n, params.accept_radius_m)
         ang = math.radians(90.0 * (search_ring % 4))
         slat, slon = _offset_latlon(target.lat, target.lon,
                                     off * math.cos(ang), off * math.sin(ang))
@@ -532,9 +568,16 @@ async def acquire_and_land_drop(
                     f"{last_err:.2f} m locked={final_locked}")
     res.aligned = res.acquired and not math.isnan(last_err)
     res.final_error_m = last_err
-    # Restore the fast descent cap for the climb-out / next target / RTH — the
-    # per-rung slow caps above were only for THIS target's near-ground approach.
-    await _set_descent_cap(params.rung_descent_mps[0])
+    # Hand the descent speed back to the PINNED value, not to the ladder's fast
+    # top rung. While this wrote MPC_Z_VEL_MAX_DN it did not matter — that
+    # parameter does nothing in AUTO. Now that it writes MPC_Z_V_AUTO_DN it is
+    # the real thing, and leaving 3.0 on the board would mean the NEXT descent
+    # that forgets to set it (a re-serve, an RTL, the L&R stage) sinks at 3 m/s
+    # instead of the 0.4 every validated landing flew — CLAUDE.md calls PX4's
+    # own 1.5 default "4x faster onto the pad than anything tested", and 3.0 is
+    # worse. mission.py re-asserts _PAD_DESCENT_MPS after the L&R landing for
+    # the same reason; this closes the same hole one layer down.
+    await _restore_descent_cap()
 
     if not _running(state):
         res.notes.append("aborted by watchdog before land")
@@ -685,7 +728,26 @@ async def _drop_once(
                 on_drop_prediction(pred)
             except Exception:
                 logger.exception("[align] drop prediction failed (non-fatal)")
-        await commander.drop_payload(payload_id=payload_id)
+        # A failed RELEASE loses ONE egg; an unhandled exception here loses the
+        # MISSION. Nothing between this call and run_delivery_mission's
+        # try/finally catches anything (2026-08-22 review): a gRPC hiccup, a
+        # MAVSDK timeout, the PilotInControlError the guards now raise, or the
+        # pymavlink fallback's own RuntimeError all propagated to
+        # emergency_recover, which RTH'd from the pad with the remaining eggs
+        # still aboard — and dropped_stops was never updated, so the ledger did
+        # not even record which egg went where. Contain it to this delivery:
+        # audit it, leave the stop UNCLAIMED so a retry can still serve it, and
+        # let the flight loop decide what to do next.
+        try:
+            await commander.drop_payload(payload_id=payload_id)
+        except Exception as e:      # noqa: BLE001 — one egg, not the mission
+            logger.exception(f"[align] release failed on delivery {delivery_index}")
+            state.record_anomaly(f"release_failed_delivery_{delivery_index}")
+            state.record_audit(
+                f"t={state.time_elapsed_s():.1f}s DELIVERY {delivery_index} "
+                f"RELEASE FAILED pad={marker_id} payload={payload_id} "
+                f"err={type(e).__name__}: {e}")
+            return False
         state.dropped_stops.add(stop_index)
         state.record_audit(
             f"t={state.time_elapsed_s():.1f}s DELIVERY {delivery_index} RELEASE "
