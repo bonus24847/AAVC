@@ -443,3 +443,58 @@ other repo's operator decides.
       it. **The rule this encodes: when synthetic evidence disagrees with a
       component's stated purpose, instrument it — do not let the cheaper
       evidence win by default.**
+
+### 2026-08-22 — the competition config was still standing on the practice field
+
+- [x] **`sitl/kmitl_config.yaml` carried the PRACTICE field's whole `site:`
+      block** — name, `center_lat/lon`, and the rooftop `ground_alt_m` — over
+      the competition field's own L&R. **31.5 km apart**, with the comment on
+      `center_lat` reading `# = ground_operation.launch_recovery (ENU/world
+      origin)`: the file asserted the equality it broke. Found while rendering
+      the mission route for the operator, not by any check.
+      **Why nothing noticed:** the aircraft never reads it. PX4 captures home
+      where the vehicle arms, and the plan takes its home from GPS, so the
+      flight is correct either way. What reads `site.center` is everything that
+      turns a pad's lat/lon into METRES — `orchestrator/gcs_status.py`'s
+      `_enu`, and therefore the console feed, the `AAVC pads` beacon lines, the
+      Svelte dashboard and `sitl/spawn_targets.py`. The console then re-anchors
+      those metres at the VEHICLE's origin, so at KMITL every pad marker would
+      have been drawn **31.5 km off the map** while each individual number
+      looked entirely reasonable — the pad readout is a V1.3 scoring line.
+      **Fix, in two halves that do different jobs:**
+      `orchestrator/main.py::_resolve_site_origin` reads
+      `ground_operation.launch_recovery` FIRST (the point the aircraft itself
+      uses), falls back to `site.center`, returns `None` rather than (0, 0)
+      when a config names no field at all, and **logs an ERROR naming both
+      values and the distance** when the two disagree — because the SITL
+      spawner and the dashboard still read `site.center` directly, so
+      resolving it quietly here would have fixed one consumer of four. The
+      config itself was then corrected, which fixes the other three at once.
+      **The check that would have caught it:**
+      `tests/test_geometry_invariant.py::test_every_field_config_calls_its_L_and_R_one_thing`
+      walks EVERY `sitl/*config.yaml` and fails when `site.center` and
+      `launch_recovery` are more than 1 m apart. Deliberately `gen_geo`-free so
+      it covers the competition field and any field added later — verified to
+      fail on the old file with `site.center is 31,518 m from …`.
+      **Lesson, and it is the same one this file was born with:** the leg that
+      drifts is the leg nothing reads out loud. A comment asserting an
+      invariant is not the invariant; only a test that fails is.
+- [x] Same file, same sweep — corrections that cost nothing to make and
+      mislead a human at exactly the wrong moment: the header described the
+      flight as `transit at 4 m` / `search 2.5-5 m band` (a KMUTNB-era
+      profile) and quoted the practice pitch's `143.2 deg` axis while
+      `search.sweep_axis_deg` correctly holds KMITL's `87.0`; the `mission:`
+      block documented `10 / 9.0 / 2.5` inside a file flown with the
+      **competition** profile (20 / 20 / 10) and named `kmutnb_skyfield` as
+      the profile in force; the servo comments pointed at
+      `gcs/kmutnb_field.yaml` when this field's console reads
+      `aavc-gcs/aavc_field.yaml`. None are read by code. All of them are read
+      by whoever writes the briefing.
+- [ ] **There is no KMITL SITL world, and the config now says so.**
+      `sitl/launch_sitl.sh` spawns on `kmutnb_skyfield.sdf` at the practice
+      L&R, and `tools/gen_geo.py` holds the KMUTNB pitch geometry only — so a
+      SITL run against `kmitl_config.yaml` flies a route 31.5 km from where the
+      vehicle sits. Treat that config as REAL-FLIGHT only; do SITL work in the
+      practice repo. If the 28-Aug survey is worth simulating, the world's
+      `<spherical_coordinates>`, `PX4_HOME_*` and `site.center` move together
+      or the same class of bug comes back wearing a different hat.

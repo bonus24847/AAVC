@@ -515,9 +515,28 @@ flight fw before G7.
   fail at collection). Mirror that if you invoke pytest by hand.
 - The orchestrator must stay runnable **headless** (`--no-dashboard
   --assigned-ids …`) and degrade gracefully if the dashboard seam is absent.
-- SITL geometry invariant: config `site.center` == world
-  `<spherical_coordinates>` == `launch_sitl.sh` `PX4_HOME_*` == the L&R point.
-  ENU offsets in config comments/spawner/world are all relative to it.
+- SITL geometry invariant: config `site.center` == config
+  `ground_operation.launch_recovery` == world `<spherical_coordinates>` ==
+  `launch_sitl.sh` `PX4_HOME_*` == the L&R point. ENU offsets in config
+  comments/spawner/world are all relative to it. ⚠ **The first equality is now
+  TESTED across every `sitl/*config.yaml`**
+  (`test_geometry_invariant.py::test_every_field_config_calls_its_L_and_R_one_thing`)
+  because it silently broke: `kmitl_config.yaml` shipped the practice field's
+  whole `site:` block — 31.5 km from the competition L&R — under a comment
+  asserting the two were equal (found 2026-08-22). The aircraft never noticed
+  (home comes from GPS); what breaks is everything that converts a pad lat/lon
+  into METRES — `gcs_status._enu`, so the console feed, the `AAVC pads` beacon
+  lines, the Svelte dashboard and `spawn_targets.py` — and the console
+  re-anchors those metres at the VEHICLE's origin, so every pad marker lands
+  31.5 km off the map with every individual number looking sane.
+  `orchestrator/main.py::_resolve_site_origin` now takes the origin from
+  `launch_recovery` (the point the aircraft uses) and logs an ERROR naming both
+  values when they disagree — the other three consumers still read
+  `site.center`, which is why the CONFIG has to be right, not just main.py.
+  There is no KMITL SITL world: `launch_sitl.sh` spawns on
+  `kmutnb_skyfield.sdf` and `tools/gen_geo.py` holds the KMUTNB frame only, so
+  `kmitl_config.yaml` is a REAL-FLIGHT config — SITL work belongs in the
+  practice repo.
 - The rules' no-fly zone + L&R coordinates are APPROXIMATE (figure-only) —
   update `sitl/aavc_config.yaml` after the event briefing.
 - **Mission time is FLIGHT time, not host time (2026-07-25):** every mission

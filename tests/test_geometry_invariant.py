@@ -17,6 +17,7 @@ waiting for an operator to notice the drone parked on the wrong grass.
 """
 from __future__ import annotations
 
+import math
 import re
 import sys
 from pathlib import Path
@@ -35,6 +36,39 @@ def _pairs_match(actual, expected, tol=_DEG) -> bool:
     return len(actual) == len(expected) and all(
         abs(float(a[0]) - float(b[0])) <= tol and abs(float(a[1]) - float(b[1])) <= tol
         for a, b in zip(actual, expected))
+
+
+def test_every_field_config_calls_its_L_and_R_one_thing() -> None:
+    """``site.center`` and ``ground_operation.launch_recovery`` are ONE point.
+
+    Every conversion from a pad's lat/lon into the metres the console and the
+    radio beacon carry measures from that point, and the console re-anchors
+    what it receives at the VEHICLE's origin — so if the config names the
+    place twice and the two names disagree, every pad marker slides by the
+    difference while each individual number still looks reasonable.
+
+    Added 2026-08-22, after ``sitl/kmitl_config.yaml`` was found shipping the
+    practice field's entire ``site:`` block over the competition field's L&R —
+    **31.5 km apart**, with the comment on that very line asserting the
+    equality it broke. It survived because it was the one leg nothing read
+    out loud: the aircraft takes its home from GPS and flew fine. Same shape
+    as the ``ground_sat`` drift this file was born for; this is the check that
+    was missing. Field-agnostic on purpose — it needs no ``gen_geo``, so it
+    covers the competition config too, and any field added later.
+    """
+    cfgs = sorted((_ROOT / "sitl").glob("*config.yaml"))
+    assert len(cfgs) >= 2, f"expected both field configs, found {cfgs}"
+    for path in cfgs:
+        cfg = yaml.safe_load(path.read_text())
+        lr = cfg["ground_operation"]["launch_recovery"]
+        site = cfg["site"]
+        dn = math.radians(site["center_lat"] - lr[0]) * 6371000.0
+        de = (math.radians(site["center_lon"] - lr[1]) * 6371000.0
+              * math.cos(math.radians(lr[0])))
+        off = math.hypot(dn, de)
+        assert off <= 1.0, (
+            f"{path.name}: site.center is {off:,.0f} m from "
+            f"ground_operation.launch_recovery — they name the same point")
 
 
 def test_mission_config_carries_the_generated_frame() -> None:
