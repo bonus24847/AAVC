@@ -370,6 +370,20 @@ _CM4_OK = None
 # (operator 2026-08-19) so the camera sensor chip lights without staging a flight.
 _INFRA_STARTED = False
 _INFRA_INFLIGHT = False
+# REAL console: the mission PLAN is the one readout the radio cannot carry — a
+# route is hundreds of bytes and a STATUSTEXT packet is 50. It is written on the
+# CM4 (captures/mission_status.json) and the laptop keeps no copy, so the map
+# polyline shipped 2026-08-21 could never draw on a real flight (review 3.9).
+# The 2026-08-18 "radio only" rule is about what the console must keep working
+# with IN FLIGHT; the plan is a STAGING readout — it first exists at gate
+# release, aircraft still on the ground at L&R with its WiFi in reach — so it is
+# pulled over ssh while that link is up, KEPT when the link goes, and drawn
+# faded once stale. Nothing in flight depends on the pull: the phase stepper,
+# pad ticks, camera health and home-reason all still come off the beacon.
+_PLAN_PULL_S = 8.0            # min seconds between ssh pulls while CM4 answers
+_PLAN = {"plan": [], "ptr": 0, "run": None, "t": 0.0}
+_PLAN_PULLED_AT = 0.0
+_PLAN_INFLIGHT = False
 
 
 def _mission_cmd_ssh_host(cmd):
@@ -480,6 +494,95 @@ def _reset_infra_latch():
             LINK._note("[infra] CM4 หลุด — จะยก camera+beacon ให้ใหม่เมื่อกลับมา")
 
 
+def _plan_from_status(text):
+    """The PLAN fields only, out of a mission_status.json body.
+
+    Deliberately narrow. Phase, pads, camera health and home-reason come off the
+    radio on a real flight and must keep doing so — a WiFi copy of those would
+    freeze the moment the aircraft leaves range and then quietly contradict the
+    beacon, which is the exact failure the radio-only rule was made to end.
+    A route cannot go wrong that way: it is what the aircraft was TOLD to fly,
+    and the map already labels a kept one as last-known.
+
+    Returns None when the body is not the status file (ssh noise, a truncated
+    read, a CM4 without the file yet) so a bad read never clears a good plan."""
+    try:
+        st = json.loads(text)
+    except Exception:
+        return None
+    if not isinstance(st, dict) or "plan" not in st:
+        return None
+    rows = st.get("plan")
+    rows = rows if isinstance(rows, list) else []
+    return {"plan": [list(r) for r in rows
+                     if isinstance(r, (list, tuple)) and len(r) >= 4],
+            "ptr": int(st.get("plan_ptr") or 0),
+            "run": st.get("run") or None,
+            "t": time.time()}
+
+
+def _plan_snapshot(mission, cache, now):
+    """What the map should draw as the route, and how old that route is.
+
+    Two feeds can supply it and they must not fight. A SITL/WiFi console reads
+    the status file itself, so its ``mission`` dict CARRIES a plan and wins
+    outright — including when that plan is EMPTY, which is how a finished
+    mission tells the map to stop drawing the last one. The REAL console's
+    ``mission`` is rebuilt from beacon packets and has no plan key at all; there
+    the staging-time ssh pull is the only source. ``age`` travels with it so the
+    map can draw a route whose feed has gone quiet as last-known instead of
+    silently passing it off as live.
+
+    Returns None when neither feed has ever produced one."""
+    if mission is not None and "plan" in mission:
+        return {"plan": mission.get("plan") or [],
+                "ptr": mission.get("plan_ptr") or 0,
+                "run": mission.get("run"),
+                "age": mission.get("age_s") or 0.0}
+    if cache.get("t"):
+        return {"plan": cache["plan"], "ptr": cache["ptr"], "run": cache["run"],
+                "age": round(now - cache["t"], 1)}
+    return None
+
+
+def _maybe_pull_plan(host):
+    """One ssh ``cat`` of the CM4's mission_status.json, for its plan alone.
+
+    Throttled to _PLAN_PULL_S and only ever attempted while the ssh probe says
+    the CM4 answers — out of WiFi range this costs nothing and the last plan
+    stays on the map. Runs on its own thread: an ssh that hangs must never
+    stall the probe loop that gates the 🚀 button."""
+    global _PLAN, _PLAN_PULLED_AT, _PLAN_INFLIGHT
+    if _PLAN_INFLIGHT or time.time() - _PLAN_PULLED_AT < _PLAN_PULL_S:
+        return
+    target = _mission_cmd_ssh_target(MISSION_CMD) or host
+    remote_dir = _mission_cmd_remote_dir(MISSION_CMD)
+    if not target or not remote_dir:
+        return
+    identity = _mission_cmd_ssh_identity(MISSION_CMD)
+    argv = ["ssh", "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ConnectTimeout=4", "-o", "BatchMode=yes"]
+    if identity:
+        argv += ["-i", identity]
+    argv += [target, f"cat {remote_dir}/captures/mission_status.json"]
+    _PLAN_INFLIGHT = True
+
+    def _run():
+        global _PLAN, _PLAN_PULLED_AT, _PLAN_INFLIGHT
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+            got = _plan_from_status(r.stdout) if r.returncode == 0 else None
+            if got is not None:
+                _PLAN = got
+        except Exception:
+            pass          # out of range / no file yet — keep the last plan
+        finally:
+            _PLAN_PULLED_AT = time.time()
+            _PLAN_INFLIGHT = False
+
+    threading.Thread(target=_run, daemon=True, name="plan-pull").start()
+
+
 def _cm4_probe_loop():
     global _CM4_OK
     while True:
@@ -492,6 +595,7 @@ def _cm4_probe_loop():
                 c.close()
                 _CM4_OK = True
                 _maybe_start_infra(host)     # REAL: auto camera+beacon on connect
+                _maybe_pull_plan(host)       # REAL: map route, while WiFi holds
             except OSError:
                 # The CM4 went away. RE-ARM the auto-infra latch: a battery
                 # swap between flights reboots it, taking router, camera and
@@ -2092,6 +2196,7 @@ class Link:
             mission, origin = self._demo_mission(snap, origin)   # demo: always show a live mission
         snap["origin"] = origin
         snap["mission"] = mission
+        snap["plan"] = _plan_snapshot(mission, _PLAN, time.time())
         # Age of the NEWEST beacon packet of any kind. The freshness gates
         # above hide staleness by design — a field just disappears — so on a
         # link that is degrading the readouts thin out with nothing on screen
@@ -2652,6 +2757,9 @@ body.side-collapsed .colside{width:0;padding:0;border-right:none;overflow:hidden
 .planseq{width:18px;height:18px;border-radius:50%;background:#a371f7;color:#fff;
  font-size:11px;font-weight:700;line-height:18px;text-align:center;
  box-shadow:0 1px 3px rgba(0,0,0,.5)}
+/* the leg being flown NOW — the whole point of drawing the route */
+.planseq.now{width:24px;height:24px;line-height:24px;font-size:13px;background:#f78166;
+ outline:2px solid #fff;margin:-3px 0 0 -3px}
 .padbox{width:30px;height:30px;background:#fff;border:3px solid #3fb950;border-radius:5px;
  box-shadow:0 1px 5px rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;position:relative}
 .padbox::before{content:'';position:absolute;inset:3px;border:2px solid #0d1117;border-radius:50%}
@@ -3702,34 +3810,47 @@ function aavcMap(s){
  var pi=stale?{}:(ms.pads_identified||{});
  // Fix 3 (2026-08-21): the LIVE mission plan — polyline + numbered stops so
  // the operator can see where the aircraft is going NEXT (the G7 takeover
- // came early precisely because the screen could not answer that). Arrives
- // over WiFi only ("plan" in mission_status.json, first written at gate
- // release while the launch-point WiFi still holds) and is deliberately
- // KEPT drawn while the feed is stale — that is exactly when it is needed.
- // …but only for THIS run. mission_status carries a run id; when it
- // changes, the kept plan belongs to a finished flight and must go — with
- // no such check the previous mission's route stayed on the map through
- // the next one's whole preflight, reading as "this is where it is going"
- // (2026-08-22 review). An empty plan on a LIVE feed clears it too.
- if(ms.run&&window.PLAN_RUN!==ms.run){window.PLAN_RUN=ms.run;window.PLAN_KEEP=null;}
- if(!stale&&ms.plan&&!ms.plan.length)window.PLAN_KEEP=null;
- var plan=(ms.plan&&ms.plan.length)?ms.plan:(window.PLAN_KEEP||[]);
- if(ms.plan&&ms.plan.length)window.PLAN_KEEP=ms.plan;
- var psig=JSON.stringify(plan);
+ // came early precisely because the screen could not answer that). It rides
+ // s.plan, which the server fills from whichever feed HAS a route: the local
+ // status file on a SITL/WiFi console, and on the REAL console the ssh pull
+ // taken while the aircraft still sits at L&R in WiFi range (review 3.9 —
+ // the radio cannot carry a route, so before this the polyline could not
+ // reach a real flight at all). It is deliberately KEPT drawn once that feed
+ // goes quiet — that is exactly when the operator needs it — but only for
+ // THIS run: the status file carries a run id, and when it changes the kept
+ // plan belongs to a finished flight and must go, or the previous mission's
+ // route reads as "this is where it is going" through the next preflight
+ // (2026-08-22 review). An empty plan on a FRESH feed clears it too.
+ var ps=s.plan||null,prows=(ps&&ps.plan)||[];
+ var pfresh=!!(ps&&(ps.age==null||ps.age<=20));
+ if(ps&&ps.run&&window.PLAN_RUN!==ps.run){window.PLAN_RUN=ps.run;window.PLAN_KEEP=null;}
+ if(pfresh&&!prows.length)window.PLAN_KEEP=null;
+ var plan=prows.length?prows:(window.PLAN_KEEP||[]);
+ if(pfresh&&prows.length)window.PLAN_KEEP=prows;
+ // plan_ptr is the DISPLAY seq of the leg being flown (the orchestrator
+ // translates it — command index and drawn index are not the same number), so
+ // it matches the seq column directly. Only meaningful while the feed is
+ // fresh: on a kept route it would point at whatever the aircraft was doing
+ // when the link died. It rides the signature, or the highlight would sit on
+ // the first leg for the whole flight (the route itself rarely changes).
+ var pnow=(pfresh&&ps&&ps.ptr)?ps.ptr:0;
+ var psig=JSON.stringify(plan)+(pfresh?'|live|':'|kept|')+pnow;
  if(window.PSIG!==psig){
   window.PSIG=psig;
   for(var lp=0;lp<lplan.length;lp++)lmap.removeLayer(lplan[lp]);lplan=[];
   if(plan.length>=1){
    var ppts=plan.map(function(r){return [r[0],r[1]];});
-   var kept=!(ms.plan&&ms.plan.length);      // drawn from PLAN_KEEP, not live
+   var kept=!(pfresh&&prows.length);         // last-known route, feed is quiet
    lplan.push(L.polyline(ppts,{color:'#a371f7',weight:3,dashArray:'6 6',
     opacity:kept?.45:.85}).addTo(lmap)
     .bindTooltip(kept?'เส้นทาง mission (ค่าล่าสุด — ลิงก์ขาด)':'เส้นทาง mission'));
    for(var pj=0;pj<plan.length;pj++){
-    var prow=plan[pj];
+    var prow=plan[pj],pcur=(prow[3]===pnow);
     lplan.push(L.marker([prow[0],prow[1]],{icon:L.divIcon({className:'planicon',
-     html:'<div class=planseq>'+prow[3]+'</div>',iconSize:[18,18],iconAnchor:[9,9]}),
-     zIndexOffset:-100}).addTo(lmap).bindTooltip('#'+prow[3]+' '+prow[2],{direction:'top'}));
+     html:'<div class="planseq'+(pcur?' now':'')+'">'+prow[3]+'</div>',
+     iconSize:[18,18],iconAnchor:[9,9]}),
+     zIndexOffset:pcur?-50:-100}).addTo(lmap)
+     .bindTooltip('#'+prow[3]+' '+prow[2]+(pcur?' — กำลังบินไป':''),{direction:'top'}));
    }
   }
  }
