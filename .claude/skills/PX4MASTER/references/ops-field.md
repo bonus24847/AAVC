@@ -95,6 +95,55 @@ other repo's operator decides.
   left the comp repo without a type audit at all.
 
 ## Open items / follow-ups (updated 2026-08-22 — post-review)
+- [x] 🟠 **The failures that HIDE — 14 fixed 2026-08-22** (practice ac4a155 /
+      comp 8dc3d27 / console ca7ab79). One family, found by the full-system
+      review: the system kept working and stopped telling the truth.
+      **Flight core** — `drop_payload` had no exception boundary up the whole
+      stack (anything but a clean ActionError ended the mission ARMED on a
+      pad); `land()`/`rth()` guarded only at entry and then ran a 30 s/180 s
+      wait into an unconditional `disarm()`, so a pilot rescue mid-descent was
+      answered by disarming a flying aircraft; the ACQUIRE "expanding box"
+      never expanded (`(ring % 4) // 2 or 1` is always 1); all 14 telemetry
+      subscribers shared one `_touch()` so ONE frozen stream was masked by the
+      other thirteen — and a frozen `is_armed` blinds the new disarm detector
+      permanently; the per-rung ladder wrote `MPC_Z_VEL_MAX_DN`, the MANUAL
+      twin (inert for AUTO, while leaving 3.0 = 2x the pin in the param the
+      safety pilot's POSCTL rescue DOES read); the takeover detectors were not
+      actually checked first; `record_anomaly` deduped by kind while
+      `altitude_ceiling_warn_{alt:.1f}m` minted a new kind every 0.1 m (~120
+      lines a minute onto the SD card). **Verifier/console** — a takeover
+      flight PASSED `verify_flight.py` with 0/0 deliveries; the progress label
+      said "delivering pad N" during an abort landing (and the radio scrapes
+      `cur=` from that label); `window.PLAN_KEEP` was never cleared so the
+      previous flight's route stayed drawn through the next mission's
+      preflight; the radio display gates were 15 s against a 5 s beacon (two
+      lost packets blanked the readout, with nothing on screen saying the radio
+      was quiet); the beacon burst a whole tick into a 1200 B/s link.
+      **Tooling** — `px4_type_audit.py` could not see the 8 inline-named param
+      writes, which are the FAILSAFE chain and fail exactly the way
+      `EKF2_HGT_REF` did (a TIMEOUT that reads like a link hiccup).
+      Caught-by: `tests/test_telemetry_streams.py` (new), the land/rth
+      mid-command takeover pins in `test_commands.py`, the ceiling-warn dedupe
+      + identity-numbered pins in `test_safety.py`, the hardcoded-setter
+      inventory in `test_px4_type_audit.py`, the pacing pins in
+      `test_status_beacon.py`, and the takeover/unfinished-flight checks in
+      `test_verify_flight.py`. 592 green.
+- [ ] ⏸ **Fix 3 (mission-plan polyline) still cannot reach a REAL flight** —
+      the plan is written on the CM4 and nothing copies it to the laptop:
+      `status_sync.sh` was deliberately removed from the real launchers on
+      2026-08-18 (operator: "เอาไหนที่ใช้วิทยุไม่ได้ เอาออกเลย") and the beacon
+      does not carry `plan` (too big for a 50-char STATUSTEXT). Two options,
+      BOTH the operator's call because both change that locked decision: a
+      one-shot WiFi pull of the few-KB plan at staging (WiFi is up at L&R
+      then), or drop the polyline from the real console. Everything else about
+      the feature now works — written, run-scoped, staleness-styled, and live
+      on the SITL/WiFi console.
+- [ ] ⏸ **The x4 ROI decode booster added ZERO decodes across 32 synthetic
+      conditions** while costing a detector construction + resize + a full
+      `detectMarkers` per blob, uncapped. Left IN deliberately: the synthetic
+      set is not the real-marker daylight case it was written for, and
+      removing a decode path two days before a flight on synthetic evidence is
+      the wrong direction of risk. Decide it with real hover frames.
 - [x] 🔴 **Zombie mission RE-ARMED the aircraft after pilot takeover —
       FIXED 2026-08-21** (commit on `fix/safety-review-2026-08-19`).
       Symptom: no `PILOT TAKEOVER` audit line in either incident; ~8 min
