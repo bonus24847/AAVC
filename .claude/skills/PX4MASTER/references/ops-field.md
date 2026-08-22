@@ -128,7 +128,8 @@ other repo's operator decides.
       inventory in `test_px4_type_audit.py`, the pacing pins in
       `test_status_beacon.py`, and the takeover/unfinished-flight checks in
       `test_verify_flight.py`. 592 green.
-- [ ] ⏸ **Fix 3 (mission-plan polyline) still cannot reach a REAL flight** —
+- [x] ⏸→**CLOSED 2026-08-22** (see the dated section at the end of this file):
+      **Fix 3 (mission-plan polyline) could not reach a REAL flight** —
       the plan is written on the CM4 and nothing copies it to the laptop:
       `status_sync.sh` was deliberately removed from the real launchers on
       2026-08-18 (operator: "เอาไหนที่ใช้วิทยุไม่ได้ เอาออกเลย") and the beacon
@@ -138,7 +139,8 @@ other repo's operator decides.
       then), or drop the polyline from the real console. Everything else about
       the feature now works — written, run-scoped, staleness-styled, and live
       on the SITL/WiFi console.
-- [ ] ⏸ **The x4 ROI decode booster added ZERO decodes across 32 synthetic
+- [x] ⏸→**RESOLVED 2026-08-22 by instrumenting it** (dated section at the end):
+      **The x4 ROI decode booster added ZERO decodes across 32 synthetic
       conditions** while costing a detector construction + resize + a full
       `detectMarkers` per blob, uncapped. Left IN deliberately: the synthetic
       set is not the real-marker daylight case it was written for, and
