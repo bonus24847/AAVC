@@ -64,9 +64,10 @@ class _Action:
 class RecordingCommander:
     """Records what the router dispatches — no real MAVLink."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, pilot_in_control: bool = False) -> None:
         self.calls: list[str] = []
         self.drops: list[int] = []
+        self.pilot_in_control = pilot_in_control
         self._system = types.SimpleNamespace(action=_Action(self.calls))
 
     @property
@@ -329,3 +330,51 @@ def test_preflight_go_force_overrides_short_window() -> None:
         PreflightGoRequest(payload_confirmed=True, force=True), x_aavc_cmd="1"))
     assert res["ok"] is True and res["assigned_marker_id"] == 3
     assert state.preflight_resume_event.is_set()
+
+
+# ── after a pilot takeover the console must stop flying the aircraft ────────
+#
+# The 2026-08-21 zombie-re-arm fix put ``_guard_pilot`` on every
+# DroneCommander method that changes FC state, and stopped there: these
+# handlers call ``commander.system.action.*`` DIRECTLY, so a console click
+# still reached a pilot-owned aircraft. Left out of that fix's scope on
+# purpose, carried as an open item, closed here.
+#
+# The split matters as much as the guard. ``kill`` and ``vehicle_disarm`` SAFE
+# the aircraft — refusing those after a takeover would be the wrong failure
+# direction, and the safety pilot is exactly who might need them.
+
+_FLYING_VERBS = ["takeoff", "hold", "resume", "rtl", "land", "vehicle_arm"]
+
+
+@pytest.mark.parametrize("verb", _FLYING_VERBS)
+def test_a_pilot_owned_aircraft_refuses_every_flying_command(verb: str) -> None:
+    cmd = RecordingCommander(pilot_in_control=True)
+    eps = _endpoints(_state(), cmd, _armed())
+    route = f"/api/cmd/{verb}"
+    if route not in eps:
+        pytest.skip(f"{route} not mounted")
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(_call(eps[route], CommandRequest()))
+    assert exc.value.status_code == 409
+    assert cmd.calls == [], f"{verb} reached the FC after a takeover"
+
+
+@pytest.mark.parametrize("verb, expect", [("kill", "abort"),
+                                          ("vehicle_disarm", "action.disarm")])
+def test_safing_commands_still_work_after_a_takeover(verb: str, expect: str) -> None:
+    """The pilot may have taken over BECAUSE something is wrong. Do not take
+    the kill switch away from them."""
+    cmd = RecordingCommander(pilot_in_control=True)
+    eps = _endpoints(_state(), cmd, _armed())
+    asyncio.run(_call(eps[f"/api/cmd/{verb}"], CommandRequest()))
+    assert cmd.calls == [expect]
+
+
+def test_nothing_changes_while_the_pilot_has_not_taken_over() -> None:
+    """The guard reads a latch that is False for the whole normal mission —
+    pin that it costs the ordinary path nothing."""
+    cmd = RecordingCommander()
+    eps = _endpoints(_state(), cmd, _armed())
+    asyncio.run(_call(eps["/api/cmd/vehicle_arm"], CommandRequest()))
+    assert cmd.calls == ["action.arm"]

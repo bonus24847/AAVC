@@ -31,6 +31,14 @@ attached, got silence from every request while MAVSDK on the same link answered
 every one — a preflight check that reports "cannot read the motor map" on a
 healthy aircraft is worse than none, because the next person learns to ignore it.
 
+**BOOT-LATCHED** — read from the field config in force (``.aavc_site``, or
+``--config``), and checked as a BOARD-class STOP. ``EKF2_HGT_REF`` is the
+member that matters: the EKF latches its height reference the first time any
+source fuses, so the mission-start push cannot change the flight about to
+happen — only the value the board BOOTED with counts. It has already cost a
+flight (2026-08-20, GPS reference, 10.8 m of baro-vs-GPS divergence and a
+phantom ceiling breach that RTH'd a healthy flight).
+
 Exit code: 0 all BOARD params correct · 2 a BOARD mismatch (do not fly) ·
 3 no link.
 """
@@ -41,6 +49,8 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
+
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -109,6 +119,59 @@ PINNED: dict[str, float] = {
     "COM_DISARM_LAND": -1,            # stay armed on a mid-flight pad landing
     "MAV_1_FORWARD": 1,               # CM4 -> radio STATUSTEXT
 }
+
+# ── params the EKF LATCHES AT BOOT: a mission-start push cannot fix them ──
+#
+# ``EKF2_HGT_REF`` decides which sensor the whole flight's altitude is measured
+# against, and ``Ekf::checkHeightSensorRefFallback`` (EKF/height_control.cpp:61)
+# returns early once any height source is fusing — the parameter is read only
+# BEFORE that guard. So the value that matters is the one the board held when it
+# BOOTED; ``apply_param_overrides`` writing it at mission start changes the next
+# flight, not this one. That makes it a BOARD-class check even though the config
+# carries it, and it is why it appears in neither list until now.
+#
+# It has already cost a flight. 2026-08-20 at KMUTNB, on ``EKF2_HGT_REF=1``
+# (GPS): baro-vs-GPS divergence 10.8 m peak-to-peak, a "ceiling breach" at
+# 12.0 m against a 10 m ceiling, and the watchdog RTH'd a flight that was
+# tracking transit to 1.7-1.8 m. Flight 3 the same afternoon on ``=0`` (baro)
+# flew transit 3/3 at 1.4-2.0 m with no altitude event at all.
+#
+# The EXPECTED value comes from the field config in force rather than a
+# constant here, because the two fields disagree today and a check that is
+# wrong at one of them is a check that gets ignored at both.
+BOOT_LATCHED: tuple[str, ...] = ("EKF2_HGT_REF",)
+
+
+def _active_config_path(explicit: str | None) -> Path | None:
+    """The config this repo flies: ``--config``, else ``.aavc_site``'s."""
+    if explicit:
+        return Path(explicit)
+    site = Path(__file__).resolve().parents[1] / ".aavc_site"
+    if not site.exists():
+        return None
+    for line in site.read_text().splitlines():
+        if line.strip().startswith("AAVC_CONFIG="):
+            raw = line.split("=", 1)[1].strip().strip('"')
+            # AAVC_CONFIG="${AAVC_CONFIG:-sitl/aavc_config.yaml}"
+            if ":-" in raw:
+                raw = raw.split(":-", 1)[1].rstrip("}").strip('"')
+            return Path(__file__).resolve().parents[1] / raw
+    return None
+
+
+def boot_latched_expected(config_path: Path | None) -> dict[str, float]:
+    """What the BOARD must already hold, read from the field config's own
+    ``px4_tuning`` block. Empty when the config cannot be read — the check then
+    simply does not run, rather than inventing a value to compare against."""
+    if config_path is None or not config_path.exists():
+        return {}
+    try:
+        cfg = yaml.safe_load(config_path.read_text()) or {}
+    except Exception:  # noqa: BLE001 — a broken config is the caller's problem
+        return {}
+    tuning = cfg.get("px4_tuning") or {}
+    return {k: float(tuning[k]) for k in BOOT_LATCHED if k in tuning}
+
 
 # Params where reading the value back proves the board STORED it and nothing
 # more — the module or estimator using it latched its copy at boot, so a value
@@ -185,7 +248,8 @@ def _report(title: str, expected: dict[str, float], got: dict[str, float],
     return off
 
 
-async def _run(endpoint: str, *, strict: bool = False) -> int:
+async def _run(endpoint: str, *, strict: bool = False,
+               config: str | None = None) -> int:
     print(f"[preflight] {endpoint}")
     commander = DroneCommander(ConnectionConfig(system_address=endpoint))
     try:
@@ -195,8 +259,16 @@ async def _run(endpoint: str, *, strict: bool = False) -> int:
               "เสียบแพ็คแล้วหรือยัง / mavlink-router ขึ้นไหม")
         return 3
 
-    got = await _read(commander, list(BOARD) + list(PINNED))
+    cfg_path = _active_config_path(config)
+    latched = boot_latched_expected(cfg_path)
+    got = await _read(commander, list(BOARD) + list(latched) + list(PINNED))
     bad = _report("ต้องถูกบนบอร์ดเอง (ไม่มีใครแก้ให้):", BOARD, got, fatal=True)
+    if latched:
+        bad += _report(
+            f"EKF ล็อกตอนบูต — push ตอนสตาร์ตไม่ทัน ({cfg_path.name}):",
+            latched, got, fatal=True)
+    elif cfg_path is not None:
+        print(f"\n(ข้าม boot-latched: อ่าน {cfg_path} ไม่ได้)")
     pinned_off = _report(
         "mission เขียนให้ตอนสตาร์ต (ค่าโต๊ะ = ปกติ):", PINNED, got, fatal=strict)
 
@@ -225,8 +297,11 @@ def main() -> int:
                     help="PINNED mismatches exit 4 — use AFTER the orchestrator "
                          "has staged (it pushes the pins at connect); at the "
                          "bench they are informational")
+    ap.add_argument("--config",
+                    help="field config whose px4_tuning holds the boot-latched "
+                         "values to check (default: the one .aavc_site names)")
     args = ap.parse_args()
-    return asyncio.run(_run(args.connect, strict=args.strict))
+    return asyncio.run(_run(args.connect, strict=args.strict, config=args.config))
 
 
 if __name__ == "__main__":

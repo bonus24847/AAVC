@@ -346,6 +346,15 @@ class DroneCommander:
         aircraft is the pilot's until they land it."""
         self._pilot_in_control = True
 
+    @property
+    def pilot_in_control(self) -> bool:
+        """True once the pilot has taken the aircraft (latched by stand_down).
+
+        Public so callers OUTSIDE this class can refuse before they act rather
+        than discovering it from an exception: the dashboard's raw dispatches
+        reach ``system.action.*`` directly and never touch ``_guard_pilot``."""
+        return self._pilot_in_control
+
     def _guard_pilot(self, what: str) -> None:
         if self._pilot_in_control:
             raise PilotInControlError(f"pilot has the aircraft — refusing to {what}")
