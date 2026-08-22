@@ -100,8 +100,15 @@ def test_an_unreadable_config_skips_the_check_instead_of_inventing_a_value() -> 
 
 
 def test_the_site_marker_names_the_config_this_repo_flies() -> None:
+    """Deliberately NOT pinned to a filename: this suite is synced verbatim to
+    the competition repo, whose .aavc_site names the other field. What must
+    hold in both is that the tool checks the config THIS repo actually flies,
+    and reads the expectation out of that file rather than a constant."""
+    import yaml
+
     from tools.preflight_params import _active_config_path, boot_latched_expected
 
     p = _active_config_path(None)
-    assert p is not None and p.name == "aavc_config.yaml"   # this is aavc-practice
-    assert boot_latched_expected(p) == {"EKF2_HGT_REF": 0.0}
+    assert p is not None and p.exists(), ".aavc_site names no readable config"
+    want = (yaml.safe_load(p.read_text()) or {})["px4_tuning"]["EKF2_HGT_REF"]
+    assert boot_latched_expected(p) == {"EKF2_HGT_REF": float(want)}
