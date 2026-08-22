@@ -13,6 +13,7 @@ import math
 from mission_brain.schemas import Coordinate
 from mission_brain.search_pattern import build_search_pattern
 from orchestrator.safety import _point_in_polygon
+from vision.projection import CameraModel
 
 # The real AAVC controlled airspace (ENU bbox x=-5..235, y=-35..35 about the
 # site centre) and a home near the SW corner, as in sitl/aavc_config.yaml.
@@ -162,3 +163,72 @@ def test_axis_deg_none_is_bit_for_bit_legacy() -> None:
                              axis_deg=None)
     assert [(w.lat, w.lon, w.alt_m) for w in a.waypoints] == \
            [(w.lat, w.lon, w.alt_m) for w in b.waypoints]
+
+
+# ── the heading the sweep holds (2026-08-22) ───────────────────────────────
+#
+# Field root cause, from ULog 08_11_09 of 2026-08-20: every goto passed a NaN
+# yaw, so PX4 fell through to MPC_YAW_MODE — factory 0, "towards waypoint" —
+# and turned the nose at each sweep waypoint. The commanded heading walked
+# 145->119->94->69->44->18->353->... through a full circle at the 25 deg/s cap:
+# 867 deg of yaw in 122 s. The camera is bolted to the body, so 1 of 457
+# recorded frames decoded. The sweep now names the heading it wants.
+
+def test_sweep_holds_a_heading_that_puts_the_wide_axis_across_the_legs() -> None:
+    """Wide (1280 px) axis across track <=> nose along the legs, at mount 0."""
+    area = [(13.731239, 100.787824), (13.731359, 100.789916),
+            (13.730703, 100.789776), (13.730723, 100.787840)]
+    home = Coordinate(lat=13.730322, lon=100.787446)
+    spec = build_search_pattern(area, home, sweep_alt_m=12.0, overlap_frac=0.44,
+                                margin_m=5.0, speed_mps=3.0, ceiling_m=20.0,
+                                axis_deg=87.0)
+    assert abs(spec.leg_bearing_deg - 87.0) < 1e-6
+    assert abs(spec.sweep_yaw_deg - 87.0) < 1e-6
+
+
+def test_a_rotated_camera_mount_turns_the_held_heading_with_it() -> None:
+    """The heading is derived, not assumed: bolt the camera 90 deg round and
+    the aircraft must fly the legs sideways to keep the same ground footprint."""
+    area = [(13.731239, 100.787824), (13.731359, 100.789916),
+            (13.730703, 100.789776), (13.730723, 100.787840)]
+    home = Coordinate(lat=13.730322, lon=100.787446)
+    for mount, want in ((90.0, 357.0), (180.0, 267.0), (270.0, 177.0)):
+        cam = CameraModel(name="nadir", mount_yaw_rad=math.radians(mount))
+        spec = build_search_pattern(area, home, sweep_alt_m=12.0,
+                                    overlap_frac=0.44, margin_m=5.0,
+                                    speed_mps=3.0, camera=cam, ceiling_m=20.0,
+                                    axis_deg=87.0)
+        assert abs(spec.sweep_yaw_deg - want) < 1e-6, f"mount {mount}"
+
+
+def test_an_enu_aligned_polygon_still_names_its_leg_bearing() -> None:
+    """No axis_deg: legs run along the longer bbox side — East or North."""
+    wide = [(13.8000, 100.5000), (13.8000, 100.5030),
+            (13.8004, 100.5030), (13.8004, 100.5000)]     # ~325 m E x 44 m N
+    spec = build_search_pattern(wide, Coordinate(lat=13.8000, lon=100.5000),
+                                sweep_alt_m=12.0, overlap_frac=0.44,
+                                margin_m=5.0, speed_mps=3.0, ceiling_m=20.0)
+    assert abs(spec.leg_bearing_deg - 90.0) < 1e-6      # legs run East
+    assert abs(spec.sweep_yaw_deg - 90.0) < 1e-6
+
+
+def test_overlap_044_makes_the_strips_survive_a_sideways_camera() -> None:
+    """The reason the shipped configs moved 0.30 -> 0.44: at 0.30 the legs are
+    spaced at 70% of the WIDE axis, which is only the cross-track footprint if
+    that axis is across track. If it is not, the real swath is the 720 px axis
+    and a 1 m pad fits inside the gap with room to spare."""
+    area = [(13.731239, 100.787824), (13.731359, 100.789916),
+            (13.730703, 100.789776), (13.730723, 100.787840)]
+    home = Coordinate(lat=13.730322, lon=100.787446)
+    # The REAL sensor, not the module default: the gap is a property of the
+    # 16:9 shape (720/1280 = 0.5625, so anything looser than 0.4375 can leave
+    # one). The 640x480 default is 4:3 and would hide this entirely.
+    cam = CameraModel(name="ov9281", width_px=1280, height_px=720)
+    kw = dict(sweep_alt_m=12.0, margin_m=5.0, speed_mps=3.0, ceiling_m=20.0,
+              axis_deg=87.0, camera=cam)
+    narrow = cam.height_px / cam.fx_px * 12.0           # 720 px axis on ground
+    loose = build_search_pattern(area, home, overlap_frac=0.30, **kw)
+    tight = build_search_pattern(area, home, overlap_frac=0.44, **kw)
+    assert loose.spacing_m - narrow > 1.0, "0.30 leaves a pad-sized gap"
+    assert tight.spacing_m <= narrow + 1e-6, "0.44 must close it at any mount"
+    assert tight.leg_count > loose.leg_count             # paid for in legs

@@ -124,6 +124,24 @@ single sortie" is history, not current design.)
   authority (the oblique cue camera was retired 2026-07-15 with the
   single-OV9281 hardware decision). The plan is rebuilt live per sortie
   (`mission_brain/live_plan.py`).
+  ⚠ **The search phase HOLDS ONE HEADING** (`SearchPlanSpec.sweep_yaw_deg`,
+  passed as `yaw_deg` on all four search-phase `goto`s, 2026-08-22). Every
+  `goto` used to send a NaN yaw, so PX4 fell through to `MPC_YAW_MODE` — the
+  factory **0 = "towards waypoint"** on all three 2026-08-20 flights — and
+  turned the nose at each sweep waypoint: the commanded heading walked a full
+  circle at the 25 °/s cap, **867° of yaw in 122 s** (ULog `08_11_09`), and the
+  body-fixed camera spun with it (1 of 457 frames decoded). A finite yaw in the
+  goto **beats the param** — PX4 reads the triplet yaw before ever consulting
+  `MPC_YAW_MODE` (`FlightTaskAuto.cpp:490-501`) — so the fix holds even if
+  `MPC_YAW_MODE=5` never lands (its PX4 metadata says `@max 4` while the enum
+  defines 5; it is in `preflight_params.py::PINNED` for exactly that reason).
+  The heading is DERIVED: `leg_bearing − cameras.nadir.mount_yaw_deg`, which
+  puts the camera's WIDE (1280 px) axis across track — the footprint
+  `swath_m` assumes. ⚠ `mount_yaw_deg` is **0.0 = UNMEASURED**; until it is
+  read off the aircraft, `overlap_frac` is **0.44** (spacing ≤ the NARROW
+  swath) so coverage survives any mount/heading combination. SITL cannot catch
+  either error: the gz camera shares the mounting assumption AND renders with
+  no exposure time, so smear does not exist in sim.
   SITL ground truth (`/tmp/aavc_targets.json`, now with `marker_id`) is used
   ONLY for the post-flight audit + `tools/verify_flight.py`, **never planning**.
 - **Single long-running orchestrator across the window** (operator 2026-07-03):

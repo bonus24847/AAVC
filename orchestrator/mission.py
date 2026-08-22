@@ -553,7 +553,18 @@ async def run_delivery_mission(
                 return
             _phase(MissionPhase.SEARCH)
             state.command_pointer = pointer_for(state.plan, wp_index=orig_i)
-            await commander.goto(wp.lat, wp.lon, sweep_alt)
+            # HOLD one heading for the whole search (2026-08-22). Passing a
+            # finite yaw is not cosmetic: PX4 takes the triplet yaw before it
+            # ever reads MPC_YAW_MODE (FlightTaskAuto.cpp:496), and with the
+            # NaN we used to send it fell through to that param — factory 0,
+            # "towards waypoint", which turned the nose at every sweep
+            # waypoint. Measured on the field: 867 deg of commanded yaw in one
+            # 122 s flight, the setpoint walking a full circle at the 25 deg/s
+            # cap. The camera is bolted to the body, so that was 1 of 457
+            # frames decodable. The value also places the WIDE image axis
+            # across track, which is the footprint search_pattern budgets for.
+            await commander.goto(wp.lat, wp.lon, sweep_alt,
+                                 yaw_deg=spec.sweep_yaw_deg)
             cur = _cur_latlon()
             leg_len = _latlon_dist_m(cur[0], cur[1], wp.lat, wp.lon) if cur else 0.0
             leg_timeout = 2.0 * leg_len / max(spec.speed_mps, 0.1) + _WAIT_PAD_S
@@ -607,7 +618,8 @@ async def run_delivery_mission(
             _phase(MissionPhase.SEARCH)
             logger.info(f"[mission] decode visit → candidate #{cand.target_id} "
                         f"({cand.lat:.7f},{cand.lon:.7f}) @ {decode_alt:.0f} m")
-            await commander.goto(cand.lat, cand.lon, decode_alt)
+            await commander.goto(cand.lat, cand.lon, decode_alt,
+                                 yaw_deg=spec.sweep_yaw_deg)
             await _wait_arrival((cand.lat, cand.lon), timeout_s=60.0)
             t0 = state.now()
             while _running() and (state.now() - t0) < decode_dwell_s:
@@ -662,7 +674,8 @@ async def run_delivery_mission(
             # own defer climb always lands below the 2.0 m branch above, not
             # in this band), but the next caller that leaves the aircraft
             # airborne mid-band should not have to rediscover I7 from scratch.
-            await commander.goto(t.lat, t.lon, sweep_alt)
+            await commander.goto(t.lat, t.lon, sweep_alt,
+                                 yaw_deg=spec.sweep_yaw_deg)
             if not await _wait_climb(sweep_alt, timeout_s=30.0):
                 logger.warning(
                     "[mission] climb-out to hop altitude timed out at "
@@ -723,7 +736,8 @@ async def run_delivery_mission(
             cur0 = _cur_latlon()
             d0 = (_latlon_dist_m(cur0[0], cur0[1], claimed.lat, claimed.lon)
                   if cur0 else 200.0)
-            await commander.goto(claimed.lat, claimed.lon, sweep_alt)
+            await commander.goto(claimed.lat, claimed.lon, sweep_alt,
+                                 yaw_deg=spec.sweep_yaw_deg)
             await _wait_arrival(
                 (claimed.lat, claimed.lon),
                 timeout_s=2.0 * d0 / max(spec.speed_mps, 0.1) + _WAIT_PAD_S)

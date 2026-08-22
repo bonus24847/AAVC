@@ -97,6 +97,15 @@ PINNED: dict[str, float] = {
     "EKF2_RNG_CTRL": 1,
     "EKF2_OF_CTRL": 0,                # no flow module in the kit
     "MPC_Z_V_AUTO_DN": 0.4,
+    # 5 = yaw fixed. Listed here for a REASON beyond completeness: PX4's own
+    # metadata for this param declares "@max 4" while its enum defines
+    # "@value 5 yaw fixed" and FlightTaskAuto handles it — so any layer that
+    # validates against the metadata (a GCS, a future param tool) would refuse
+    # the value the mission needs, and a heading param that silently stays at
+    # the factory 0 is what spun the camera through 867 deg in one 122 s flight
+    # on 2026-08-20 (ULog 08_11_09; 1 of 457 frames decodable). Reading it back
+    # after staging costs nothing and answers "did 5 actually land?".
+    "MPC_YAW_MODE": 5,
     "COM_DISARM_LAND": -1,            # stay armed on a mid-flight pad landing
     "MAV_1_FORWARD": 1,               # CM4 -> radio STATUSTEXT
 }

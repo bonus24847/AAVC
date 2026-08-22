@@ -93,6 +93,7 @@ class RecordingCommander(FakeCommander):
     def __init__(self, state: OrchestratorState) -> None:
         super().__init__(state)
         self.gotos: list[tuple[float, float, float]] = []
+        self.yaws: list[float] = []
         self.params: list[tuple[str, float]] = []
         self.events: list[str] = []
 
@@ -103,6 +104,7 @@ class RecordingCommander(FakeCommander):
     async def goto(self, lat: float, lon: float, alt_m: float,
                    yaw_deg: float = float("nan")) -> None:
         self.gotos.append((lat, lon, alt_m))
+        self.yaws.append(yaw_deg)
         self.events.append(f"goto@{alt_m:.1f}")
         await super().goto(lat, lon, alt_m, yaw_deg)
 
@@ -1775,3 +1777,48 @@ def test_the_flight_serves_by_route_not_by_the_operators_click_order(monkeypatch
     # follow the ROUTED order the aircraft actually flew — not stay on the click
     # order for the whole flight (the chip disagreed with the flight before).
     assert state.flight_ids == served, (state.flight_ids, served)
+
+
+def test_every_search_goto_commands_the_sweep_heading(monkeypatch) -> None:
+    """The sweep must NAME the heading it flies (root cause, 2026-08-20).
+
+    Every goto used to pass a NaN yaw, so PX4 fell through to MPC_YAW_MODE —
+    factory 0, "towards waypoint" — and turned the nose at each sweep waypoint.
+    ULog 08_11_09: the commanded heading walked 145->119->94->69->44->18->353->…
+    through a full circle at the 25 deg/s cap, 867 deg of yaw in a 122 s
+    flight, and the body-fixed camera spun with it (1 of 457 frames decoded).
+    A finite yaw in the goto beats the param outright — PX4 reads the triplet
+    yaw first (FlightTaskAuto.cpp:496) — so this pins that the search phase
+    always sends one, and always the SAME one (a heading that changes mid-sweep
+    is the bug wearing a different hat).
+    """
+    state = _state()
+    tracker = TargetTracker()
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", _fake_serve(state))
+    cmd = RecordingCommander(state)
+    spec = _spec()
+    wps = {(round(w.lat, 7), round(w.lon, 7)) for w in spec.waypoints}
+    real_goto = cmd.goto
+
+    async def goto_with_camera(lat, lon, alt_m, yaw_deg=float("nan")):
+        await real_goto(lat, lon, alt_m, yaw_deg)
+        if (round(lat, 7), round(lon, 7)) in wps:
+            _preload_pad(tracker, PAD3, 3)
+
+    monkeypatch.setattr(cmd, "goto", goto_with_camera)
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, spec, home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([3]), profile=COMPETITION))
+
+    sweep_yaws = [y for (la, lo, _), y in zip(cmd.gotos, cmd.yaws)
+                  if (round(la, 7), round(lo, 7)) in wps]
+    assert sweep_yaws, "no sweep waypoint was flown"
+    assert all(y == spec.sweep_yaw_deg for y in sweep_yaws), (
+        f"search gotos must all hold {spec.sweep_yaw_deg} deg, got "
+        f"{sorted(set(sweep_yaws))}")
+    # …and the transit legs are deliberately NOT forced: they carry no imaging
+    # requirement, and pinning a heading there would be scope the field has not
+    # asked for. NaN there means "keep whatever PX4 is holding".
+    transit_yaws = [y for (la, lo, _), y in zip(cmd.gotos, cmd.yaws)
+                    if (round(la, 7), round(lo, 7)) not in wps]
+    assert any(math.isnan(y) for y in transit_yaws)

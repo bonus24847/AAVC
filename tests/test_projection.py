@@ -203,3 +203,50 @@ def test_flight_callers_pass_attitude_into_the_projection() -> None:
         assert "roll_deg=" in call and "pitch_deg=" in call, (
             f"{mod.__name__} calls project_pixel without attitude — fixes will "
             "drift by ~alt*tan(tilt) with no gimbal to hold the camera down")
+
+
+# ── camera mount rotation (2026-08-22) ─────────────────────────────────────
+#
+# The camera is bolted to the body with no gimbal, and nothing recorded which
+# way round. A rotation about the optical axis has NO symptom except that every
+# pixel->lat/lon answer comes out rotated by that angle about the aircraft: at
+# the 12 m sweep a frame-edge pad sits ~9 m out, so 90 deg of mount error
+# reports it ~13 m from where it is. The aircraft flies to empty grass, never
+# re-acquires, and the tracker's cluster never confirms. SITL cannot catch it —
+# the gz camera and CameraModel share the assumption — so it is pinned here.
+
+def _bearing_range(fix, lat0: float, lon0: float) -> tuple[float, float]:
+    dn = fix.lat - lat0
+    de = (fix.lon - lon0) * math.cos(math.radians(lat0))
+    return (math.degrees(math.atan2(de, dn)) % 360.0,
+            math.hypot(de, dn) * 111_320.0)
+
+
+def test_mount_yaw_rotates_the_fix_and_keeps_the_range() -> None:
+    lat0, lon0, alt = 13.8228032, 100.5116267, 12.0
+    cam0 = CameraModel(name="nadir")
+    px = (cam0.width_px / 2.0 + 200.0, cam0.height_px / 2.0)   # right of centre
+    b0, r0 = _bearing_range(
+        project_pixel(px, lat0, lon0, alt, 0.0, cam0), lat0, lon0)
+    for deg in (90.0, 180.0, 270.0):
+        cam = CameraModel(name="nadir", mount_yaw_rad=math.radians(deg))
+        b, r = _bearing_range(
+            project_pixel(px, lat0, lon0, alt, 0.0, cam), lat0, lon0)
+        assert abs(r - r0) < 0.01, "a mount rotation must not move the RANGE"
+        assert abs((b - (b0 + deg)) % 360.0) < 0.05, (
+            f"mount {deg} deg should turn the fix by {deg} deg, got {b - b0}")
+
+
+def test_mount_yaw_zero_is_the_untouched_path() -> None:
+    """The guard exists so every pre-2026-08-22 projection stays bit-for-bit."""
+    lat0, lon0 = 13.8228032, 100.5116267
+    plain = CameraModel(name="nadir")
+    explicit = CameraModel(name="nadir", mount_yaw_rad=0.0)
+    for px in ((10.0, 10.0), (640.0, 360.0), (1270.0, 700.0)):
+        a = project_pixel(px, lat0, lon0, 12.0, 37.0, plain,
+                          roll_deg=8.0, pitch_deg=-5.0)
+        b = project_pixel(px, lat0, lon0, 12.0, 37.0, explicit,
+                          roll_deg=8.0, pitch_deg=-5.0)
+        assert (a is None) == (b is None)
+        if a is not None and b is not None:
+            assert a.lat == b.lat and a.lon == b.lon

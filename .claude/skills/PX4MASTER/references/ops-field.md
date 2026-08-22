@@ -492,6 +492,71 @@ other repo's operator decides.
       `gcs/kmutnb_field.yaml` when this field's console reads
       `aavc-gcs/aavc_field.yaml`. None are read by code. All of them are read
       by whoever writes the briefing.
+### 2026-08-22 — the camera was spinning because nobody ever chose a heading
+
+- [x] 🔴 **ROOT CAUSE FOUND for the in-flight blur: `MPC_YAW_MODE` sat at PX4's
+      factory 0 = "towards waypoint" on all three 2026-08-20 flights**, and the
+      repo never pushed that param until 2026-08-21. Operator saw it from the
+      field first — "โดรนหมุนตัวครบ 360 องศาขณะกำลังไปข้างหน้าเพื่อ scan หา pad".
+      **Confirmed in the logs, from the SETPOINT side, which is what makes it a
+      command and not a drift:** ULog `08_11_09.ulg` — the commanded heading
+      walks 144.8 → 119 → 94 → 69 → 44 → 18 → 353 → 327 → 302 → 276 → 249 →
+      223 …, a full circle at ~25 °/s (= `MPC_YAWRAUTO_MAX`), **867° of yaw
+      travel in a 122 s flight** (2.4 turns); flight 2 459°; flight 1 147°.
+      Alternatives falsified in the same read: `WV_EN=0` (no weathervane), and
+      the *setpoint* moving rules out an EKF/mag yaw drift the controller was
+      merely chasing.
+      **Mechanism:** the mission flies entirely on `goto_location`
+      (DO_REPOSITION) with `yaw_deg` left at its `NaN` default, and PX4's
+      `FlightTaskAuto` only reaches `_set_heading_from_mode()` — i.e.
+      `MPC_YAW_MODE` — when the triplet yaw is NOT finite
+      (`FlightTaskAuto.cpp:490-501`). NaN yaw + factory param = "point the nose
+      at the next waypoint", and a boustrophedon sweep alternates leg direction
+      by 180°, so the aircraft turned at every leg end. The nadir camera is
+      bolted to the body: that is the rotational half of the blur, and it is
+      why only **1 of 457** recorded frames decoded.
+      **Fixed three ways, deliberately overlapping:** (a) `MPC_YAW_MODE: 5`
+      (yaw fixed) has been in the config since 2026-08-21 but **has never
+      flown**; (b) the search phase now passes an explicit
+      `yaw_deg=spec.sweep_yaw_deg` on all four of its gotos, which **beats the
+      param outright** because PX4 takes the triplet yaw first — so this works
+      even if 5 never lands; (c) `MPC_YAW_MODE` joins
+      `tools/preflight_params.py::PINNED` so a staged aircraft can be asked
+      whether 5 actually stuck. ⚠ That last one is not paranoia: PX4's own
+      metadata for the param declares `@max 4` while its enum defines
+      `@value 5 yaw fixed` and the switch handles it — a validating layer would
+      refuse exactly the value the mission needs.
+      **Lesson:** a NaN is a decision to let someone else decide. Every
+      `goto` in this repo passed one for a year, and the someone else was a
+      factory default nobody had read.
+- [x] **The sweep heading is now DERIVED, not inherited.**
+      `SearchPlanSpec.sweep_yaw_deg = leg_bearing − CameraModel.mount_yaw_rad`
+      places the camera's WIDE (1280 px) image axis across track — the
+      footprint `swath_m` has always assumed and `search_pattern.py`'s own
+      docstring has always flagged as unvalidated. Before this the orientation
+      was whatever heading the aircraft happened to hold, i.e. **how the crew
+      set it down on the pad**: wrong way round the real swath is the 720 px
+      axis (0.5625×), 10.2 m instead of 18.2 m at 12 m, against a planned
+      12.7 m spacing — a **2.50 m gap per strip**, and a 1 m pad fits inside
+      with 1.5 m to spare.
+- [x] `overlap_frac` **0.30 → 0.44** in BOTH field configs — belt-and-braces
+      under the heading fix: it makes spacing ≤ the NARROW swath, so coverage
+      is complete at any mount/heading combination. 0.4375 is the 16:9 break-
+      even (720/1280); the 640×480 module default is 4:3 and would have hidden
+      the whole problem, which is why the test builds an explicit 1280×720
+      camera. Cost +1 leg at KMITL. Drop back to 0.30 only once
+      `mount_yaw_deg` is MEASURED.
+- [ ] **MEASURE `cameras.nadir.mount_yaw_deg` — still 0.0 = an assumption, not
+      a reading** (operator not on site 2026-08-22). Marker 1 m in FRONT of the
+      nose, one nadir frame, see which image axis it moved along and which way.
+      It sets both the projection bearing (a 90° error reports a frame-edge pad
+      ~13 m from where it is at the 12 m sweep — the aircraft flies to empty
+      grass and the cluster never confirms) and the heading the sweep holds.
+      ⚠ **SITL cannot catch an error here, and cannot catch the blur either:**
+      the gz camera shares `CameraModel`'s mounting assumption, and it renders
+      instantaneously — a simulated shutter has no exposure time, so rotational
+      and translational smear do not exist in sim by construction. That is the
+      whole gap between "G4′ 4/4 in SITL" and "2/6 on the field".
 - [ ] **There is no KMITL SITL world, and the config now says so.**
       `sitl/launch_sitl.sh` spawns on `kmutnb_skyfield.sdf` at the practice
       L&R, and `tools/gen_geo.py` holds the KMUTNB pitch geometry only — so a
