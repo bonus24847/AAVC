@@ -15,6 +15,9 @@ File contract (aavc_gcs.py header + its ``aavcEN`` map helper)::
      "pads_mapped": {"<marker_id>": [east_m, north_m]},
      "pads_identified": {"<marker_id>": [east_m, north_m]},   # orange lane
      "plan": [[lat, lon, kind, seq], ...], "plan_ptr": int,   # console map path
+     #   plan_ptr is the DISPLAY seq of the leg being flown (1-based, matching
+     #   the seq column), NOT an index into the mission's command list — the
+     #   two differ wherever a command carries no coordinate.
      "run": str,                                             # mission run id
      "updated": epoch}
 
@@ -184,7 +187,9 @@ class GcsMissionStatus:
 
     def set_plan(self, points: list[list[Any]], pointer: int) -> None:
         """Replace the console-map plan path ([[lat, lon, kind, seq], …]) and
-        the index of the leg being flown. Written on CHANGE only: a rebuild
+        the DISPLAY seq of the leg being flown (see the file contract above:
+        the caller translates, because command index != drawn index). Written
+        on CHANGE only: a rebuild
         fires per gate release and per serve (cheap), but the pointer rides
         every rebuild too, so identical payloads short-circuit."""
         with self._lock:

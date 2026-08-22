@@ -36,7 +36,7 @@ import numpy as np
 from loguru import logger
 
 from mission_brain.schemas import DetectedTarget, MissionPhase, VisionAnalysis
-from vision.detectors.aruco import find_landing_pads
+from vision.detectors.aruco import DECODE_STATS, find_landing_pads
 from vision.projection import NADIR, CameraModel, project_pixel
 
 from .state import OrchestratorState, TerminalState
@@ -193,6 +193,17 @@ class VisionWorker:
         if self._task:
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)
+        # One line that says which decode pass actually earned its keep. The
+        # 4x ROI booster runs a second full detector pass per undecoded blob;
+        # only a real flight over a printed marker can show whether it ever
+        # produces a decode the full-frame pass missed (synthetic frames said
+        # no — see DECODE_STATS in vision/detectors/aruco.py). Logged at
+        # shutdown so the answer is in every flight log, not a special run.
+        logger.info(
+            f"[vision] decode provenance: frames={DECODE_STATS['frames']} "
+            f"direct={DECODE_STATS['direct']} boosted={DECODE_STATS['boosted']} "
+            f"cue_only={DECODE_STATS['cue_only']}"
+        )
 
     async def _run(self) -> None:
         if self.decode_workers > 1:

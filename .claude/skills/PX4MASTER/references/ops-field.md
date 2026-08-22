@@ -395,8 +395,51 @@ other repo's operator decides.
       checked 2026-08-21 before raising the frame rate. Frame files therefore
       cost no SD wear and no SD write latency at any rate we can produce,
       which is what makes 25 Hz frames a free choice rather than a trade.
-- [ ] aavc-gcs launcher `start_infra` sshes as the LOCAL username
+- [x] aavc-gcs launcher `start_infra` sshed as the LOCAL username
       (`bonus-linux@10.42.0.1` → Permission denied, seen 2026-08-21 on
-      console restart) instead of `drone@` — harmless while the CM4 stack is
-      already up, but the auto-start path is broken; fix the user default in
-      the launcher.
+      console restart) instead of `drone@` — harmless while the CM4 stack was
+      already up, which is exactly why it went unnoticed. FIXED 2026-08-21
+      (aavc-gcs `efbab6e`): `_maybe_start_infra` now takes the full
+      `user@host` AND the `-i` identity out of the GO command
+      (`_mission_cmd_ssh_target` / `_mission_cmd_ssh_identity`) instead of the
+      bare hostname the TCP probe works with. The CM4 key is not `id_rsa`, so
+      the identity mattered as much as the user.
+
+### The two items Tier 4 left open — both closed 2026-08-22 (operator: "จัดเลย")
+
+- [x] **The mission route could not reach a real flight** (review 3.9). The
+      polyline shipped 2026-08-21 drew in SITL and was invisible where it was
+      needed: the plan is written on the CM4, a STATUSTEXT packet is 50 chars,
+      and the laptop kept no copy. Closed with the NARROW option —
+      `_maybe_pull_plan()` ssh-`cat`s `mission_status.json` at most every 8 s
+      and only while the ssh probe says the CM4 answers; `_plan_from_status()`
+      keeps the plan fields and nothing else. That is not a rollback of the
+      2026-08-18 radio-only rule: phase, pads, camera health and home-reason
+      stay on the beacon precisely BECAUSE a WiFi copy of those freezes on
+      link loss and then contradicts the radio. A route cannot fail that way —
+      it is what the aircraft was TOLD to fly, it first exists at gate release
+      with the aircraft still at L&R in WiFi range, and once the link drops the
+      map keeps it faded and labelled "ค่าล่าสุด — ลิงก์ขาด". A failed read
+      returns `None`, never an empty plan, so out-of-range never wipes the map.
+      ⚠ Found on the way, and the reason the pointer was never drawn:
+      `plan_ptr` was a COMMAND index handed to a map that indexes DRAWN
+      waypoints. Every skipped command (DROP_PAYLOAD, anything without a
+      coordinate) slides the two apart, so it could only ever have highlighted
+      a stop the aircraft had already left. `_plan_pusher` now translates it,
+      and the leg being flown draws large and orange. **Lesson worth keeping:
+      an index is only meaningful next to the list it indexes — shipping one
+      across a process boundary without its list is how a feature ends up
+      "working" and never drawing.**
+- [x] **×4 ROI decode booster: KEPT, and now measurable.** 32 synthetic
+      conditions produced zero decodes only it could make, which is an argument
+      to delete a decode path — on evidence that cannot cover the case it was
+      written for (real optics: motion blur, a marker printed on cloth, sun
+      glare in the quiet zone). Deleting it two days before a flight on that
+      basis is the wrong direction of risk, so the question was made
+      answerable instead of re-argued: `vision/detectors/aruco.py::DECODE_STATS`
+      counts `frames/direct/boosted/cue_only`, and `vision_worker.stop()` logs
+      `[vision] decode provenance: …` at the end of EVERY flight. `boosted=0`
+      after a real hover over a printed marker deletes it; anything else keeps
+      it. **The rule this encodes: when synthetic evidence disagrees with a
+      component's stated purpose, instrument it — do not let the cheaper
+      evidence win by default.**

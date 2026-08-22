@@ -104,6 +104,26 @@ _BOOST_MAX_SIDE = 220.0        # only boost candidates smaller than this (px)
 _CONF_DECODED = 0.95
 _CONF_CUE_MAX = 0.80
 
+# ── decode provenance counters (diagnostic only — no flight path reads them) ──
+# WHICH pass produced each hit, counted for the life of the process. The ROI
+# upscale booster (``_boost_decode``) costs a resize plus a second full detector
+# pass per undecoded blob, and 32 synthetic conditions measured 2026-08-22 found
+# ZERO decodes that were its alone — but a synthetic render is exactly where a
+# booster written for REAL optics (motion blur, a marker printed on cloth, sun
+# glare washing the quiet zone) cannot show what it is for. So rather than
+# delete a decode path on evidence that cannot cover the case, count it:
+# ``boosted`` still 0 after a real hover over a printed marker is the
+# measurement that settles keeping or removing it.
+# ``orchestrator/vision_worker.py`` logs this once at shutdown. Incremented from
+# the decode threads without a lock on purpose — a miscount of one in a
+# diagnostic counter is cheaper than a lock on the per-frame path.
+DECODE_STATS: dict[str, int] = {
+    "frames": 0,        # frames that reached the detector
+    "direct": 0,        # ids decoded by the first, full-frame pass
+    "boosted": 0,       # ids that ONLY the 4x ROI re-decode produced
+    "cue_only": 0,      # white-pad blobs that stayed undecoded either way
+}
+
 
 @dataclass(frozen=True)
 class PadHit:
@@ -305,6 +325,8 @@ def find_landing_pads(
 
     decoded = _marker_hits(gray, valid_ids=valid_ids)
     blobs = _pad_blobs(img_bgr, gray)
+    DECODE_STATS["frames"] += 1
+    DECODE_STATS["direct"] += len(decoded)
 
     # Upgrade undecoded blobs via the upscale booster; drop blobs that overlap
     # a decoded marker (same pad seen by both passes — decode wins).
@@ -315,6 +337,7 @@ def find_landing_pads(
         if near:
             continue
         boosted = _boost_decode(gray, b, valid_ids=valid_ids)
+        DECODE_STATS["boosted" if boosted is not None else "cue_only"] += 1
         out.append(boosted if boosted is not None else b)
 
     out.sort(key=lambda p: (not p.decoded, -p.confidence))

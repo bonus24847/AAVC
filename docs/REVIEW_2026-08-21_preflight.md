@@ -309,7 +309,7 @@ A bit-for-bit reproduction of the abort that motivated this whole day.
 | 3.6 ✅ | `orchestrator/main.py:1072-1088` | The new `align:` seam casts straight into the dataclass with no bounds check. `lock_cycles: 0` makes `final_locked = 0 >= 0` true — the centred-LAND gate added after the 2.46 m off-pad release is **bypassed**, and every rung breaks on the first fix. A YAML typo is a land-anywhere switch. |
 | 3.7 ✅ | `orchestrator/gcs_status.py:411-413` | `_write()` builds the doc under the lock but does the file ops outside it, through **one shared temp name**. Two threads (vision, now ~10 Hz, and the loop) can tear the file; the beacon then reads it, gets `None`, and broadcasts a spurious `p=idle` mid-flight. |
 | 3.8 ✅ | `src/aavc_gcs.py:3639` | The plan polyline is drawn **without** the staleness gate and cached in `window.PLAN_KEEP`, which is never cleared. A leftover SITL `mission_status.json` paints yesterday's simulated route over the real field, unmarked, for the life of the page. |
-| 3.9 ⏸ **OPERATOR DECISION** | — | **Fix 3 cannot reach a real flight at all**: `status_sync.sh` is deliberately not started by the real launchers and the beacon carries no `plan`, so the polyline is written on the CM4 and never copied to the laptop. Either start the sync (the plan is a few KB, written while WiFi is still up at L&R) or drop the feature until it is. **Left open deliberately (2026-08-22):** both options change a LOCKED decision — the real console was made radio-only on 2026-08-18 on the operator's own instruction ("เอาไหนที่ใช้วิทยุไม่ได้ เอาออกเลย"), so restoring any WiFi puller, even one scoped to the few-KB plan, is the operator's call and not a bug fix. Everything else about the plan feature now works: it is written, run-scoped, staleness-styled, and it already draws on the SITL/WiFi console. |
+| 3.9 ✅ **CLOSED 2026-08-22** | `aavc_gcs.py`, `orchestrator/main.py`, `orchestrator/gcs_status.py` | **Fix 3 cannot reach a real flight at all**: `status_sync.sh` is deliberately not started by the real launchers and the beacon carries no `plan`, so the polyline is written on the CM4 and never copied to the laptop. Either start the sync (the plan is a few KB, written while WiFi is still up at L&R) or drop the feature until it is. **RESOLVED 2026-08-22 (operator: "จัดเลย")** with the narrow option: `_maybe_pull_plan()` ssh-`cat`s the CM4's `mission_status.json` at most every 8 s **while the ssh probe says the CM4 answers**, and `_plan_from_status()` keeps the plan fields ONLY. That is deliberately not a rollback of the radio-only rule: phase, pads, camera health and home-reason still come off the beacon and always will, because a WiFi copy of those freezes on link loss and then contradicts the radio. A route cannot fail that way — it is what the aircraft was TOLD to fly, it first exists at gate release with the aircraft still at L&R in WiFi range, and once the link goes the map keeps it faded and labelled last-known. A failed read never clears a good plan (parse returns `None`, not empty). Also fixed on the way: `plan_ptr` was a COMMAND index being handed to a map that indexes DRAWN waypoints — off by however many DROP_PAYLOADs precede it, which is why nothing ever drew it. `orchestrator/main.py::_plan_pusher` now translates it, and the leg being flown draws large and orange (`.planseq.now`, "กำลังบินไป"). Tests: `~/Desktop/aavc-gcs/tests/test_plan_feed.py` (7). |
 
 ---
 
@@ -347,11 +347,16 @@ with 0/0 deliveries.
 
 **Vision:** ✅ `hitl_synthetic_camera.py` now holds the MEASURED 74.2° FOV
 (1.295 rad) — every prior HITL "validation" of the vision chain was rendering
-pads 1.57× off in ground offset · ⏸ the ×4 ROI booster (zero decodes across
-32 synthetic conditions) is left in: the synthetic set is not the real-marker
-daylight case it was written for, and removing a decode path two days before
-a flight on synthetic evidence is the wrong direction of risk — decide it with
-real hover frames · ⏸ the size prior reducing to `alt_reported / alt_true`
+pads 1.57× off in ground offset · ✅ the ×4 ROI booster (zero decodes across
+32 synthetic conditions) is KEPT and now MEASURED: the synthetic set is not the
+real-marker daylight case it was written for, and removing a decode path two
+days before a flight on synthetic evidence is the wrong direction of risk — so
+instead of guessing again, `vision/detectors/aruco.py::DECODE_STATS` counts
+which pass earned each hit and `vision_worker.stop()` logs
+`decode provenance: frames=… direct=… boosted=… cue_only=…` at the end of every
+flight. `boosted=0` after a real hover over a printed marker is what deletes
+it; anything else keeps it, and either way the answer comes from the field log
+rather than another synthetic run · ⏸ the size prior reducing to `alt_reported / alt_true`
 and ⏸ the missing camera roll/yaw mount parameter both need a real measurement
 first.
 
