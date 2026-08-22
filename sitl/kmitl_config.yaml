@@ -113,7 +113,21 @@ ground_operation:
 # /tmp/aavc_targets.json — used ONLY for the post-flight --truth-json audit and
 # tools/verify_flight.py, NEVER for planning.
 search:
-  sweep_alt_m: 8.0         # RAISED AGAIN 4.5 -> 8.0 on 2026-08-18 with the
+  # ⚠ 8.0 -> 12.0 on 2026-08-22 (full-system review, finding F1). 8.0 was
+  # tuned for the KMUTNB practice field's 10 m CEILING and is illegal here:
+  # the rules fly the search area in a 10-20 m band, and nothing in the code
+  # clamps a sweep altitude UPWARD (search_pattern and mission both use min()),
+  # so every sweep sample was below the floor and safety.py logged
+  # below_search_floor continuously into an audit the judges may read.
+  # It also did not fit the pack. Computed on the real KMITL polygon
+  # (227 x 74 m) with the measured 74.2 deg lens:
+  #    8.0 m -> 8 legs, 644 s sweep, 1078 s mission, 12.88 Ah  (pack has 12.75)
+  #   12.0 m -> 5 legs, 407 s sweep,  841 s mission, 10.04 Ah  <- chosen
+  #   19.0 m -> 4 legs, 327 s sweep,  761 s mission,  9.09 Ah  (marker 17.8 px,
+  #                                    on the detector's validated 18 px floor)
+  # 12 m keeps the 400 mm marker at 28 px and leaves ~360 mAh of headroom.
+  sweep_alt_m: 12.0        # was 8.0 (KMUTNB-sized); see above. Original note:
+                           # RAISED AGAIN 4.5 -> 8.0 on 2026-08-18 with the
                            # ceiling now 10 m (operator): the measured 74.2°
                            # lens at 4.x m needed 20-26 legs and drained the
                            # 7500 pack before the eggs (0/4 then 2/4 in SITL).
@@ -175,11 +189,22 @@ search:
   decode_dwell_s: 4.0      # hover time over an unidentified candidate to decode its ID
   serve_cost_s: 80.0       # time budget: align + land-ON + release + climb out
                            # (shorter rungs from 4 m; re-measure at G4-KMUTNB)
-  sortie_cost_s: 240.0     # time budget: FULL-SWEEP sortie (~340 m sweep path at
-                           # 3 m/s + turns; re-measure at G4-KMUTNB)
-  known_sortie_cost_s: 140.0  # registry-known sortie, no search (re-measure)
-  rth_reserve_s: 45.0      # time budget: egress + land at L&R from the far side
-                           # (the far corner is only ~75 m out)
+  # ⚠ All three were KMUTNB-sized numbers left in a KMITL file (review F5,
+  # 2026-08-22). The gate that decides whether another flight/delivery fits
+  # the window was computing against a field a third of the size, so it
+  # approved work it could not finish — and the per-delivery abort gate reads
+  # the same numbers, so it could not catch it either.
+  sortie_cost_s: 420.0     # FULL-SWEEP sortie. The real sweep of the 227 x 74 m
+                           # KMITL polygon at the new 12 m is 407 s (5 legs at
+                           # 3 m/s + turns); 240 under-estimated it by 2.7x.
+  known_sortie_cost_s: 280.0  # registry-known sortie, no search: the far pad is
+                           # 291 m from L&R = ~97 s each way at MPC_XY_CRUISE
+                           # 3.0, plus one serve. 140 was the KMUTNB number.
+  rth_reserve_s: 120.0     # egress + land at L&R from the FAR side. Measured:
+                           # the far corner of the search polygon is 291 m out,
+                           # ~97 s of flight before the wheels touch — the old
+                           # 45 s came with a comment saying "the far corner is
+                           # only ~75 m out", which is the practice field.
   # Pads PLACED on the field (event briefing: 6 physical pads; sitl.n_pads
   # spawns all of them) — NOT the rules' old "up to four (4)", which is how
   # many the committee ASSIGNS per team (mission.assigned_marker_ids / the
@@ -498,9 +523,17 @@ px4_tuning:
                             # (KMUTNB: 10 -> 4, scaled into the 5 m band)
   MPC_LAND_ALT2: 2.0        # final crawl speed below 2 m AGL (was 5)
   # Any failsafe RTL (geofence, datalink loss, watchdog) climbs to RTL_RETURN_ALT
-  # first — PX4's default 60 m would smash through the 10 m ceiling. Emergency
+  # first — PX4's default 60 m would smash through the ceiling. Emergency
   # egress is a direct line home just under ceiling height.
-  RTL_RETURN_ALT: 9.0       # failsafe return altitude (m AGL); PX4 default 60
+  # ⚠ 9.0 -> 19.5 on 2026-08-22 (review F7). 9.0 is the KMUTNB number: correct
+  # under that field's 10 m ceiling, and simply left here. At KMITL the
+  # envelope is ceiling 20 / transit 20 / search floor 10, so a failsafe return
+  # at 9 m crossed a 280 m field BELOW the rules' own floor for the entire
+  # leg — a rules violation and an obstacle question, taken while the aircraft
+  # is already in trouble. 19.5 mirrors how the transit is commanded
+  # (ceiling - 0.5 for the AGL frame bias), so the return stays legal without
+  # riding the ceiling.
+  RTL_RETURN_ALT: 19.5      # failsafe return altitude (m AGL); PX4 default 60
   # FC-level ALTITUDE fence at the competition rules' 20 m (operator
   # 2026-08-18) — the outer net above the watchdog's 10 m ceiling (warn 10.5 /
   # RTH 12). Additive to the polygon fence; same GF_ACTION=3 (Return).

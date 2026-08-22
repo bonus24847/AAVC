@@ -87,6 +87,10 @@ BOARD: dict[str, float] = {
 
 # ── pushed by orchestrator/main.py at mission start; bench values are fine ──
 PINNED: dict[str, float] = {
+    # ⚠ PER-FIELD: 9.0 is the KMUTNB value (ceiling 10). The KMITL config pins
+    # 19.5 (ceiling 20, floor 10), so this line reads "wrong" on a competition
+    # board — PINNED is informational, so it prints rather than stops, but do
+    # not "fix" the board to match it at KMITL.
     "RTL_RETURN_ALT": 9.0,
     "GF_MAX_VER_DIST": 20.0,          # the rules' altitude fence
     "GF_ACTION": 3,                   # 3 = Return. NEVER 2 (Hold) — see CLAUDE.md

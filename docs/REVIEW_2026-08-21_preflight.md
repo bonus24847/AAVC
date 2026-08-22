@@ -3,8 +3,8 @@
 > **STATUS 2026-08-22:** Tier 1 and the Tier-3 defects introduced by that day's
 > work are FIXED and committed (see the "Review fixes" commits). Each fix below
 > is marked ✅ FIXED, with what was measured after. Tier 2 (the competition
-> config and the `aavc-comp` repo) and Tier 4 remain open — Tier 2 must be done
-> before travelling.
+> config and the `aavc-comp` repo) is **also FIXED** — see the "Review fixes 4/4"
+> commit and the notes below. Tier 4 remains open.
 
 Four independent read-only reviews (flight core · vision · GCS/ops · hardware
 config), plus a live board read. Nothing here is speculation about code that
@@ -208,7 +208,9 @@ badge instead of blanking; space the beacon's sends ~100 ms apart.
 
 These do not affect the KMUTNB practice flight. They decide the competition.
 
-### 2.1 The competition sweep is below the rules floor AND does not fit the pack
+### 2.1 The competition sweep is below the rules floor AND does not fit the pack  ✅ FIXED
+**12.0 m**, in both repos. Re-verified against the real polygon: 10 waypoints,
+1163 m of sweep = 388 s at 3 m/s, inside the rules' 10-20 m band.
 `sitl/kmitl_config.yaml:116` — `sweep_alt_m: 8.0`
 
 Rules: the search band is 10-20 m. Nothing clamps upward — both clamps in the
@@ -223,7 +225,10 @@ measured lens:
 
 **12.0 is the answer.** The 8.0 was tuned for a 10 m practice ceiling.
 
-### 2.2 The KMITL time budgets are KMUTNB-sized
+### 2.2 The KMITL time budgets are KMUTNB-sized  ✅ FIXED
+`sortie_cost_s` 240 → **420** (the measured 388 s path plus margin),
+`known_sortie_cost_s` 140 → **280** (291 m each way at 3 m/s plus a serve),
+`rth_reserve_s` 45 → **120** (the far corner really is 291 m out).
 `sitl/kmitl_config.yaml:178, 181`
 
 - `sortie_cost_s: 240` against a real sweep of 644 s at 8 m (407 at 12 m) —
@@ -235,7 +240,13 @@ So the gate approves a delivery whose way home costs twice the reserve set
 aside for it, and the per-delivery abort gate computes against the same wrong
 number.
 
-### 2.3 The comp repo still has the INT32 bug and no type audit
+### 2.3 The comp repo still has the INT32 bug and no type audit  ✅ FIXED
+The core, the aircraft-level tools, `cm4/`, `dashboard/` and both field configs
+are now synced. `_INT_PARAMS` carries `EKF2_HGT_REF`, `MAV_1_FORWARD` and
+`MPC_YAW_MODE`; `make type-audit` exists there and passes (39 pushed · 10 INT32
+· 0 violations). Root cause fixed too: `sync_core.sh` was copying `tests/`
+without the code they cover, which is why the comp suite failed 11 tests the
+moment it was synced. It now copies everything a test can see.
 `~/Desktop/aavc-comp/mavlink_adapter/commands.py:231-237`
 
 Its `_INT_PARAMS` is missing `EKF2_HGT_REF` and `MAV_1_FORWARD` — both are
@@ -249,7 +260,16 @@ PX4's default yaw mode and the nadir camera spins at every sweep turn.
 `sync_core.sh` does not cover `tools/`. The drift `ops-field.md` predicted has
 materialised.
 
-### 2.4 Two more competition-config mismatches
+### 2.4 Two more competition-config mismatches  ✅ FIXED
+`cm4/launch_flight.sh` resolves `.aavc_site` exactly like `run_mission.sh` and
+passes `--profile`; the comp repo now resolves to `competition` +
+`kmitl_config.yaml`. `RTL_RETURN_ALT` is **19.5 at KMITL** (was 9.0 — a
+failsafe return crossing a 280 m field below the rules' own 10 m floor) and
+stays 9.0 at KMUTNB; CLAUDE.md now states it per-field.
+
+Also found while fixing: **the comp repo had no `cm4/start_infra.sh` at all**,
+which is the exact filename the GCS icon calls — so its auto-infra could only
+ever fail. Synced.
 - `cm4/launch_flight.sh:41` has **no site awareness** (no `.aavc_site`, no
   `--profile`), so in the comp repo it flies the KMUTNB config 30 km away.
   `docs/FLIGHT.md:167` still tells the operator to use it. Fails closed

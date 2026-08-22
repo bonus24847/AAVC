@@ -28,7 +28,8 @@
 #   CAM_PASSTHROUGH=0          disable MJPEG passthrough (fall back to YUYV + re-encode)
 #   CAM_MIRROR=1               also write /tmp/aavc_frame.jpg for the WEB dashboard (costs a
 #                              second encode ~12 ms/frame as JPEG; off by default)
-#   CONFIG=sitl/aavc_config.yaml
+#   CONFIG=sitl/aavc_config.yaml   (default: this repo's .aavc_site, else KMUTNB)
+#   AAVC_PROFILE=competition        (default: this repo's .aavc_site, else kmutnb_skyfield)
 #   NO_CAMERA=1                skip the grabber (bench test with synthetic/gz frames)
 #   HEADLESS=1                 run --no-dashboard (auto-GO; unattended field runs)
 #   DASH_HOST=127.0.0.1        dashboard bind host (use 0.0.0.0 ONLY behind your own auth)
@@ -45,7 +46,19 @@ ROUTERD="${ROUTERD:-mavlink-routerd}"
 BACKEND="${BACKEND:-v4l2}"
 GRAB_ARGS="${GRAB_ARGS:-}"
 CAM_EXPOSURE="${CAM_EXPOSURE:-20}"
-CONFIG="${CONFIG:-sitl/aavc_config.yaml}"
+# ── SITE: which field this flight is for ──────────────────────────────────
+# Same precedence as sitl/run_mission.sh: an explicit env wins, then this
+# repo's own .aavc_site marker, then the KMUTNB fallback. This launcher had
+# NEITHER until 2026-08-22 (review F6): run from the competition repo it flew
+# --config sitl/aavc_config.yaml — the KMUTNB rooftop, ~30 km from KMITL —
+# with --profile unset, so orchestrator.main defaulted to kmutnb_skyfield
+# (ceiling 10 / transit 9 / floor 2.5) on the competition field. It fails
+# closed (preflight refuses: "home is OUTSIDE the geofence"), but it burns
+# window time on the day and reads like a broken aircraft rather than a wrong
+# flag. docs/FLIGHT.md still points the field crew at this script.
+[ -f "$REPO_ROOT/.aavc_site" ] && . "$REPO_ROOT/.aavc_site"
+AAVC_PROFILE="${AAVC_PROFILE:-kmutnb_skyfield}"
+CONFIG="${CONFIG:-${AAVC_CONFIG:-sitl/aavc_config.yaml}}"
 DASH_HOST="${DASH_HOST:-127.0.0.1}"
 
 INFRA_PIDS=()
@@ -192,13 +205,15 @@ fi
 
 # 3) orchestrator — the mission, ONCE (not restarted). Headless field run vs
 #    bench run with the dashboard for the operator GO + an in-browser kill.
+echo "🌐 SITE: profile=${AAVC_PROFILE}  config=${CONFIG}"
 echo "[flight] orchestrator: --connect $CONNECT --config $CONFIG"
 if [ "${HEADLESS:-0}" = "1" ]; then
-    "${PY[@]}" -m orchestrator.main --config "$CONFIG" --connect "$CONNECT" --no-dashboard
+    "${PY[@]}" -m orchestrator.main --config "$CONFIG" --profile "$AAVC_PROFILE" \
+        --connect "$CONNECT" --no-dashboard
 else
     echo "[flight] dashboard on http://$DASH_HOST:8765 — operator GO via /api/cmd/preflight/go"
-    "${PY[@]}" -m orchestrator.main --config "$CONFIG" --connect "$CONNECT" \
-        --host "$DASH_HOST" --port 8765
+    "${PY[@]}" -m orchestrator.main --config "$CONFIG" --profile "$AAVC_PROFILE" \
+        --connect "$CONNECT" --host "$DASH_HOST" --port 8765
 fi
 rc=$?
 echo "[flight] orchestrator exited (rc=$rc) — stopping onboard stack."

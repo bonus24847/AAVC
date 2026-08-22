@@ -5,11 +5,24 @@
 #
 #   bash sync_core.sh ~/Desktop/aavc-comp     # aavc-practice -> aavc-comp
 #
-# Copies the Python packages + tests ONLY — the code that is IDENTICAL between
-# the two fields. It NEVER touches anything field-specific: the per-repo
-# .aavc_site marker, the sitl/ configs (aavc_config.yaml / kmitl_config.yaml),
-# the survey data, the launcher icons, or .git. Review `git diff` in the target
-# before committing.
+# Copies everything that is IDENTICAL between the two fields: the Python
+# packages, the tests, the CM4/launcher scripts, the dashboard, the real-camera
+# grabber, and BOTH field configs.
+#
+# ⚠ The configs ARE shared (changed 2026-08-22). Each repo carries a config for
+# BOTH fields and flies whichever its own .aavc_site names, so a per-repo copy
+# was never "field-specific" — it was just a second copy that drifted. It did:
+# the 2026-08-22 review found the comp repo's kmitl_config.yaml missing
+# MPC_YAW_MODE (its camera would spin at every sweep turn) and still quoting
+# the retired LiPo's battery endpoints. ONE file decides the field —
+# .aavc_site — and that is the one thing this script never copies.
+#
+# Syncing tests/ without the code they cover is what made the comp suite fail
+# 11 tests: the camera grabber, cm4/ and dashboard/ were left behind while
+# their tests came across. If a test can see it, this script must copy it.
+#
+# NEVER touched: .aavc_site, the survey data, sitl/ models/worlds/patches, .git.
+# Review `git diff` in the target before committing.
 set -euo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DST="${1:?usage: sync_core.sh <path-to-the-other-repo>}"
@@ -18,8 +31,39 @@ DST="${1:?usage: sync_core.sh <path-to-the-other-repo>}"
 
 echo "[sync_core] $SRC"
 echo "        ->  $DST"
-for d in orchestrator mission_brain vision mavlink_adapter tests; do
+for d in orchestrator mission_brain vision mavlink_adapter tests dashboard; do
     rsync -a --delete "$SRC/$d/" "$DST/$d/"
+done
+# cm4/ is the ON-AIRCRAFT stack plus the laptop launchers — same companion,
+# same board, and launch_flight.sh resolves its field from .aavc_site. NO
+# --delete: keep anything the target added. (Until 2026-08-22 the comp repo had
+# no start_infra.sh at all, so the console's auto-infra — which the GCS icon
+# calls by that exact name — could only ever fail there.)
+rsync -a "$SRC/cm4/" "$DST/cm4/"
+# The REAL-camera writer and the 🚀 entry point: aircraft-level, not field-level.
+rsync -a "$SRC/sitl/camera_grabber.py" "$SRC/sitl/run_mission.sh" "$DST/sitl/"
+# SITL launchers + bridges: simulator-only, but shared code all the same — a
+# stale copy in the other repo fails the same tests this one passes (the comp
+# repo's launch_stack.sh still had the un-bracketed pgrep the self-match test
+# exists to catch).
+for f in launch_stack.sh launch_sitl.sh camera_view.sh gz_camera_bridge.py \
+         spawn_targets.py hitl_synthetic_camera.py payload_detach_bridge.py \
+         sim_pilot.py; do
+    [ -f "$SRC/sitl/$f" ] && rsync -a "$SRC/sitl/$f" "$DST/sitl/$f"
+done
+# Both field configs (see the note above). .aavc_site stays put.
+rsync -a "$SRC/sitl/aavc_config.yaml" "$SRC/sitl/kmitl_config.yaml" "$DST/sitl/"
+# AIRCRAFT-level tools are shared too — same airframe, same board, so the same
+# truth. Left out until 2026-08-21, and the drift it allowed was found by that
+# day's review: the comp repo had no px4_type_audit.py at all and a
+# preflight_params.py two days stale, missing SYS_HITL (a board left flagged
+# HITL has no actuator output) and MPC_THR_HOVER. NO --delete here: the comp
+# repo carries field tools of its own (survey/satellite helpers) that this
+# repo has never had, and they must survive the sync.
+for f in preflight_params.py px4_type_audit.py param_audit.py verify_flight.py \
+         fence_probe.py alt_watch.py replay_frames.py landing_trial.py \
+         gen_pads.py gen_aruco_glyphs.py gen_grass.py; do
+    [ -f "$SRC/tools/$f" ] && rsync -a "$SRC/tools/$f" "$DST/tools/$f"
 done
 # The reset + sync scripts themselves are shared verbatim.
 rsync -a "$SRC/clear_state.sh" "$SRC/sync_core.sh" "$DST/"
