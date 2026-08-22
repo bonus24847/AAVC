@@ -124,16 +124,24 @@ _PAD_DESCENT_MPS = 0.4        # validated pad-approach descent (m/s)
 # is NOT exempt in the SEARCH/LOCALIZE phases a delivery spends its first
 # ~90 s in (safety.py) — a descent begun on a thinner margin runs into the
 # failsafe with the egg still aboard, and the RTH ends the whole mission.
-# Derivation: one delivery is ~110 s at the ~35.6 A hover the energy module
-# cites for the 8.22 kg X6100 => 35.6 A x 110 s = 1,088 mAh ~= 8 % of the
-# 15,000 mAh pack. So 8 points is one delivery's own cost with nothing left
-# over: at rth_battery_pct=30 the gate refuses at or below 38 %.
+# Derivation (re-based 2026-08-20 for the ONE 17,000 mAh semi-solid pack):
+# one delivery is ~110 s at the ~43 A calculated hover of the 17000-pack AUW
+# => 43 A x 110 s = 1,314 mAh ~= 7.7 % of 17,000 — so 8 points is still one
+# delivery's own cost with nothing left over: at rth_battery_pct=30 the gate
+# refuses at or below 38 %. (The previous derivation, 35.6 A on the 15,000
+# two-pack era, landed on the same 8 — the number is stable across the swap,
+# which is why only this text moved.)
 #
-# This is a PERCENTAGE of the pack, so it had to be re-derived when the second
-# battery went on (2026-07-25): the delivery got ~23 % more expensive in mAh,
-# but the pack doubled, so the fraction FELL 12 -> 8. Leaving it at 12 would
-# not have been "safely conservative" — it would have refused deliveries the
-# pack can comfortably finish. Re-derive it again if either number moves.
+# This is a PERCENTAGE of the pack, so it must be re-derived whenever pack
+# capacity or AUW moves (12 -> 8 at the 2026-07-25 second-pack swap; leaving
+# it at 12 would have refused deliveries the pack could comfortably finish).
+#
+# ⚠ Measured 2026-08-20 (KMUTNB, PM02D avionics-only sensing): the voltage-
+# only gauge SAGS ~30-35 percentage points under the ~30-40 A of flight (28 %
+# under load at ~65-70 % resting SoC) because no current sensing means no
+# load compensation. Every %-based gate here therefore fires EARLY under
+# thrust — the safe direction. Do not "fix" that by shrinking this margin;
+# start missions on a charged pack instead.
 _DELIVERY_BATT_MARGIN_PCT = 8.0
 
 
@@ -323,10 +331,23 @@ async def run_delivery_mission(
         """
         while _running():
             t = state.telemetry
+            # batt/vbat joined the grammar 2026-08-20: until then NO battery
+            # series existed anywhere (the audit was the only flight recorder
+            # and it never sampled the pack), so the real-consumption numbers
+            # could not be reconstructed after a field day. NaN prints as
+            # "nan", which the verifier's [-\d.nan]+ idiom already accepts.
+            # mode= joined the grammar 2026-08-21 (G7 zombie debrief): both
+            # takeover incidents were undiagnosable from the audit alone
+            # because the FC flight mode was recorded nowhere companion-side.
+            # Appended LAST so prefix-anchored parsers keep matching; the
+            # verifier's _TELEM carries it as an optional group (lockstep:
+            # emitter + tools/verify_flight.py + its goldens + CLAUDE.md §5).
             state.record_audit(
                 f"t={state.time_elapsed_s():.1f}s TELEM phase={state.phase.value} "
                 f"flight={state.sortie_index} lat={t.lat:.7f} lon={t.lon:.7f} "
-                f"alt={t.relative_alt_m:.2f} armed={int(bool(t.is_armed))}")
+                f"alt={t.relative_alt_m:.2f} armed={int(bool(t.is_armed))} "
+                f"batt={t.battery_percent:.1f} vbat={t.battery_voltage_v:.2f} "
+                f"mode={t.flight_mode}")
             if refresh_energy is not None:
                 try:
                     refresh_energy()
@@ -334,18 +355,45 @@ async def run_delivery_mission(
                     logger.exception("[mission] energy refresh failed")
             await asyncio.sleep(_TELEM_SAMPLE_S)
 
+    # The climb cap the mission-start px4_tuning pin left on the board, read
+    # once and restored after any leg that lowers it (2026-08-21 review).
+    _climb_pin: list[float | None] = [None]
+
     async def _set_climb_cap(mps: float) -> None:
         """Cap the AUTO climb speed (PX4 MPC_Z_VEL_MAX_UP). The staged 2 m
         closure onto the 20 m transit altitude overshoots ~+0.6 m at the fast
         2 m/s cap — through the ceiling; at 1 m/s the peak is ~+0.15 m.
-        Non-fatal: a failed set leaves the previous cap."""
+        Non-fatal: a failed set leaves the previous cap.
+
+        ⚠ Whatever this writes STAYS on the board for the rest of the mission —
+        there is no scope, no restore. Restore the PINNED value (_climb_cap_pin)
+        rather than a literal when a leg is done: writing a bare 2.0 here left
+        the aircraft climbing at 2 m/s for every later climb, including the
+        align ladder's approach to a rung that sits just under the ceiling,
+        against a config pin of 1.5 that exists precisely because that ceiling
+        is tight (2026-08-21 review). The parity test compares config against
+        DEFAULT_PX4_TUNING and cannot see a runtime override, so nothing caught
+        it."""
         setter = getattr(commander, "set_param_float", None)
         if setter is None:
             return
+        if _climb_pin[0] is None:          # remember what the pin put there
+            getter = getattr(commander, "get_param_float", None)
+            if getter is not None:
+                try:
+                    _climb_pin[0] = float(await getter("MPC_Z_VEL_MAX_UP"))
+                except Exception:          # unreadable — restore is skipped
+                    logger.debug("[mission] MPC_Z_VEL_MAX_UP read failed")
         try:
             await setter("MPC_Z_VEL_MAX_UP", float(mps))
         except Exception:
             logger.debug("[mission] MPC_Z_VEL_MAX_UP set failed (non-fatal)")
+
+    async def _restore_climb_cap() -> None:
+        """Put the climb cap back to whatever the mission-start pin set, so a
+        leg's temporary slow-down cannot outlive the leg."""
+        if _climb_pin[0] is not None:
+            await _set_climb_cap(_climb_pin[0])
 
     async def _set_descent_speed(mps: float) -> None:
         """Set the AUTO descent speed (PX4 MPC_Z_V_AUTO_DN).
@@ -465,7 +513,11 @@ async def run_delivery_mission(
                 state.record_anomaly(
                     f"transit_{'egress' if egress else 'ingress'}_P{n}_missed")
             if k == 1:
-                await _set_climb_cap(2.0)   # captured — restore the fast cap
+                # captured — restore the PINNED cap, not a literal (see
+                # _set_climb_cap: whatever is written here stays for the
+                # whole mission, and the pin is what the ceiling budget
+                # was computed against)
+                await _restore_climb_cap()
 
     async def _sweep_for(flight: int) -> None:
         """Fly the FULL boustrophedon sweep (finish-sweep-then-serve, operator
@@ -590,6 +642,12 @@ async def run_delivery_mission(
         ``MPC_Z_V_AUTO_DN`` of 0.4 m/s (~14 s per delivery) for no gain.
         """
         t = state.telemetry
+        # ⚠ The `not t.is_armed` branch is DELIBERATELY UNREACHABLE after a
+        # pilot takeover/disarm (G7 2026-08-21 zombie re-arm): safety.py's
+        # disarm-in-flight-phase detector stands the commander down before the
+        # loop gets here, and arm_and_takeoff itself then refuses. Do not
+        # "fix" this branch back to life for the disarmed-by-takeover case —
+        # its legitimate job is only the first arming of a flight.
         if (not t.is_armed) or (not math.isnan(t.relative_alt_m)
                                 and t.relative_alt_m < 2.0):
             await commander.arm_and_takeoff(sweep_alt)
@@ -983,6 +1041,11 @@ async def run_delivery_mission(
             # Climb out (from the last pad, or from wherever the search left us)
             # to the staged altitude; the egress transit gotos finish the climb.
             t = state.telemetry
+            # ⚠ Same as _climb_out_to_hop_alt: `not t.is_armed` here read a
+            # pilot-disarmed aircraft as "needs arming" and re-armed it ~8 min
+            # after the G7 attempt-1 takeover. The disarm detector + command
+            # guards now kill the loop first — keep this branch for the
+            # legitimate case only (a flight that begins from the ground).
             if (not t.is_armed) or (not math.isnan(t.relative_alt_m)
                                     and t.relative_alt_m < 2.0):
                 await commander.arm_and_takeoff(climb_alt)

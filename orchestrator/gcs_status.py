@@ -12,7 +12,10 @@ holding a finished mission's layout).
 File contract (aavc_gcs.py header + its ``aavcEN`` map helper)::
 
     {"phase": str, "assigned": [ids], "delivered": [ids],
-     "pads_mapped": {"<marker_id>": [east_m, north_m]}, "updated": epoch}
+     "pads_mapped": {"<marker_id>": [east_m, north_m]},
+     "pads_identified": {"<marker_id>": [east_m, north_m]},   # orange lane
+     "plan": [[lat, lon, kind, seq], ...], "plan_ptr": int,   # console map path
+     "updated": epoch}
 
 ``pads_mapped`` ENU is about the field yaml's ``local_origin`` (== this
 repo's ``site.center``), and the console converts it back with a SPHERICAL
@@ -41,6 +44,8 @@ from typing import Any, Callable
 from loguru import logger
 
 _R_EARTH_M = 6_378_137.0
+# Grid the identified-pad lane snaps to before it counts as "changed" (m).
+_IDENT_GRID_M = 0.5
 
 # Same discriminator as sitl/payload_detach_bridge.parse_release, minus the
 # payload capture: pad=None (an id-unverified touchdown release) deliberately
@@ -80,6 +85,20 @@ class GcsMissionStatus:
         self._origin = (float(origin_lat), float(origin_lon))
         self._lock = threading.Lock()
         self._pads: dict[str, list[float]] = {}
+        # Identified-but-unconfirmed pads (marker id decoded at least once,
+        # still short of the confirm votes) — the operator sees these ORANGE
+        # the moment they are first read (request 2026-08-21: flight 1 was
+        # pulled down while ids 4,5 were being identified live, because the
+        # screen showed nothing until CONFIRMED).
+        self._pads_identified: dict[str, list[float]] = {}
+        # Live-plan polyline for the console map ([[lat, lon, kind, seq], …]
+        # + the leg being flown) — first written at gate release while the
+        # launch-point WiFi still reaches the console, so the operator can
+        # see where the aircraft is going NEXT after the link dies (Fix 3,
+        # G7 debrief 2026-08-21: takeover-before-time because the screen
+        # could not answer exactly that).
+        self._plan: list[list[Any]] = []
+        self._plan_ptr = 0
         self._delivered: list[int] = []
         self._assigned = [int(i) for i in assigned]
         self._phase = "recon (preflight)"
@@ -123,7 +142,46 @@ class GcsMissionStatus:
     def pad_confirmed(self, marker_id: int, lat: float, lon: float) -> None:
         with self._lock:
             self._pads[str(int(marker_id))] = self._enu(lat, lon)
+            # a pad that just got CONFIRMED leaves the identified lane
+            self._pads_identified.pop(str(int(marker_id)), None)
         self._event(f"🎯 เจอ pad {int(marker_id)}!")
+        self._write()
+
+    def set_identified(self, mapping: dict[str, list[float]]) -> None:
+        """Replace the identified-but-unconfirmed pad set ({id: [e, n]}).
+
+        Writes only on CHANGE — and the change has to be one the OPERATOR
+        could see. This rides the vision on_fix cadence (now every decoded
+        frame, up to ~25 Hz), and the lane's ENU comes from a fused median
+        that shifts by millimetres on every new vote, so comparing
+        centimetre-rounded values made the guard almost never fire and the
+        status file was rewritten per frame (2026-08-21 review). Quantising to
+        _IDENT_GRID_M keeps the guard meaningful: a marker's position on the
+        console map is not useful to half a metre anyway.
+        A pad promoted to CONFIRMED simply stops appearing in ``mapping``
+        (the tracker's identified_unconfirmed() no longer returns it)."""
+        mapping = {k: [round(v[0] / _IDENT_GRID_M) * _IDENT_GRID_M,
+                       round(v[1] / _IDENT_GRID_M) * _IDENT_GRID_M]
+                   for k, v in mapping.items()}
+        with self._lock:
+            if mapping == self._pads_identified:
+                return
+            new_ids = [k for k in mapping if k not in self._pads_identified]
+            self._pads_identified = {str(k): list(v) for k, v in mapping.items()}
+        for k in sorted(new_ids, key=str):
+            self._event(f"🔶 เห็น pad {k} (รอยืนยัน)")
+        self._write()
+
+    def set_plan(self, points: list[list[Any]], pointer: int) -> None:
+        """Replace the console-map plan path ([[lat, lon, kind, seq], …]) and
+        the index of the leg being flown. Written on CHANGE only: a rebuild
+        fires per gate release and per serve (cheap), but the pointer rides
+        every rebuild too, so identical payloads short-circuit."""
+        with self._lock:
+            if points == self._plan and int(pointer) == self._plan_ptr:
+                return
+            self._plan = [list(p) for p in points]
+            self._plan_ptr = int(pointer)
         self._write()
 
     def set_phase(self, phase: str) -> None:
@@ -312,7 +370,13 @@ class GcsMissionStatus:
         id-DECODED pad to the map the moment the tracker promotes it —
         independent of the web dashboard's own pusher, so headless
         (--no-dashboard) runs feed the console too. Unidentified blob-only
-        clusters are withheld: the operator's map shows pads, not maybes."""
+        clusters are withheld: the operator's map shows pads, not maybes.
+
+        Since 2026-08-21 it ALSO pushes the identified-but-unconfirmed lane
+        (id decoded, votes still short → ``pads_identified``): the G7 flight
+        was pulled down while ids 4,5 were being identified live because the
+        confirmed-only feed showed nothing. The confirmed ``seen`` latch is
+        untouched — a pad flows identified → confirmed independently."""
         from .target_tracker import TargetState
         show = (TargetState.CONFIRMED, TargetState.SERVING, TargetState.SERVED)
         seen: set[int] = set()
@@ -326,6 +390,9 @@ class GcsMissionStatus:
                 self.pad_confirmed(t.marker_id, t.lat, t.lon)
                 logger.info(f"[gcs_status] pad {t.marker_id} on the GCS map "
                             f"({t.lat:.7f}, {t.lon:.7f})")
+            self.set_identified({
+                str(t.marker_id): self._enu(t.lat, t.lon)
+                for t in tracker.identified_unconfirmed()})
 
         return _push
 
@@ -337,6 +404,9 @@ class GcsMissionStatus:
                     "assigned": list(self._assigned),
                     "delivered": list(self._delivered),
                     "pads_mapped": dict(self._pads),
+                    "pads_identified": dict(self._pads_identified),
+                    "plan": [list(p) for p in self._plan],
+                    "plan_ptr": self._plan_ptr,
                     "progress": int(self._progress),
                     "progress_label": self._progress_label,
                     "eta_s": self._eta_s,
@@ -347,8 +417,19 @@ class GcsMissionStatus:
                 }
                 if self._mission_time is not None:
                     doc["mission_time"] = round(self._mission_time, 1)
-            tmp = self.path.with_name(self.path.name + ".tmp")
-            tmp.write_text(json.dumps(doc), encoding="utf-8")
-            os.replace(tmp, self.path)
+            # A per-write temp name: the doc is built under the lock but the
+            # file ops are not, and two writers (the vision thread and the
+            # event loop) sharing one ".tmp" path truncate each other's
+            # half-written file. The beacon then reads a torn document, gets
+            # None, and broadcasts "no mission yet" mid-flight (2026-08-21).
+            tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.{id(doc):x}.tmp")
+            try:
+                tmp.write_text(json.dumps(doc), encoding="utf-8")
+                os.replace(tmp, self.path)
+            finally:
+                try:
+                    tmp.unlink(missing_ok=True)   # no-op after a successful replace
+                except OSError:
+                    pass
         except Exception as e:  # display aid — never raise into the flight path
             logger.debug(f"[gcs_status] write skipped: {e}")

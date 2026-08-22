@@ -297,6 +297,20 @@ vision:
   # transient). Set to 0 to DISABLE (e.g. a slow bench camera). Feeds both the
   # VisionWorker and AlignParams.frame_max_age_s.
   frame_max_age_s: 2.0
+  # How often the worker LOOKS for a new frame — not how often it decodes.
+  # A new-frame guard (mtime) sits in front of the decode since 2026-08-21, so
+  # the decode rate is the camera's write rate and this only bounds the wait
+  # before a fresh frame is picked up. Measured on the CM4: one decode pass is
+  # ~67 ms (26 ms PNG read + 41 ms detect), a skipped poll is one stat().
+  # Raise it only to throttle a CPU-starved companion.
+  poll_interval_s: 0.02
+  # Frames decoded CONCURRENTLY (1 = sequential, the validated default). One
+  # decode+detect is ~55 ms of CM4 CPU, so a single worker tops out near 18 Hz.
+  # Raise to 2 ONLY together with a camera that actually writes faster than
+  # that — i.e. with the grabber's --mjpeg-passthrough, which feeds 20-30 Hz
+  # for ~7% of a core. cv2 releases the GIL, so the extra worker is a real
+  # core; results stay in frame order either way.
+  decode_workers: 2
 
 # Mission frame recorder (R2 — the RECORD half of the rules' "record AND transmit"
 # imaging requirement). Persists a low-rate JPEG trail of the nadir frames
@@ -305,7 +319,12 @@ vision:
 # mission-fatal). ~1 Hz × 20 min ≈ 200-300 MB — size the CM4 SD card accordingly.
 recording:
   enabled: true
-  hz: 1.0               # nadir frames per second
+  # 1.0 -> 5.0 (operator 2026-08-21): the G7-attempt debrief lived and died
+  # by these frames — at 1 Hz the recorder caught ONE decodable frame while
+  # the 3.3 Hz live detector caught enough to identify two pads. 5 Hz costs
+  # ~8% of one CM4 core + ~0.5 GB per 20-min window and makes post-flight
+  # decode/blur analysis 5x denser.
+  hz: 5.0               # nadir frames per second
   jpeg_quality: 80      # cv2 JPEG quality 0-100
 
 # FC link + egg-release servo (mavlink_adapter.ConnectionConfig). All optional —
@@ -354,7 +373,8 @@ connection:
   # cosmetic widgets (documented graceful degradation; the safety watchdog
   # never reads these fields). To get both, add a second MAVLink instance in
   # PX4 (e.g. `mavlink start -u 18571 -o 14551` via pxh) and set 14551 here.
-  # ⚠ …but NOT on the current wiring (2026-08-18). The consumed-mAh counter it
+  # ⚠ …but NOT on the current wiring (2026-08-18; unchanged by the PM02D
+  # installed 2026-08-20 — it powers the FC only). The consumed-mAh counter it
   # carries is avionics-only since the PM03D went out (measured 0.62 A / 91 mAh
   # on the bench vs ~35-43 A in flight), and feeding it in flips
   # energy_consumed_mah() to tier A — a silently optimistic pack budget that
@@ -406,6 +426,14 @@ px4_tuning:
                             # the quad's against ~0.4x the yaw authority per
                             # newton of thrust, so it cannot chase 50 deg/s.
   MPC_YAWRAUTO_MAX: 25.0    # gentler auto heading slews (deg/s) — the dominant
+  # Heading behaviour in AUTO. PX4 default 0 = yaw TOWARDS each waypoint —
+  # which spins the body-fixed nadir camera at every sweep-leg turn, adding
+  # rotational blur to already-marginal in-flight frames (G7 attempt #1:
+  # 1-of-457 recorded frames decodable). 5 = YAW FIXED (verified against the
+  # v1.17 source, multicopter_autonomous_params.c — NOT 4, which is
+  # towards-waypoint-yaw-first): the hexa strafes its legs holding one
+  # heading and the image never rotates. Operator decision 2026-08-21.
+  MPC_YAW_MODE: 5
                             # yaw-speed limit in AUTO. Lower further if still snappy.
   MPC_XY_VEL_MAX: 5.0       # horizontal speed ceiling (m/s). KMUTNB: the longest
                             # leg is ~52 m and accuracy is the goal — 10 m/s
@@ -514,17 +542,22 @@ px4_tuning:
   # (0.1-12 m), and inside PX4's own 1..10 limit. Chosen from what the SENSOR
   # can be believed at, not merely to dodge the rung numbers.
   EKF2_RNG_A_HMAX: 7.0      # range aiding engages below this (m); PX4 default 5.0
-  # Which source owns absolute height. 1 = GPS, PX4's default, and the right
-  # answer here: 2 (range) makes the local origin ride ground level, so a shed
-  # cargo box or a person under the beam would move "down". The rangefinder
-  # still pins the last few metres through conditional aiding above. Pinned so
-  # a param reset or a well-meant edit is caught by verify_envelope_pins.
+  # Which source owns absolute height. 0 = BARO (operator decision 2026-08-20,
+  # KMUTNB night flights): with 1 (GPS) the EKF height stepped +1.6 m and
+  # +1.3 m INSIDE one 30 s flight as the GPS vertical solution walked (the same
+  # walk read the parked field at 12.7 → 36.6 → 13.3 m MSL across the evening).
+  # The reported AGL inflated to 12.0 m while the aircraft physically held
+  # ~8.5 m, and the 10 m practice-ceiling watchdog correctly-on-its-inputs
+  # RTH'd a healthy flight. Baro is step-free over a <20 min flight; GPS still
+  # owns horizontal; TFmini conditional aiding still pins the final metres.
+  # NOT 2 (range): that makes the local origin ride ground level, so a shed
+  # cargo box or a person under the beam would move "down".
   # ⚠ reboot_required — a change applies from the NEXT boot, and PX4 stores
   # the new value immediately, so a read-back says "held" while the estimator
   # still runs on the old reference. That is why this key is deliberately NOT
   # in verify_envelope_pins (a gate that can only report success gets
   # believed); tools/param_audit.py checks it at the bench instead.
-  EKF2_HGT_REF: 1           # GPS is the height reference (PX4 default; pinned)
+  EKF2_HGT_REF: 0           # height reference = BARO (see 2026-08-20 note above)
   # ── STATUS BEACON PATH (cm4/status_beacon.py) ──
   # MAV_1 = TELEM2 = the CM4's link. Forwarding lets the CM4's broadcast
   # STATUSTEXT cross to the radio instance so the operator sees the mission +
@@ -698,15 +731,24 @@ battery:
   capacity_mah: 17000       # ONE 6S 17000 mAh semi-solid (Perpetual Wings), 10C
   cells: 6
   # ~29.6 A hover x 3.5 min. Used ONLY for flight 1; measurement replaces it
-  # from flight 2 onwards.
+  # from flight 2 onwards. ⚠ ALL hover figures remain CALCULATED — at this
+  # pack's AUW the same scaling rule says ~43 A; a four-delivery flight then
+  # costs ~5.7-7.2 Ah of the 12.75 Ah usable, so these seeds are deliberately
+  # conservative rather than re-derived from more arithmetic. Re-derive them
+  # from GROUND TRUTH once it exists: the TELEM batt=/vbat= series (recorded
+  # since 2026-08-20) + the charger's returned-mAh log
+  # (.claude/skills/PX4MASTER/references/power-battery.md).
   seed_sortie_mah: 1750
-  # Marginal cost of each EXTRA delivery in the SAME flight (~110 s at ~29.6 A).
+  # Marginal cost of each EXTRA delivery in the SAME flight (~110 s at hover).
   seed_delivery_mah: 900
   # DELIBERATELY NOT scaled down with the cost it guards (the 17000 note scaled
   # it up x1.22 for exactly that reason). This estimate rests on a pack mass
   # nobody has weighed, so the slack matters more now, not less — and there is
   # room for it: a four-delivery flight budgets 1750 + 3x900 + 250 = 4700 mAh
-  # against 5625 usable.
+  # against 12750 usable (17000 x 0.75). Field reality check (2026-08-20,
+  # flight 3): the voltage-only gauge read 28 % under load at ~65-70 % rest —
+  # the %-floor watchdog, not this mAh budget, is what actually ends a flight
+  # on a part-charged pack. Start missions charged.
   margin_mah: 250
 
 # ── SITL ONLY — PX4's battery simulator ──
@@ -717,17 +759,20 @@ battery:
 # path from px4_tuning and must never be merged into it.
 sim_battery:
   SIM_BAT_ENABLE: 1
-  # Seconds full -> empty at hover draw: 7500 mAh / ~29.6 A x 3600 = ~912 s.
-  # (2026-08-17 pack swap back to ONE 7500. NOTE this is now SHORTER than the
-  # 20-minute operation window, which is the point: the sim will actually reach
-  # the reserve inside a long run, so the energy gate gets exercised instead of
-  # idling behind a pack that never empties.)
+  # Seconds full -> empty. DELIBERATELY NOT rescaled to the 17000 pack's real
+  # endurance (2026-08-20 review): at ~900 s the sim reaches the reserve
+  # inside a long run, so the energy gate gets exercised instead of idling
+  # behind a pack that never empties — that is this parameter's job, not
+  # realism. Rescaling it needs its own SITL re-validation day.
   SIM_BAT_DRAIN: 900.0      # ~15 min full -> empty at hover
   SIM_BAT_MIN_PCT: 0.0      # the default 50 stops the drain half way
   # ── Pack + power sensing ──
-  # ⚠ REWIRED 2026-08-16 (operator): the Holybro PM03D FAILED and is OUT. Power
-  # now splits in two — a converter straight from the pack feeds the Pixhawk,
-  # and the MOTORS are fed by a SEPARATE board that the FC does not sense.
+  # ⚠ REWIRED 2026-08-16 (operator): the Holybro PM03D FAILED and is OUT.
+  # Since 2026-08-20 a Holybro PM02D feeds the Pixhawk (replacing the interim
+  # converter) — but it powers the FC/avionics ONLY; the MOTORS are still fed
+  # by a SEPARATE board that the FC does not sense. The PM02D gives the FC a
+  # clean voltage reading and a ~0.7 A avionics current — that current is the
+  # TRAP, not a feature: see below.
   #
   # The consequence is not "one less sensor", it is that any current the FC
   # still measures is the AVIONICS draw (well under an amp), NOT the ~35-43 A
@@ -771,21 +816,26 @@ sim_battery:
   # become the whole measurement. They are THREE separate questions, and
   # answering one does not answer the others:
   #
-  #   BAT1_V_DIV      ✅ CLOSED (operator, 2026-08-16): pack voltage read with a
-  #                   multimeter matched what the AAVC GCS displayed live, and
-  #                   the reading was taken AFTER the converter swap — i.e. on
-  #                   THIS wiring, so it is not inherited from the PM03D (the
-  #                   divider is a property of the module). Right kind of
-  #                   evidence, right hardware: do not re-open it.
+  #   BAT1_V_DIV      ⚠ REOPENED 2026-08-20: the 2026-08-16 multimeter-vs-GCS
+  #                   closure was measured on the CONVERTER wiring, and the
+  #                   divider is a property of the module — the PM02D that
+  #                   replaced it needs its own check. Softener: three real
+  #                   flights flew on the PM02D tonight with plausible
+  #                   voltages (24.58 V rest on a ~65-80 % pack), so this is a
+  #                   re-verify, not a suspected fault. One multimeter-vs-GCS
+  #                   reading on the PM02D closes it again.
   #   BAT1_N_CELLS  = 6
-  #   BAT1_V_EMPTY  = 3.50     BAT1_V_CHARGED = 4.15
-  #                   ❌ NOT verified by the above. A correct VOLTAGE and a
-  #                   correct PERCENTAGE are different claims: these two are the
-  #                   endpoints the whole percentage is interpolated between
-  #                   (`math::interpolate(cell_v, v_empty, v_charged, 0, 1)`), so
-  #                   a right voltage still reports a wrong % if they are wrong —
-  #                   and every threshold in this file is a % of that.
-  #                   Confirm against the pack's own discharge spec.
+  #   BAT1_V_EMPTY  = 3.77     BAT1_V_CHARGED = 4.18
+  #                   (17000 semi-solid endpoints, on the board since
+  #                   2026-08-19 — full 25.1 V, empty ~22.6 V per the
+  #                   operator's spec; the stale LiPo-era 3.50/4.15 that used
+  #                   to sit on this line never matched the board.)
+  #                   A correct VOLTAGE and a correct PERCENTAGE are different
+  #                   claims: these two are the endpoints the whole percentage
+  #                   is interpolated between (`math::interpolate(cell_v,
+  #                   v_empty, v_charged, 0, 1)`), so a right voltage still
+  #                   reports a wrong % if they are wrong — and every
+  #                   threshold in this file is a % of that.
   #
   # ⚠ And because the gauge has no load compensation without current
   # (`calculateStateOfChargeVoltageBased` only corrects when current > 0), the
@@ -817,3 +867,22 @@ preflight:
   battery_pct: 25.0         # = failsafes.bat_low_thr (critical, cannot be forced)
   gps_sats: 6               # minimum satellites (coarse, no-RTK) (critical)
   camera_max_age_s: 5.0     # nadir frame must be fresher than this (critical)
+
+# ── terminal landing loop (orchestrator/tactical_align.py) ──────────────────
+# Only override what you are A/B-ing; anything omitted keeps the dataclass
+# default, which is the value the validated runs flew. Use
+# tools/landing_trial.py to measure land-ON precision before and after.
+#
+# ⚠ cycle_hz, lock_cycles and max_lost_cycles are ONE setting in three numbers:
+# the last two are counted in CYCLES, so a rate change alone rescales how long
+# the loop confirms a lock (lock_cycles / cycle_hz, target 0.6 s) and how long
+# it tolerates a lost pad before climbing a rung (max_lost_cycles / cycle_hz,
+# target 1.6 s). Move them together or the loop gets twitchy exactly when the
+# camera is struggling.
+align:
+  cycle_hz: 12.0          # achieved rate (deadline-paced); ~60 ms of work per
+                          # cycle on the CM4 leaves ~38% headroom under it
+  lock_cycles: 9          # 0.75 s of in-tolerance before descending a rung
+  max_lost_cycles: 24     # 2.0 s of lost pad before climbing back
+  median_window: 3        # fixes fused per command (lag = window / cycle_hz
+                          # = 0.25 s; keep ODD and small — see the dataclass)

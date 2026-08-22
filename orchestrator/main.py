@@ -43,7 +43,7 @@ from mavlink_adapter.telemetry import TelemetrySubscriber
 from mission_brain.flights import budgeted_flights_for, chunk_flights, remaining_owed
 from mission_brain.live_plan import render_live_plan
 from mission_brain.profile import load_profile
-from mission_brain.schemas import Coordinate, MissionPhase
+from mission_brain.schemas import CommandKind, Coordinate, MissionPhase
 from mission_brain.search_pattern import build_search_pattern
 from vision.detectors.aruco import VALID_MARKER_IDS
 from vision.projection import configure_cameras
@@ -58,7 +58,11 @@ from .state import OrchestratorMode, OrchestratorState, TerminalState
 from .tactical_align import AlignParams
 from .target_tracker import TargetState, TargetTracker
 from .time_policy import TimePolicy
-from .vision_worker import DEFAULT_FRAME_MAX_AGE_S, VisionWorker
+from .vision_worker import (
+    DEFAULT_FRAME_MAX_AGE_S,
+    DEFAULT_INTERVAL_S,
+    VisionWorker,
+)
 
 
 def _load_config(path: Path) -> dict[str, Any]:
@@ -886,15 +890,18 @@ async def run(args: argparse.Namespace) -> int:
         if fc_capacity <= 0:
             # EXPECTED on this airframe since 2026-08-17, not a defect to fix.
             # BAT1_CAPACITY <= 0 is what puts PX4 on the voltage-only branch of
-            # estimateStateOfCharge, and that is the only honest branch here: the
-            # PM03D is out, the motors run off a board the FC cannot sense, so
-            # coulomb counting would integrate avionics draw alone and report a
-            # percentage that is too high, quietly. Recorded so the audit trail
-            # says which gauge flew, NOT as a request to set a capacity.
+            # estimateStateOfCharge, and that is the only honest branch here:
+            # the PM02D (2026-08-20, replacing the failed PM03D's stand-in
+            # converter) powers ONLY the FC, the motors run off a board the FC
+            # cannot sense, so coulomb counting would integrate the ~0.7 A
+            # avionics draw alone and report a percentage that is too high,
+            # quietly. Recorded so the audit trail says which gauge flew, NOT
+            # as a request to set a capacity.
             state.record_anomaly(
                 "BAT1_CAPACITY<=0 — FC state-of-charge is voltage-only, by design "
-                "on the post-PM03D wiring (the FC cannot see motor current). "
-                "Percentages depend entirely on BAT1_V_DIV/V_EMPTY/V_CHARGED")
+                "on the PM02D-avionics-only wiring (the FC cannot see motor "
+                "current). Percentages depend entirely on "
+                "BAT1_V_DIV/V_EMPTY/V_CHARGED")
         elif abs(fc_capacity - energy_policy.capacity_mah) > 100.0:
             state.record_anomaly(
                 f"battery capacity mismatch: FC {fc_capacity:.0f} mAh vs config "
@@ -923,7 +930,10 @@ async def run(args: argparse.Namespace) -> int:
         vc = cfg.get("vision", {}) or {}
         frame_max_age_s = float(vc.get("frame_max_age_s", DEFAULT_FRAME_MAX_AGE_S))
         vision = VisionWorker(state, target_description=profile.default_target,
-                              frame_max_age_s=frame_max_age_s)
+                              frame_max_age_s=frame_max_age_s,
+                              interval_s=float(vc.get("poll_interval_s",
+                                                      DEFAULT_INTERVAL_S)),
+                              decode_workers=int(vc.get("decode_workers", 1)))
         vision.on_fix(tracker.ingest)     # discovery: confirm targets from fixes
         # AAVC GCS console feed: registered AFTER tracker.ingest (same ordering
         # rule as the dashboard pusher below) and independent of it, so
@@ -953,7 +963,7 @@ async def run(args: argparse.Namespace) -> int:
         await frames.start()
 
         # ── fly (the per-sortie gate holds in PREFLIGHT before every launch) ──
-        align = _align_for(profile, frame_max_age_s)
+        align = _align_for(profile, frame_max_age_s, _align_tuning(cfg))
         policy = _build_time_policy(sc, profile)
         sortie_gate = _sortie_gate_factory(
             state, dash=dash, home=home, geofence=geofence, cfg=cfg,
@@ -962,7 +972,7 @@ async def run(args: argparse.Namespace) -> int:
             skip_preflight=args.skip_preflight,
             commander=commander, rc_go=args.rc_go,
         )
-        on_plan_update = _plan_pusher(dash)
+        on_plan_update = _plan_pusher(dash, gcs_feed)
 
         # 1 Hz mirror of the REAL mission phase + flight clock onto the AAVC
         # GCS console's stepper (user report 2026-08-12: the mission bar never
@@ -1043,6 +1053,13 @@ async def run(args: argparse.Namespace) -> int:
             pass
 
 
+# Headroom the align ladder's top rung keeps under the profile ceiling — the
+# same 0.5 m the transit and the decode hover already back off by
+# (mission.py::_ALT_BIAS_MARGIN_M), for the same reason: the commanded AGL and
+# the EKF's idea of it disagree by up to ~0.7 m per arming.
+_CEILING_MARGIN_M = 0.5
+
+
 def _rungs_for(profile: Any) -> tuple[float, ...]:
     """Descend rungs clamped under the ceiling, ending near the ground (the
     final 2 m rung tightens the land-ON drift for the 1 m pad).
@@ -1054,12 +1071,70 @@ def _rungs_for(profile: Any) -> tuple[float, ...]:
     ceil = profile.altitude_ceiling_m
     if ceil <= 6.0:
         return (min(4.0, ceil - 1.0), 3.0, 2.0, 1.5)
-    top = min(12.0, ceil)
-    rungs = tuple(r for r in (top, 8.0, 5.0, 3.0, 2.0, 1.5) if r <= ceil)
-    return rungs or (min(5.0, ceil),)
+    # ⚠ THE TOP RUNG MUST KEEP CEILING MARGIN (2026-08-21 review). This used to
+    # be min(12.0, ceil), which is fine at the 20 m KMITL ceiling but becomes
+    # ceil EXACTLY once the ceiling drops to 12 or below — and the KMUTNB
+    # profile's ceiling became 10.0 on 2026-08-18. Every other altitude in the
+    # mission is deliberately backed off (transit commands ceiling-0.5, the
+    # decode hover sits floor+0.5, the sweep is clamped to ceiling-1); this one
+    # alone sat ON the line, then held there for the acquire budget plus rung 0
+    # AND on every defer climb-back. With the documented ~+0.6 m AGL frame bias
+    # and the climb overshoot on top, that is the watchdog's warn line
+    # continuously and its RTH line one gust away — and a watchdog RTH ends the
+    # mission, forfeiting every remaining delivery. Use the SAME margin the
+    # sweep already uses so the ladder can never be the thing that busts the
+    # ceiling.
+    top = min(12.0, ceil - _CEILING_MARGIN_M)
+    rungs = tuple(r for r in (top, 8.0, 5.0, 3.0, 2.0, 1.5) if r <= top)
+    return rungs or (min(5.0, max(1.5, ceil - _CEILING_MARGIN_M)),)
 
 
-def _align_for(profile: Any, frame_max_age_s: float) -> AlignParams:
+def _align_tuning(cfg: dict[str, Any]) -> dict[str, Any]:
+    """The landing loop's RATE trio from the ``align:`` config block, as
+    kwargs. Empty when the block is absent, so the dataclass defaults (the
+    flown values) stand. Exposed for the field: ``tools/landing_trial.py``
+    A/Bs land-ON precision, and the operator should be able to try a slower
+    or faster loop without editing the flight core.
+
+    Anything set here MUST keep the wall-clock constants intact — lock_cycles
+    and max_lost_cycles are counted in cycles, so they scale WITH cycle_hz
+    (see AlignParams)."""
+    ac = cfg.get("align", {}) or {}
+    out: dict[str, Any] = {}
+    # ⚠ BOUNDS ARE NOT OPTIONAL HERE (2026-08-21 review). These land straight
+    # in AlignParams, and `final_locked = in_tol >= lock_cycles` means
+    # lock_cycles=0 evaluates 0 >= 0 -> True: the centred-LAND gate added
+    # after the 2026-07-15 run that released 2.46 m off-pad would be bypassed
+    # and every rung would break on its first fix. A YAML typo must not be a
+    # land-anywhere switch. median_window must stay ODD (an even window is a
+    # mean, not a median) and small (its lag IS landing error).
+    limits: dict[str, tuple[Any, Any, Any]] = {
+        "cycle_hz": (float, 1.0, 30.0),
+        "lock_cycles": (int, 1, 100),
+        "max_lost_cycles": (int, 1, 200),
+        "median_window": (int, 1, 9),
+    }
+    for key, (cast, lo, hi) in limits.items():
+        if key not in ac:
+            continue
+        try:
+            value = cast(ac[key])
+        except (TypeError, ValueError):
+            raise ValueError(f"align.{key}={ac[key]!r} is not a {cast.__name__}") from None
+        if not lo <= value <= hi:
+            raise ValueError(
+                f"align.{key}={value} outside [{lo}, {hi}] — refusing to fly a "
+                "landing loop tuned outside its validated envelope")
+        if key == "median_window" and value % 2 == 0:
+            raise ValueError(
+                f"align.median_window={value} must be ODD (an even window is a "
+                "mean, not a median, so a single outlier moves the setpoint)")
+        out[key] = value
+    return out
+
+
+def _align_for(profile: Any, frame_max_age_s: float,
+               tuning: dict[str, Any] | None = None) -> AlignParams:
     """AlignParams matched to the profile's altitude band AND field geometry.
 
     A very low ceiling (<= 6 m) also needs the short 4-rung ladder with
@@ -1072,6 +1147,7 @@ def _align_for(profile: Any, frame_max_age_s: float) -> AlignParams:
     than its 14.5 m pad spacing.)"""
     rungs = _rungs_for(profile)
     accept = profile.terminal_accept_radius_m
+    tune = dict(tuning or {})
     if profile.altitude_ceiling_m <= 6.0:
         return AlignParams(
             rungs=rungs,
@@ -1079,9 +1155,10 @@ def _align_for(profile: Any, frame_max_age_s: float) -> AlignParams:
             rung_descent_mps=(1.5, 0.8, 0.5, 0.4),
             accept_radius_m=accept,
             frame_max_age_s=frame_max_age_s,
+            **tune,
         )
     return AlignParams(rungs=rungs, accept_radius_m=accept,
-                       frame_max_age_s=frame_max_age_s)
+                       frame_max_age_s=frame_max_age_s, **tune)
 
 
 def _build_spec(area: list[tuple[float, ...]], home: Coordinate,
@@ -1151,18 +1228,39 @@ def _confirm_pusher(tracker: TargetTracker, broadcaster: Any) -> Any:
     return _push
 
 
-def _plan_pusher(dash: Any) -> Any:
-    """A closure that pushes a rebuilt live plan to the dashboard, or None when
-    headless / the broadcaster can't take it."""
+def _plan_pusher(dash: Any, gcs_feed: Any) -> Any:
+    """A closure that pushes every rebuilt live plan to the dashboard
+    broadcaster (when present) AND the GCS console feed (always):
+    mission_status.json gains ``plan``/``plan_ptr`` so the operator's map can
+    show where the aircraft is going NEXT — the first write lands at gate
+    release, while the launch-point WiFi still reaches the console (Fix 3,
+    G7 debrief 2026-08-21: the takeover came early precisely because the
+    screen could not answer that question). DROP_PAYLOAD commands ride their
+    GOTO's position and are skipped; ``kind`` is the command's mission-phase
+    tag and ``seq`` a 1-based display index."""
     b = getattr(dash, "broadcaster", None) if dash is not None else None
-    if b is None or not hasattr(b, "push_plan"):
-        return None
+    if b is not None and not hasattr(b, "push_plan"):
+        b = None
 
     def _push(plan: Any, pointer: int) -> None:
+        if b is not None:
+            try:
+                b.push_plan(json.loads(plan.model_dump_json()), pointer)
+            except Exception:
+                logger.exception("[main] plan push failed")
         try:
-            b.push_plan(json.loads(plan.model_dump_json()), pointer)
+            pts: list[list[Any]] = []
+            for c in plan.commands:
+                coord = getattr(c, "coord", None)
+                if coord is None or c.kind == CommandKind.DROP_PAYLOAD:
+                    continue
+                pts.append([round(float(coord.lat), 7),
+                            round(float(coord.lon), 7),
+                            str(getattr(c.phase, "value", c.phase)),
+                            len(pts) + 1])
+            gcs_feed.set_plan(pts, int(pointer))
         except Exception:
-            logger.exception("[main] plan push failed")
+            logger.exception("[main] gcs plan push failed")
 
     return _push
 

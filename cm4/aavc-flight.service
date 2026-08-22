@@ -21,6 +21,8 @@ User=pi
 WorkingDirectory=/home/pi/AAVC
 Environment=SERIAL=/dev/ttyACM0
 Environment=BACKEND=v4l2
+# Environment=CAM_EXPOSURE=20       # v4l2 forced exposure, 100 µs units (0 = auto);
+#                                   # launch_flight.sh already defaults to 20
 # Environment=HEADLESS=1            # uncomment ONLY for unattended field auto-GO
 ExecStart=/usr/bin/env bash cm4/launch_flight.sh
 Restart=no

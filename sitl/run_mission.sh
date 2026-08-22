@@ -98,6 +98,34 @@ EOF
                 cam_dev=$(ls /dev/v4l/by-id/*-video-index0 2>/dev/null | head -1)
                 [ -n "$cam_dev" ] && GRAB_ARGS="--nadir-device $cam_dev"
             fi
+            # บังคับ exposure สั้นบนกล้องจริงเป็นค่าเริ่มต้น (G7 2026-08-21:
+            # เฟรมบิน blur ~10x เพราะ auto_exposure ค้าง 16.6 ms) — ensure_infra
+            # รันเฉพาะฝั่ง REAL อยู่แล้ว SITL/gz ไม่โดน. หน่วยคือ 100 µs ของ UVC
+            # (20 = 2 ms); CAM_EXPOSURE=0 = กลับไป auto; CAM_GAIN (0-128)
+            # ชดเชยความสว่าง — OV9281 ไม่มี auto-gain
+            CAM_EXPOSURE="${CAM_EXPOSURE:-20}"
+            if [ "$CAM_EXPOSURE" != "0" ] && [ "${BACKEND:-v4l2}" = "v4l2" ]; then
+                GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--exposure-100us $CAM_EXPOSURE"
+                [ -n "${CAM_GAIN:-}" ] && GRAB_ARGS="$GRAB_ARGS --gain $CAM_GAIN"
+            fi
+            # ทุกเฟรมที่เขียน = โอกาสอ่าน marker เพิ่มหนึ่งครั้ง (vision worker
+            # decode ทุกเฟรมใหม่ตั้งแต่ 2026-08-21) — เซนเซอร์ให้ 10 fps ที่
+            # 1280x720 จึงเขียน 10 Hz; ปิด mirror เพราะเป็น encode ตัวที่
+            # สอง (JPEG q95 = 12 ms/เฟรม; ตอนเป็น PNG คือ 62 ms) ซึ่งมีแค่
+            # dashboard เว็บที่อ่าน — จอ GCS กับ vision worker ใช้ nadir ทั้งคู่
+            # MJPEG PASSTHROUGH (default): the camera already produces JPEG,
+            # so write ITS bytes — no decode, no re-encode. วัดบน CM4: 20 Hz
+            # ที่ 7% ของคอร์เดียว (ทางเดิม 39%), เฟรม 33 KB, และไม่มีการบีบ
+            # ซ้ำสองรอบ. ทดสอบแล้วว่า ArUco ยัง decode ได้แม้บีบถึง q60 ที่
+            # ขนาด marker 17-42 px (= 8-16 m) ส่วนกล้องส่งมาที่ ~q80-85.
+            # CAM_PASSTHROUGH=0 กลับไปทาง YUYV + re-encode ได้ทันที
+            if [ "${CAM_PASSTHROUGH:-1}" != "0" ] && [ "${BACKEND:-v4l2}" = "v4l2" ]; then
+                GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--mjpeg-passthrough"
+                CAM_INTERVAL="${CAM_INTERVAL:-0.04}"     # 25 Hz — /tmp is tmpfs (RAM) on
+                                         # the CM4, so frames cost no SD wear
+            fi
+            GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--interval-s ${CAM_INTERVAL:-0.1}"
+            [ "${CAM_MIRROR:-0}" = "0" ] && GRAB_ARGS="$GRAB_ARGS --no-mirror"
             echo "[run_mission] starting camera grabber (BACKEND=${BACKEND:-v4l2}${GRAB_ARGS:+ $GRAB_ARGS})"
             setsid make -C "$REPO_ROOT" camera-real BACKEND="${BACKEND:-v4l2}" \
                 GRAB_ARGS="${GRAB_ARGS:-}" \

@@ -153,12 +153,30 @@ run-hitl:
 web-build:
 	cd dashboard/web && npm i && npm run build
 
+CONNECT ?= udpin://0.0.0.0:14540
+
 test:
 	$(PY) -m pytest
 
 lint:
 	$(PY) -m ruff check .
 	$(PY) -m mypy mission_brain orchestrator mavlink_adapter vision dashboard
+
+# ── field-day gates (synced from aavc-practice 2026-08-22; the 2026-08-21
+# review found this repo had NO type audit and no preflight target at all,
+# which is how EKF2_HGT_REF and MAV_1_FORWARD went out as float writes PX4
+# rejects, logged only as "TIMEOUT") ──
+preflight:
+	$(PY) tools/preflight_params.py --connect "$(CONNECT)" $(if $(STRICT),--strict)
+
+param-audit:
+	$(PY) tools/param_audit.py --connect "$(CONNECT)"
+
+type-audit:
+	$(PY) tools/px4_type_audit.py
+
+fence-probe:
+	$(PY) tools/fence_probe.py --connect "$(CONNECT)"
 
 clean:
 	rm -rf __pycache__ .pytest_cache .mypy_cache .ruff_cache *.egg-info

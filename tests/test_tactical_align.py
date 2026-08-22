@@ -14,10 +14,13 @@ the decision logic.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import math
+from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 from mavlink_adapter.telemetry import CurrentTelemetry
 from mission_brain.live_plan import render_live_plan
@@ -134,6 +137,16 @@ def _centred_hit(marker_id) -> PadHit:
                   confidence=0.9, corners=(), pad_side_px=0.0)
 
 
+def _patch_live_camera(monkeypatch) -> None:
+    """A faked detector is a faked camera — make it a LIVE one.
+
+    Since 2026-08-21 the loop only decodes frames it has not seen, so a frozen
+    mtime means one decode and then nothing: that is the frozen-camera case,
+    not the flying one. Every test that fakes _detect_nadir must fake this too."""
+    ticks = itertools.count(1.0, 0.05)
+    monkeypatch.setattr(ta, "_frame_mtime", lambda _p: next(ticks))
+
+
 def _patch_detector(monkeypatch, marker_id) -> None:
     def fake(frame_path, min_conf, assigned_id):
         alt = max(state_ref.telemetry.relative_alt_m, 0.5)
@@ -142,6 +155,7 @@ def _patch_detector(monkeypatch, marker_id) -> None:
         return PadHit(cx=hit.cx, cy=hit.cy, marker_id=hit.marker_id,
                       radius_px=exp, confidence=0.9, corners=(), pad_side_px=0.0)
     monkeypatch.setattr(ta, "_detect_nadir", fake)
+    _patch_live_camera(monkeypatch)
 
 
 state_ref: OrchestratorState
@@ -186,6 +200,7 @@ def test_wrong_pad_never_acquires_and_defers(monkeypatch) -> None:
     cmd = FakeCommander(state)
     # _detect_nadir itself rejects wrong ids → the loop sees nothing at all.
     monkeypatch.setattr(ta, "_detect_nadir", lambda f, c, a: None)
+    _patch_live_camera(monkeypatch)
 
     res = asyncio.run(acquire_and_land_drop(
         cmd, state, Coordinate(lat=_LAT, lon=_LON), 2, params=_fast_params()))
@@ -216,6 +231,7 @@ def test_uncentred_final_rung_defers_instead_of_landing(monkeypatch) -> None:
                       confidence=0.9, corners=(), pad_side_px=0.0)
 
     monkeypatch.setattr(ta, "_detect_nadir", biased)
+    _patch_live_camera(monkeypatch)
 
     res = asyncio.run(acquire_and_land_drop(
         cmd, state, Coordinate(lat=_LAT, lon=_LON), 1, params=_fast_params()))
@@ -314,3 +330,107 @@ def test_release_fires_once_the_detector_reports_on_ground(monkeypatch) -> None:
 
     assert res.landed and res.dropped
     assert not any("landed_state_timeout" in a for a in state.anomalies)
+
+
+# ── the landing loop's rate trio is ONE setting (2026-08-21) ────────────────
+# lock_cycles and max_lost_cycles are counted in CYCLES, so raising cycle_hz
+# alone silently shortens how long the loop confirms a lock and how long it
+# tolerates a lost pad — it gets twitchy exactly when the camera is struggling,
+# which is the opposite of what a faster loop is for. The rate went 5 -> 10 Hz
+# when JPEG frames cut a cycle to ~56 ms of CM4 CPU; these wall-clock constants
+# are what the validated 5 Hz/3/8 era flew and must survive any retune.
+
+
+def _wall_clock(p: AlignParams) -> tuple[float, float, float]:
+    return (p.lock_cycles / p.cycle_hz,
+            p.max_lost_cycles / p.cycle_hz,
+            p.median_window / p.cycle_hz)
+
+
+def test_align_rate_change_preserves_the_wall_clock_constants() -> None:
+    lock_s, lost_s, median_lag_s = _wall_clock(AlignParams())
+    assert lock_s == pytest.approx(0.75, abs=0.1)
+    assert lost_s == pytest.approx(2.0, abs=0.2)
+    # the median filter's own lag rides into the commanded setpoint, so it IS
+    # landing error — a faster loop must SHRINK it, never grow it
+    assert median_lag_s <= 0.3
+
+
+def test_align_loop_is_not_slower_than_the_camera() -> None:
+    """A loop slower than the camera throws frames away, and one faster than
+    it can actually run just slips. The camera writes 20-25 Hz with MJPEG
+    passthrough; a cycle costs ~60 ms on the CM4, so the honest ceiling is
+    ~16 Hz and the setting must leave headroom under it."""
+    assert 10.0 <= AlignParams().cycle_hz <= 15.0
+
+
+def test_align_config_block_moves_the_trio_together() -> None:
+    """The config seam exists so landing precision can be A/B'd with
+    tools/landing_trial.py without editing the flight core — but a config that
+    changes the rate alone would break the invariant above, so the shipped
+    block sets all three."""
+    import yaml
+
+    from orchestrator.main import _align_for, _align_tuning
+
+    cfg = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "sitl" / "aavc_config.yaml").read_text())
+    tuning = _align_tuning(cfg)
+    assert {"cycle_hz", "lock_cycles", "max_lost_cycles"} <= set(tuning)
+    lock_s, lost_s, _ = _wall_clock(_align_for(COMPETITION, 2.0, tuning))
+    assert lock_s == pytest.approx(0.75, abs=0.1)
+    assert lost_s == pytest.approx(2.0, abs=0.2)
+
+
+# ── the landing loop must not re-decode a frame it has already seen ─────────
+# (2026-08-21 review) The pose is sampled per read, so re-decoding one image
+# yields a SEQUENCE of world fixes that translate WITH the aircraft: the
+# commanded goto then chases the vehicle's own motion instead of correcting
+# it, and lock_cycles can be satisfied from a handful of distinct frames.
+
+
+def test_a_frozen_frame_is_decoded_once_not_every_cycle(monkeypatch) -> None:
+    global state_ref
+    state = state_ref = _state()
+    cmd = FakeCommander(state)
+    calls = []
+
+    def counting(frame_path, min_conf, assigned_id):
+        calls.append(1)
+        return _centred_hit(3)
+
+    monkeypatch.setattr(ta, "_detect_nadir", counting)
+    monkeypatch.setattr(ta, "_frame_mtime", lambda _p: 7.0)   # camera frozen
+    asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1, params=_fast_params()))
+
+    assert len(calls) == 1, f"decoded a frozen frame {len(calls)} times"
+
+
+def test_a_missing_frame_never_decodes(monkeypatch) -> None:
+    """No camera at all must not spin the decode path — the staleness gate and
+    the lost-detection counter own that case."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = FakeCommander(state)
+    calls = []
+    monkeypatch.setattr(ta, "_detect_nadir",
+                        lambda f, c, a: (calls.append(1), None)[1])
+    monkeypatch.setattr(ta, "_frame_mtime", lambda _p: None)
+    asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1, params=_fast_params()))
+    assert not calls
+
+
+def test_the_pose_belongs_to_the_frame_not_to_the_decode(monkeypatch) -> None:
+    """_hit_world_fix must project with the pose passed IN, so a pose captured
+    before a ~55 ms decode is the one used — a live read afterwards is a bias
+    in the direction of travel, which the median filter cannot remove."""
+    hit = _centred_hit(3)
+    pose_a = (_LAT, _LON, 10.0, 0.0, 0.0, 0.0)
+    pose_b = (_LAT + 0.001, _LON, 10.0, 0.0, 0.0, 0.0)   # ~111 m north
+    fix_a = ta._hit_world_fix(hit, pose_a)
+    fix_b = ta._hit_world_fix(hit, pose_b)
+    assert fix_a is not None and fix_b is not None
+    assert abs(fix_b.lat - fix_a.lat) > 0.0009        # it really used the pose
+    assert ta._hit_world_fix(hit, None) is None

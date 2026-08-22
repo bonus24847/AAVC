@@ -56,7 +56,11 @@ BOARD: dict[str, float] = {
     "PWM_AUX_FUNC3": 303, "PWM_AUX_FUNC4": 304,
     "SYS_AUTOSTART": 6001,            # Generic Hexarotor X
     "CA_ROTOR_COUNT": 6,
-    # battery: the PM03D is out, so the voltage-only branch carries the gauge
+    # battery: the FC is fed by a PM02D that powers ONLY the avionics
+    # (2026-08-20; replaced the converter that replaced the failed PM03D) —
+    # motors still run from a board the FC cannot sense, so the voltage-only
+    # branch carries the gauge. The PM02D's ~0.7 A avionics current must NEVER
+    # be allowed to feed coulomb counting: it reads a pack that never empties.
     "BAT1_CAPACITY": -1,              # <=0 selects estimateStateOfCharge's else
     "BAT1_N_CELLS": 6,
     # 17000 mAh semi-solid endpoints (operator 2026-08-19: full 25.1 V, empty
@@ -67,10 +71,26 @@ BOARD: dict[str, float] = {
     "BAT1_V_CHARGED": 4.18,
     "BAT1_V_EMPTY": 3.77,
     "SENS_TFMINI_CFG": 103,           # TFmini-S on TELEM3
+    # The HITL firmware has NO real actuator output (docs/HITL.md: reflash a
+    # flight fw before G7) — a board still flagged SYS_HITL=1 is unflyable in
+    # exactly the silent way this BOARD block exists to catch, and nothing at
+    # mission start pins it back. Added 2026-08-20 (gap G-7).
+    "SYS_HITL": 0,
+    # Hover-thrust SEED. Measured true hover ≈0.60 (motors mean across the
+    # 2026-08-20 flights) while the board shipped PX4's 0.5 default and the
+    # hover-thrust estimator (MPC_USE_HTE=1) logged all-NaN — it never
+    # converged in flights this short, so the SEED is what the takeoff ramp,
+    # the land detector and every post-reset first flight actually fly on.
+    # Written + read-back on the board 2026-08-21 (operator-approved).
+    "MPC_THR_HOVER": 0.58,
 }
 
 # ── pushed by orchestrator/main.py at mission start; bench values are fine ──
 PINNED: dict[str, float] = {
+    # ⚠ PER-FIELD: 9.0 is the KMUTNB value (ceiling 10). The KMITL config pins
+    # 19.5 (ceiling 20, floor 10), so this line reads "wrong" on a competition
+    # board — PINNED is informational, so it prints rather than stops, but do
+    # not "fix" the board to match it at KMITL.
     "RTL_RETURN_ALT": 9.0,
     "GF_MAX_VER_DIST": 20.0,          # the rules' altitude fence
     "GF_ACTION": 3,                   # 3 = Return. NEVER 2 (Hold) — see CLAUDE.md
@@ -125,7 +145,8 @@ def _board_ok(name: str, have: float, want: float) -> bool:
     """Whether a live reading passes. Relative-tolerance exact match for every
     param EXCEPT ``BAT1_CAPACITY``, where any value ``<= 0`` is correct: it
     selects PX4's voltage-only state-of-charge branch, the one this airframe
-    flies on since the PM03D was removed. Pinning it to exactly ``-1`` STOPped
+    flies on since the PM03D failed (the PM02D that now feeds the FC senses
+    avionics draw only). Pinning it to exactly ``-1`` STOPped
     the flight over a ``0`` that flies fine — the runtime gate
     (``main.py``: ``if fc_capacity <= 0``) accepts any non-positive value, so
     the field-day check must too."""
@@ -155,7 +176,7 @@ def _report(title: str, expected: dict[str, float], got: dict[str, float],
     return off
 
 
-async def _run(endpoint: str) -> int:
+async def _run(endpoint: str, *, strict: bool = False) -> int:
     print(f"[preflight] {endpoint}")
     commander = DroneCommander(ConnectionConfig(system_address=endpoint))
     try:
@@ -167,12 +188,21 @@ async def _run(endpoint: str) -> int:
 
     got = await _read(commander, list(BOARD) + list(PINNED))
     bad = _report("ต้องถูกบนบอร์ดเอง (ไม่มีใครแก้ให้):", BOARD, got, fatal=True)
-    _report("mission เขียนให้ตอนสตาร์ต (ค่าโต๊ะ = ปกติ):", PINNED, got, fatal=False)
+    pinned_off = _report(
+        "mission เขียนให้ตอนสตาร์ต (ค่าโต๊ะ = ปกติ):", PINNED, got, fatal=strict)
 
     print()
     if bad:
         print(f"✘ อย่าเพิ่งบิน — ต้องแก้ก่อน: {', '.join(bad)}")
         return 2
+    if strict and pinned_off:
+        # Post-staging mode: once orchestrator/main.py has pushed the pins,
+        # a PINNED value still off means the push failed (the "applied 0/24"
+        # class — CLAUDE.md's stale-mavsdk_server story) and the flight would
+        # run on PX4 defaults (RTL at 60 m, 1.5 m/s onto the pad).
+        print(f"✘ --strict: PINNED ยังไม่ลง — {', '.join(pinned_off)} "
+              "(push จาก orchestrator ล้มเหลว?)")
+        return 4
     print("✔ พารามิเตอร์ฝั่งบอร์ดครบถูกต้อง — บินได้")
     return 0
 
@@ -182,8 +212,12 @@ def main() -> int:
     ap.add_argument("--connect", default="udpin://0.0.0.0:14540",
                     help="MAVLink endpoint (default: the router's offboard port; "
                          "serial:///dev/ttyAMA0:921600 talks to the FC directly)")
+    ap.add_argument("--strict", action="store_true",
+                    help="PINNED mismatches exit 4 — use AFTER the orchestrator "
+                         "has staged (it pushes the pins at connect); at the "
+                         "bench they are informational")
     args = ap.parse_args()
-    return asyncio.run(_run(args.connect))
+    return asyncio.run(_run(args.connect, strict=args.strict))
 
 
 if __name__ == "__main__":

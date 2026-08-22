@@ -122,6 +122,11 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     "MC_YAWRATE_MAX": 45.0,     # limit body yaw rate (deg/s); default 200. The hexa's
                                 # Izz dwarfs its yaw authority — it cannot chase 50.
     "MPC_YAWRAUTO_MAX": 25.0,   # gentler auto heading slews (deg/s) — the AUTO yaw cap
+    # 5 = YAW FIXED in AUTO (v1.17 source-verified enum; 0-default yaws
+    # towards every waypoint, spinning the nadir camera at each sweep turn
+    # — rotational blur on top of the in-flight blur budget). The hexa
+    # strafes its legs on one heading instead. Operator 2026-08-21.
+    "MPC_YAW_MODE": 5.0,
     "MPC_XY_VEL_MAX": 5.0,      # horizontal speed ceiling (m/s); KMUTNB: the longest
                                 # leg is ~52 m and accuracy is the brief — 10 m/s
                                 # buys nothing here and doubles the overshoot.
@@ -201,11 +206,18 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     # 7.0 clears every rung, stays inside the TFmini-S band (0.1-12 m) and
     # inside PX4's own 1..10 limit.
     "EKF2_RNG_A_HMAX": 7.0,     # range aiding engages below this (m); default 5.0
-    # 1 = GPS owns absolute height (PX4 default, pinned). 2 (range) would make
-    # the local origin follow ground level — a shed box under the beam becomes
-    # "down". Conditional aiding still pins the final metres.
+    # 0 = BARO owns absolute height (operator decision 2026-08-20 after two
+    # real KMUTNB night flights): the GPS vertical solution walked 12.7→36.6 m
+    # parked and stepped +1.6/+1.3 m INSIDE a 30 s flight, so with 1 (GPS) the
+    # reported AGL lied in both directions — one flight sank into the ground
+    # off a stale home cache, the next was RTH'd by the ceiling watchdog while
+    # physically fine. Baro is step-free over a <20 min flight; GPS keeps
+    # horizontal; TFmini conditional aiding still pins the final metres.
+    # NOT 2 (range): the local origin would follow ground level — a shed box
+    # under the beam becomes "down". The competition config
+    # (sitl/kmitl_config.yaml) still deliberately pins 1 for the 20 m site.
     # ⚠ reboot_required — applies from the next boot.
-    "EKF2_HGT_REF": 1.0,        # height reference = GPS (pinned default)
+    "EKF2_HGT_REF": 0.0,        # height reference = BARO (2026-08-20)
     # Optical flow was cut from the project 2026-07-22 — no flow module aboard.
     # PX4 1.17 enables the fusion by default, which only invites a puzzling
     # "flow timeout" health failure at arming.
@@ -230,6 +242,20 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
 # shared list can cover it.
 _INT_PARAMS = frozenset({
     "EKF2_RNG_CTRL", "EKF2_OF_CTRL",          # height aiding / flow fusion
+    "MPC_YAW_MODE",                            # AUTO heading enum -> INT32
+    # Missing from this list its whole life: the float write was rejected on
+    # every connect ("EKF2_HGT_REF=1 failed: TIMEOUT" in every flight log), so
+    # the pin never actually reached the board — found 2026-08-20 while
+    # switching the practice site to baro height reference.
+    "EKF2_HGT_REF",
+    # Same defect, one entry down, its whole life too (boolean -> INT32;
+    # "MAV_1_FORWARD=1 failed: TIMEOUT" in every flight log). The pin guards
+    # the radio status beacon: had a param reset wiped it, the beacon would
+    # have gone silent with no error anywhere. Caught by
+    # tools/px4_type_audit.py on 2026-08-20 — run `make type-audit` whenever
+    # a pushed param is added.
+    "MAV_1_FORWARD",
+
     "SIM_BAT_ENABLE",                          # SITL battery simulator on/off
     # Gimbal (VERIFY-AT-G5). MNT_MAN_PITCH is not an angle — PX4 types it INT32
     # because it selects the RC AUX channel that drives pitch (0 = disabled).
@@ -445,6 +471,10 @@ class DroneCommander:
             # ~1.5 m across sorties (SITL G4 2026-07-04) — refresh it now.
             await asyncio.sleep(1.0)   # let the new home propagate to telemetry
             await self._refresh_home_alt()
+        # Re-guard (2026-08-21): between the entry guard and here sit the arm
+        # retries, a 1 s settle and a home-alt refresh (1-6 s) — a takeover in
+        # that window must not be followed by a takeoff command.
+        self._guard_pilot("takeoff")
         await self.system.action.takeoff()
         if not await self._wait_until_altitude_reached(altitude_m):
             # Don't fly on as if cruise altitude was achieved — surface it; the
@@ -458,6 +488,9 @@ class DroneCommander:
         # so subsequent GOTO commands actually move the vehicle. See PX4 forum
         # "Proper way to do a GoTo" + MAVSDK guide (no wait_for_state exists).
         logger.info("[mavlink] takeoff complete — switching to HOLD")
+        # Guarded: commanding HOLD would yank a pilot who just took over
+        # straight out of their POSCTL rescue.
+        self._guard_pilot("switch to HOLD")
         await self.system.action.hold()
         # Give PX4 ~1 s to settle into the new mode before the next reposition.
         await asyncio.sleep(1.0)
@@ -494,6 +527,11 @@ class DroneCommander:
         between targets. Mirrors the retry the SITL verify harnesses use."""
         last: ActionError | None = None
         for i in range(attempts):
+            # Re-checked EVERY attempt (2026-08-21): the retry window is up to
+            # 15 s — a takeover landing mid-retry must abort the remaining
+            # arms, not merely the next command after them. This is the exact
+            # method the G7 zombie hammered against a parked aircraft.
+            self._guard_pilot("arm")
             try:
                 await self.system.action.arm()
                 if i:
@@ -533,7 +571,9 @@ class DroneCommander:
         return float(await self.system.param.get_param_float(name))
 
     async def set_param_float(self, name: str, value: float) -> None:
-        """Set a PX4 float parameter."""
+        """Set a PX4 float parameter. Guarded: after a takeover nothing may
+        rewrite the FC's behaviour under the pilot (reads stay allowed)."""
+        self._guard_pilot(f"set param {name}")
         await self.system.param.set_param_float(name, float(value))
 
     async def get_param_int(self, name: str) -> int:
@@ -544,7 +584,8 @@ class DroneCommander:
 
     async def set_param_int(self, name: str, value: int) -> None:
         """Set a PX4 int parameter (e.g. MIS_TKO_LAND_REQ=0 to allow a
-        mission with no landing waypoint)."""
+        mission with no landing waypoint). Guarded like set_param_float."""
+        self._guard_pilot(f"set param {name}")
         await self.system.param.set_param_int(name, int(value))
 
     async def _apply_params(self, params: Mapping[str, float], kind: str) -> int:
@@ -553,6 +594,11 @@ class DroneCommander:
         via set_param_float. Per-param failure is logged and tolerated so one
         unknown key never aborts the mission — the CALLER decides whether the
         count it gets back is acceptable."""
+        # Entry guard: raise BEFORE the loop, where the per-param try/except
+        # would otherwise swallow PilotInControlError into warnings. (If a
+        # stand_down lands mid-loop, the inner guards still keep every write
+        # off the wire — just noisily.)
+        self._guard_pilot("apply a param block")
         applied = 0
         for name, value in params.items():
             try:
@@ -658,6 +704,9 @@ class DroneCommander:
         coroutine returns the latest progress. Caller (safety watchdog) is
         responsible for whatever recovery action follows (RTL, LAND, etc).
         """
+        # Guarded (2026-08-21): this method ARMS the vehicle and starts a
+        # mission — it was the largest unguarded surface after stand_down().
+        self._guard_pilot("upload/run a mission")
         if not items:
             raise ValueError("run_mission: items must be non-empty")
         plan = _MissionPlan(items)
@@ -871,6 +920,10 @@ class DroneCommander:
         every channel this drop must NOT touch (FunctionActuatorSet skips
         non-finite params). Runs the blocking pymavlink I/O in a thread so the
         event loop is free."""
+        # Guarded (2026-08-21): this is a raw side-channel that bypasses
+        # MAVSDK entirely — it must respect stand_down() on its own, not only
+        # via its guarded caller.
+        self._guard_pilot("drop a payload (fallback)")
         endpoint = target_endpoint or self.config.drop_fallback_endpoint
 
         def _send() -> None:
@@ -989,6 +1042,7 @@ class DroneCommander:
         attempted. An unverifiable fence counts as no fence and raises: callers
         must treat that as do-not-fly, not as a warning.
         """
+        self._guard_pilot("upload a geofence")
         from mavsdk.geofence import FenceType, GeofenceData, Point, Polygon
 
         if len(polygon) < 3:
@@ -1079,6 +1133,7 @@ class DroneCommander:
         Reads the param back after setting and raises if it didn't stick — a
         clean MAVSDK ACK does not guarantee PX4 stored the value. The caller
         records an anomaly on failure so a lost onboard geofence isn't silent."""
+        self._guard_pilot("change the geofence action")
         await self.system.param.set_param_int("GF_ACTION", 3)  # 3 = Return
         readback = await self.system.param.get_param_int("GF_ACTION")
         if readback != 3:
@@ -1093,6 +1148,7 @@ class DroneCommander:
         the software watchdog. NAV_DLL_ACT=2 (Return); COM_DL_LOSS_T sets how
         long the link must be gone first. Readback-confirmed like
         set_geofence_action_rtl (a clean MAVSDK ACK doesn't guarantee storage)."""
+        self._guard_pilot("change the datalink-loss failsafe")
         await self.system.param.set_param_int("NAV_DLL_ACT", 2)  # 2 = Return (RTL)
         readback = await self.system.param.get_param_int("NAV_DLL_ACT")
         if readback != 2:
@@ -1118,6 +1174,7 @@ class DroneCommander:
         RC). Readback-confirmed like the geofence/datalink pins. NOTE: the HITL
         bench preload deliberately uses NAV_RCL_ACT=1 (Hold) to test RC loss on
         the bench — the mission pins 2 (Return); they differ on purpose."""
+        self._guard_pilot("change the RC-loss failsafe")
         await self.system.param.set_param_int("NAV_RCL_ACT", 2)  # 2 = Return (RTL)
         readback = await self.system.param.get_param_int("NAV_RCL_ACT")
         if readback != 2:
@@ -1142,6 +1199,7 @@ class DroneCommander:
         backstop if the companion dies, so the two layers never race. The action
         (COM_LOW_BAT_ACT) is an INT and readback-confirmed; the three float
         thresholds are best-effort. Confirm on the real pack before G7."""
+        self._guard_pilot("change the battery failsafe")
         for name, value in (
             ("BAT_LOW_THR", low), ("BAT_CRIT_THR", crit), ("BAT_EMERGEN_THR", emergen),
         ):

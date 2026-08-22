@@ -40,7 +40,8 @@ def test_every_line_fits_one_statustext_packet() -> None:
     avoid. Worst case: the LONGEST phase the orchestrator writes
     ("recon (preflight)", 17), 4 delivered ids, stale camera."""
     status = {"phase": "recon (preflight)", "assigned": [1, 2, 3, 4],
-              "delivered": [1, 2, 3, 4], "pads_mapped": {"1": [0, 0], "2": [0, 0]}}
+              "delivered": [1, 2, 3, 4], "pads_mapped": {"1": [0, 0], "2": [0, 0]},
+              "pads_identified": {str(i): [0, 0] for i in range(1, 7)}}
     for _, text in beacon.compose_lines(status, 123.4):
         assert len(text) <= 50, f"{len(text)} chars: {text}"
         assert text.isascii(), text          # STATUSTEXT is ASCII on the wire
@@ -111,6 +112,32 @@ def test_no_mapped_pads_means_no_pads_line() -> None:
               "pads_mapped": {}}
     assert not [t for t in _texts(beacon.compose_lines(status, 0.5))
                 if t.startswith("AAVC pads")]
+
+
+def test_identified_ids_ride_the_radio_the_moment_they_are_seen() -> None:
+    """Operator request 2026-08-21 (G7 flight 1 was pulled down while ids 4,5
+    were being identified live behind a blank console): identified-but-
+    unconfirmed ids get their own line so the padbox can light ORANGE over
+    the radio alone. Golden-pinned; one packet even with all six ids."""
+    status = {"phase": "SERVE", "assigned": [1, 2, 3, 4], "delivered": [],
+              "pads_mapped": {}, "pads_identified": {"5": [1.0, 2.0],
+                                                     "4": [3.0, 4.0]}}
+    seen = [(sev, t) for sev, t in beacon.compose_lines(status, 0.5)
+            if t.startswith("AAVC seen=")]
+    assert seen == [(_SEV_INFO, "AAVC seen=4,5")]
+    assert seen[0][1].isascii() and len(seen[0][1]) <= 50
+
+
+def test_no_identified_pads_means_no_seen_line() -> None:
+    status = {"phase": "recon", "assigned": [1, 2], "delivered": [],
+              "pads_mapped": {}, "pads_identified": {}}
+    assert not [t for _, t in beacon.compose_lines(status, 0.5)
+                if t.startswith("AAVC seen=")]
+    # …and an archive/status written before the field existed at all
+    legacy = {"phase": "recon", "assigned": [1], "delivered": [],
+              "pads_mapped": {}}
+    assert not [t for _, t in beacon.compose_lines(legacy, 0.5)
+                if t.startswith("AAVC seen=")]
 
 
 def test_home_reason_code_rides_the_radio_as_a_warning() -> None:

@@ -22,7 +22,14 @@
 #   ROUTERD=mavlink-routerd    router binary (or an absolute path to a local build)
 #   BACKEND=v4l2|picamera2     camera backend (default v4l2)
 #   GRAB_ARGS="..."            extra camera-grabber flags (--nadir-device, --fourcc GREY, --fps, …)
-#   CONFIG=sitl/aavc_config.yaml
+#   CAM_EXPOSURE=20            v4l2 forced exposure, UVC 100 µs units (20 = 2 ms; 0 = auto)
+#   CAM_GAIN=64                optional fixed gain 0-128 with CAM_EXPOSURE (OV9281 has no auto-gain)
+#   CAM_INTERVAL=0.04          seconds between frame writes (0.04 = 25 Hz with passthrough)
+#   CAM_PASSTHROUGH=0          disable MJPEG passthrough (fall back to YUYV + re-encode)
+#   CAM_MIRROR=1               also write /tmp/aavc_frame.jpg for the WEB dashboard (costs a
+#                              second encode ~12 ms/frame as JPEG; off by default)
+#   CONFIG=sitl/aavc_config.yaml   (default: this repo's .aavc_site, else KMUTNB)
+#   AAVC_PROFILE=competition        (default: this repo's .aavc_site, else kmutnb_skyfield)
 #   NO_CAMERA=1                skip the grabber (bench test with synthetic/gz frames)
 #   HEADLESS=1                 run --no-dashboard (auto-GO; unattended field runs)
 #   DASH_HOST=127.0.0.1        dashboard bind host (use 0.0.0.0 ONLY behind your own auth)
@@ -38,7 +45,20 @@ CONNECT="${CONNECT:-udpin://0.0.0.0:14540}"
 ROUTERD="${ROUTERD:-mavlink-routerd}"
 BACKEND="${BACKEND:-v4l2}"
 GRAB_ARGS="${GRAB_ARGS:-}"
-CONFIG="${CONFIG:-sitl/aavc_config.yaml}"
+CAM_EXPOSURE="${CAM_EXPOSURE:-20}"
+# ── SITE: which field this flight is for ──────────────────────────────────
+# Same precedence as sitl/run_mission.sh: an explicit env wins, then this
+# repo's own .aavc_site marker, then the KMUTNB fallback. This launcher had
+# NEITHER until 2026-08-22 (review F6): run from the competition repo it flew
+# --config sitl/aavc_config.yaml — the KMUTNB rooftop, ~30 km from KMITL —
+# with --profile unset, so orchestrator.main defaulted to kmutnb_skyfield
+# (ceiling 10 / transit 9 / floor 2.5) on the competition field. It fails
+# closed (preflight refuses: "home is OUTSIDE the geofence"), but it burns
+# window time on the day and reads like a broken aircraft rather than a wrong
+# flag. docs/FLIGHT.md still points the field crew at this script.
+[ -f "$REPO_ROOT/.aavc_site" ] && . "$REPO_ROOT/.aavc_site"
+AAVC_PROFILE="${AAVC_PROFILE:-kmutnb_skyfield}"
+CONFIG="${CONFIG:-${AAVC_CONFIG:-sitl/aavc_config.yaml}}"
 DASH_HOST="${DASH_HOST:-127.0.0.1}"
 
 INFRA_PIDS=()
@@ -90,8 +110,9 @@ Port = 14540
 [UdpEndpoint raw]
 # Dashboard ESC/servo/consumed-mAh listener (orchestrator RawMavlinkSubscriber).
 # ⚠ DO NOT set connection.raw_telemetry_port=14551 on THIS aircraft (the line
-# here used to tell you to — 2026-08-18). The PM03D is out: the Pixhawk is fed
-# straight off the pack while the motors run from a board it cannot sense, so
+# here used to tell you to — 2026-08-18). The PM03D is out; since 2026-08-20 a
+# PM02D feeds the Pixhawk (FC/avionics ONLY) while the motors still run from a
+# board it cannot sense, so
 # BATTERY_STATUS.current_consumed counts AVIONICS ONLY — measured 0.62 A / 91 mAh
 # with the pack on the bench, against the ~35-43 A of flight. Feeding that in
 # promotes energy_consumed_mah() from tier B (percent, voltage-derived and
@@ -143,12 +164,30 @@ if [ "${NO_CAMERA:-0}" != "1" ]; then
         pkill -9 -f 'camera_grabber.p[y]' 2>/dev/null
         sleep 1
     fi
-    rm -f /tmp/aavc_nadir.png /tmp/aavc_frame.png   # never inherit a stale frame
+    rm -f /tmp/aavc_nadir.jpg /tmp/aavc_frame.jpg \
+          /tmp/aavc_nadir.png /tmp/aavc_frame.png   # incl. the pre-JPEG names
+    # Short-exposure default (mirrors run_mission.sh ensure_infra — this
+    # launcher IS the real bird; G7 2026-08-21 in-flight blur). CAM_EXPOSURE=0
+    # restores the driver's auto exposure.
+    if [ "$CAM_EXPOSURE" != "0" ] && [ "$BACKEND" = "v4l2" ]; then
+        GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--exposure-100us $CAM_EXPOSURE"
+        [ -n "${CAM_GAIN:-}" ] && GRAB_ARGS="$GRAB_ARGS --gain $CAM_GAIN"
+    fi
+    # 10 Hz frames (the sensor's own rate at 1280x720) and no mirror encode —
+    # see sitl/run_mission.sh for the measured numbers behind both.
+    # MJPEG passthrough by default — see sitl/run_mission.sh for the measured
+    # numbers and the decode-survival test behind it.
+    if [ "${CAM_PASSTHROUGH:-1}" != "0" ] && [ "$BACKEND" = "v4l2" ]; then
+        GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--mjpeg-passthrough"
+        CAM_INTERVAL="${CAM_INTERVAL:-0.04}"     # 25 Hz (see run_mission.sh)
+    fi
+    GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--interval-s ${CAM_INTERVAL:-0.1}"
+    [ "${CAM_MIRROR:-0}" = "0" ] && GRAB_ARGS="$GRAB_ARGS --no-mirror"
     echo "[flight] camera grabber: backend=$BACKEND args='$GRAB_ARGS'"
     keep_alive "camera-grabber" make camera-real BACKEND="$BACKEND" GRAB_ARGS="$GRAB_ARGS"
     # let the first frames land so the preflight camera-age check passes
-    for _ in $(seq 1 20); do [ -f /tmp/aavc_nadir.png ] && break; sleep 0.5; done
-    [ -f /tmp/aavc_nadir.png ] || echo "[flight] WARNING: no nadir frame after 10 s — the camera did NOT start (check /dev/video*, and that nothing else holds it)"
+    for _ in $(seq 1 20); do [ -f /tmp/aavc_nadir.jpg ] && break; sleep 0.5; done
+    [ -f /tmp/aavc_nadir.jpg ] || echo "[flight] WARNING: no nadir frame after 10 s — the camera did NOT start (check /dev/video*, and that nothing else holds it)"
 else
     echo "[flight] NO_CAMERA=1 — expecting /tmp/aavc_*.png from a synthetic/gz feeder"
 fi
@@ -166,13 +205,15 @@ fi
 
 # 3) orchestrator — the mission, ONCE (not restarted). Headless field run vs
 #    bench run with the dashboard for the operator GO + an in-browser kill.
+echo "🌐 SITE: profile=${AAVC_PROFILE}  config=${CONFIG}"
 echo "[flight] orchestrator: --connect $CONNECT --config $CONFIG"
 if [ "${HEADLESS:-0}" = "1" ]; then
-    "${PY[@]}" -m orchestrator.main --config "$CONFIG" --connect "$CONNECT" --no-dashboard
+    "${PY[@]}" -m orchestrator.main --config "$CONFIG" --profile "$AAVC_PROFILE" \
+        --connect "$CONNECT" --no-dashboard
 else
     echo "[flight] dashboard on http://$DASH_HOST:8765 — operator GO via /api/cmd/preflight/go"
-    "${PY[@]}" -m orchestrator.main --config "$CONFIG" --connect "$CONNECT" \
-        --host "$DASH_HOST" --port 8765
+    "${PY[@]}" -m orchestrator.main --config "$CONFIG" --profile "$AAVC_PROFILE" \
+        --connect "$CONNECT" --host "$DASH_HOST" --port 8765
 fi
 rc=$?
 echo "[flight] orchestrator exited (rc=$rc) — stopping onboard stack."

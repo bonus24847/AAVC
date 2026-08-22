@@ -13,6 +13,7 @@ watchdog terminal ends the loop without a fight.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import math
 import re
 from types import SimpleNamespace
@@ -1515,6 +1516,9 @@ def _patch_camera_decodes_whatever_is_assigned(monkeypatch) -> None:
         return PadHit(cx=320, cy=240, marker_id=assigned_id, radius_px=exp,
                       confidence=0.9, corners=(), pad_side_px=0.0)
     monkeypatch.setattr(ta_mod, "_detect_nadir", fake)
+    # live camera: the align loop only decodes frames it has not seen
+    _cam_ticks = itertools.count(1.0, 0.05)
+    monkeypatch.setattr(ta_mod, "_frame_mtime", lambda _p: next(_cam_ticks))
 
 
 _FAST_ALIGN = AlignParams(

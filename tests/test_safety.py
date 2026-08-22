@@ -306,14 +306,20 @@ def test_time_budget_exhausted_does_not_rth_during_drop() -> None:
     assert not any("time_budget_exhausted" in a for a in state.anomalies)
 
 
-def test_not_armed_skips_all_triggers() -> None:
+def test_not_armed_skips_flight_triggers_but_not_the_takeover_family() -> None:
+    """The armed gate still silences battery/GPS/geofence on the ground — but
+    it now sits BELOW the takeover/disarm detectors. Until 2026-08-21 it sat
+    ABOVE them, which is what blinded the watchdog the moment the G7 pilot
+    disarmed (this test's previous body pinned that defect as correct)."""
     t = _flying_telemetry()
     t.is_armed = False
     t.battery_percent = 5.0            # would abort if armed
+    t.flight_mode = "LAND"             # parked posture, AUTO mode
     wd, state, cmd = _make_wd(t)
+    state.phase = MissionPhase.LAND
     asyncio.run(_check_and_settle(wd))
     assert state.terminal == TerminalState.RUNNING
-    assert cmd.rth_calls == 0 and cmd.land_calls == 0
+    assert cmd.rth_calls == 0 and cmd.land_calls == 0 and cmd.stood_down == 0
 
 
 # ── escalation ──────────────────────────────────────────────────────────────
@@ -501,7 +507,134 @@ def test_offboard_and_auto_modes_are_not_a_takeover() -> None:
     assert state.terminal == TerminalState.RUNNING
 
 
-# ── battery debounce (no current sensing after the PM03D failure) ────────────
+# ── flight-phase disarm + the reordered takeover check (G7 2026-08-21) ──────
+# The field takeover is "flip POSCTL, then DISARM within ~0.5 s" — measured
+# 0.46-0.48 s of ARMED+POSCTL in both incident ULogs, under the 1.0 s
+# debounce. The old ordering (armed gate ABOVE the takeover check) then went
+# permanently blind and the mission loop re-armed the parked aircraft.
+
+
+def test_disarm_mid_flight_phase_fires_immediately_without_debounce() -> None:
+    """A disarm in a phase that is armed by design is definitive: one tick,
+    no debounce, stand down — this is what stops the zombie re-arm."""
+    t = _flying_telemetry()
+    wd, state, cmd = _make_wd(t)
+    state.phase = MissionPhase.SEARCH
+    t.is_armed = False                     # the takeover disarm
+    t.flight_mode = "POSCTL"               # mode as measured in the ULog
+    asyncio.run(_check_and_settle(wd))     # ONE tick
+    assert state.terminal == TerminalState.PILOT_TAKEOVER
+    assert cmd.stood_down == 1
+    assert cmd.rth_calls == 0 and cmd.land_calls == 0
+    assert any("disarm_in_flight_phase" in a for a in state.anomalies)
+
+
+def test_disarm_on_the_pad_in_drop_phase_fires() -> None:
+    """DROP keeps the vehicle armed by design (COM_DISARM_LAND=-1; re-arming
+    over the field is forbidden) — a disarm there must end the mission, not
+    leave the loop free to re-arm between deliveries."""
+    t = _flying_telemetry()
+    wd, state, cmd = _make_wd(t)
+    state.phase = MissionPhase.DROP
+    t.is_armed = False
+    t.relative_alt_m = 0.0
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.PILOT_TAKEOVER
+    assert cmd.stood_down == 1
+
+
+def test_disarm_in_ground_legitimate_phases_does_not_fire() -> None:
+    """Disarm in PREFLIGHT/TAKEOFF/LAND/RTH/ABORT is the design working: the
+    pre-arm hold, the arm happening DURING the TAKEOFF phase, the multi-flight
+    landing, and the watchdog's own terminal actions."""
+    for phase in (MissionPhase.PREFLIGHT, MissionPhase.TAKEOFF,
+                  MissionPhase.LAND, MissionPhase.RTH, MissionPhase.ABORT):
+        t = _flying_telemetry()
+        t.is_armed = False
+        t.flight_mode = "LAND"
+        wd, state, cmd = _make_wd(t)
+        state.phase = phase
+        asyncio.run(_check_and_settle(wd))
+        assert state.terminal == TerminalState.RUNNING, phase
+        assert cmd.stood_down == 0, phase
+
+
+def test_boot_and_between_flight_posctl_postures_do_not_fire() -> None:
+    """A1 (design review 2026-08-21): at boot state.phase still holds its
+    TAKEOFF default while the RC transmitter sits in POSCTL, and between
+    flights the pilot re-stages in POSCTL during the LAND→PREFLIGHT gap.
+    Neither may read as a takeover — without this gate the reorder would have
+    killed every hardware run at startup."""
+    for phase in (MissionPhase.TAKEOFF, MissionPhase.LAND):
+        t = _flying_telemetry()
+        t.is_armed = False
+        t.flight_mode = "POSCTL"
+        wd, state, cmd = _make_wd(t)
+        wd.pilot_takeover_threshold_s = 0.0
+
+        async def _many(w: SafetyWatchdog) -> None:
+            for _ in range(3):
+                await _check_and_settle(w)
+        asyncio.run(_many(wd))
+        assert state.terminal == TerminalState.RUNNING, phase
+        assert cmd.stood_down == 0, phase
+
+
+def test_sub_debounce_disarm_still_stands_down_via_the_disarm_detector() -> None:
+    """The incident shape end-to-end, default 1.0 s debounce kept: armed+POSCTL
+    for ONE tick (under the debounce), then the disarm lands. The old code
+    went blind at the disarm; now the disarm itself is the trigger — and when
+    both conditions hold on the same tick, the disarm detector wins (pinned:
+    its anomaly kind, not the mode's, is recorded)."""
+    t = _flying_telemetry()
+    wd, state, cmd = _make_wd(t)
+    state.phase = MissionPhase.SEARCH
+    t.flight_mode = "POSCTL"
+
+    async def _scenario() -> None:
+        await _check_and_settle(wd)        # armed tick: debounce only STARTS
+        assert state.terminal == TerminalState.RUNNING
+        t.is_armed = False                 # disarm ~0.5 s after the flip
+        await _check_and_settle(wd)
+    asyncio.run(_scenario())
+    assert state.terminal == TerminalState.PILOT_TAKEOVER
+    assert cmd.stood_down == 1
+    assert any("disarm_in_flight_phase" in a for a in state.anomalies)
+    assert not any("pilot_takeover_posctl" in a for a in state.anomalies)
+
+
+def test_takeover_fires_once_even_while_a_terminal_action_settles() -> None:
+    """A2 (design review 2026-08-21): while a prior RTH action is still
+    settling, _run keeps ticking — without the fire-once latch every 0.5 s
+    tick re-wrote the audit trail (record_audit does not dedupe) and
+    re-overwrote the terminal. The FIRST fire may overwrite LANDED_RTH (a
+    pilot rescuing a watchdog RTL owns the aircraft); later ticks stay
+    silent."""
+    t = _flying_telemetry()
+    wd, state, cmd = _make_wd(t)
+    wd.pilot_takeover_threshold_s = 0.0
+    state.set_terminal(TerminalState.LANDED_RTH, MissionPhase.RTH)
+    wd._terminal_action = "rth"            # a watchdog RTH is in progress
+    t.flight_mode = "POSCTL"               # pilot takes over mid-RTL
+
+    async def _scenario() -> None:
+        hold = asyncio.Event()
+        task = asyncio.create_task(hold.wait())
+        wd._action_tasks.add(task)         # …and its action has not settled
+        await wd._check_once()             # starts the (collapsed) debounce
+        await wd._check_once()             # fires: overwrites LANDED_RTH
+        await wd._check_once()             # latched: silent
+        await wd._check_once()
+        hold.set()
+        await task
+    asyncio.run(_scenario())
+    assert state.terminal == TerminalState.PILOT_TAKEOVER
+    assert cmd.stood_down == 1
+    assert len([a for a in state.anomalies if "PILOT TAKEOVER" in a]) == 1
+
+
+# ── battery debounce (no motor-current sensing: PM03D failed; the PM02D that
+#    replaced it powers the FC alone) ─────────────────────────────────────────
 
 
 def test_battery_sag_under_load_does_not_trigger() -> None:
@@ -563,3 +696,52 @@ def test_battery_rth_debounce_is_independent_of_land() -> None:
 
     asyncio.run(run())
 
+
+
+# ── teardown must not outrun the terminal action (2026-08-21 review) ─────────
+# _trigger_rth/_trigger_abort dispatch commander.rth()/land() as BACKGROUND
+# tasks, and those coroutines are what finally send the explicit disarm
+# (COM_DISARM_LAND=-1 means PX4 will not do it). The mission loop exits ~2 s
+# after the terminal flips, so a stop() that only cancelled the tick loop let
+# main reach commander.close() mid-RTL: PX4 landed, nothing disarmed, and the
+# aircraft sat on the ground ARMED with the companion dead.
+
+
+def test_stop_waits_for_an_in_flight_terminal_action() -> None:
+    t = _flying_telemetry()
+    t.battery_percent = 25.0                 # low -> RTH
+    wd, state, cmd = _make_wd(t)
+    landed = []
+
+    async def slow_rth() -> None:
+        await asyncio.sleep(0.2)             # stands in for the RTL + disarm
+        landed.append("disarmed")
+
+    cmd.rth = slow_rth                       # type: ignore[assignment]
+
+    async def run() -> None:
+        await wd._check_once()               # dispatches rth() in the background
+        assert not landed, "rth should still be in flight"
+        await wd.stop()
+
+    asyncio.run(run())
+    assert landed == ["disarmed"], "stop() returned before the disarm"
+
+
+def test_stop_gives_up_on_a_wedged_action_rather_than_hanging() -> None:
+    """The wait is a backstop above rth()'s own 180 s landing wait — it must
+    never become the thing that hangs a shutdown."""
+    t = _flying_telemetry()
+    t.battery_percent = 25.0
+    wd, state, cmd = _make_wd(t)
+
+    async def never_returns() -> None:
+        await asyncio.sleep(3600)
+
+    cmd.rth = never_returns                  # type: ignore[assignment]
+
+    async def run() -> None:
+        await wd._check_once()
+        await wd.stop(action_timeout_s=0.05)  # returns instead of hanging
+
+    asyncio.run(run())

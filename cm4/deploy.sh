@@ -23,9 +23,15 @@ DIR="${CM4_DIR:-mission}"
 
 HOST=""
 INSTALL=0
+CHECK=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --install) INSTALL=1 ;;
+        # --check: NO rsync — md5 the flight code tree on both sides and
+        # compare. This is the "เทียบ md5" step of the field-day sequence
+        # (an un-deployed 🚀 fix cost a field session on 2026-08-19: the
+        # on-board button was still the broken 3-second version).
+        --check) CHECK=1 ;;
         # deploy ANY mission repo, not just this one (the GUI wizard uses this
         # to put the competition repo on the drone as well)
         --repo) shift; REPO_ROOT="$(cd "$1" && pwd)" ;;
@@ -52,6 +58,34 @@ if ! ssh "${SSH_ID[@]}" -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChe
     echo "[deploy] ERROR: cannot ssh to $HOST without a password." >&2
     echo "         Run: ssh-copy-id ${SSH_ID[*]:+-i $CM4_KEY }$HOST" >&2
     echo "         (the 🚀 button needs the same passwordless path)" >&2
+    exit 1
+fi
+
+if [ "$CHECK" -eq 1 ]; then
+    # Same file set and same recipe that verified the 2026-08-20 deploy live —
+    # plus the two sitl/ files the REAL stack actually executes (the grabber
+    # and the 🚀 launcher; added 2026-08-21 with the exposure fix, which would
+    # otherwise deploy invisible to this check since sitl/ isn't hashed).
+    # ⚠ Everything the AIRCRAFT executes or reads must be in here, or the
+    # check prints "the aircraft flies this working tree" while it does not
+    # (2026-08-21 review found three such files). The find's -name filters
+    # only apply to the DIRECTORY walk; the explicit files are listed after it
+    # so a .yaml or a Makefile is included regardless of suffix.
+    MD5_CMD='{ find orchestrator mission_brain vision mavlink_adapter tools cm4 gcs \
+        -name "*.py" -o -name "*.sh"; \
+      ls sitl/camera_grabber.py sitl/run_mission.sh sitl/aavc_config.yaml \
+         sitl/kmitl_config.yaml clear_state.sh Makefile 2>/dev/null; \
+      } | sort | xargs md5sum | md5sum | cut -d" " -f1'
+    LOCAL_MD5=$(cd "$REPO_ROOT" && eval "$MD5_CMD")
+    REMOTE_MD5=$(ssh "${SSH_ID[@]}" "$HOST" "cd ~/$DIR && $MD5_CMD" || echo "unreachable")
+    echo "[deploy --check] local : $LOCAL_MD5"
+    echo "[deploy --check] remote: $REMOTE_MD5"
+    if [ "$LOCAL_MD5" = "$REMOTE_MD5" ]; then
+        echo "[deploy --check] ✔ MD5 MATCH — the aircraft flies this working tree"
+        exit 0
+    fi
+    echo "[deploy --check] ✘ DRIFT — the aircraft is NOT on this tree; run:" >&2
+    echo "                 bash cm4/deploy.sh $HOST" >&2
     exit 1
 fi
 

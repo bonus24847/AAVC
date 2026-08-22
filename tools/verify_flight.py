@@ -25,6 +25,14 @@ two indices exactly as ``orchestrator/mission.py`` and
   timing     the whole mission fits the operation window; no watchdog RTH /
              rule-violation anomalies fired
 
+TELEM lines additionally carry ``batt=<pct> vbat=<V>`` since 2026-08-20 (the
+first grammar field the energy analysis can mine — before that no battery
+series existed anywhere) and ``mode=<FLIGHT_MODE>`` since 2026-08-21 (the G7
+zombie takeovers were undiagnosable without the FC mode in the audit). All
+three fields are OPTIONAL in the parser so archives recorded earlier still
+verify; when present they feed report-only readouts (no new FAIL conditions —
+thresholds and takeover enforcement stay the in-flight watchdog's job).
+
 Exit code 0 = all checks pass; 1 = violations (each printed, prefixed FAIL).
 Warnings (WARN) don't fail the run. Pass --ulog <file> for an optional PX4
 log deep-dive (needs pyulog: `pip install pyulog`) — report-only.
@@ -64,7 +72,16 @@ _R = 6_378_137.0
 _TELEM = re.compile(
     r"t=(?P<t>[\d.]+)s TELEM phase=(?P<phase>\S+) flight=(?P<flight>\d+) "
     r"lat=(?P<lat>[-\d.nan]+) lon=(?P<lon>[-\d.nan]+) alt=(?P<alt>[-\d.nan]+) "
-    r"armed=(?P<armed>[01])")
+    r"armed=(?P<armed>[01])"
+    # batt/vbat joined the grammar 2026-08-20 — OPTIONAL so every archive
+    # recorded before that day (the CM4's real Aug-17/18 flights included)
+    # still parses; absent fields surface as None groups.
+    r"(?: batt=(?P<batt>[-\d.nan]+) vbat=(?P<vbat>[-\d.nan]+))?"
+    # mode= joined 2026-08-21 (G7 zombie debrief: the FC flight mode was
+    # recorded nowhere companion-side, so neither takeover could be diagnosed
+    # from the audit). OPTIONAL for the same archive reason; report-only —
+    # takeover enforcement stays the in-flight watchdog's job.
+    r"(?: mode=(?P<mode>\S+))?")
 _TRANSIT = re.compile(
     r"t=(?P<t>[\d.]+)s TRANSIT_(?P<kind>PASS|MISS) P(?P<n>\d) "
     r"(?P<dir>ingress|egress) flight=(?P<flight>\d+) d=(?P<d>[-\d.nan]+)m")
@@ -237,6 +254,23 @@ def verify(entries: list[str], truth: list[dict], cfg: dict,
     if not win:
         rep.fail("no TELEM samples in the audit trail — cannot verify behaviour")
         return rep
+
+    # Battery readout (grammar addition 2026-08-20; report-only — thresholds
+    # stay the in-flight watchdog's job). Pre-addition archives parse with the
+    # batt group None and simply have no readout. The voltage-only gauge sags
+    # hard under load (measured 2026-08-20: ~28% under thrust at ~65-70% rest
+    # SoC), so the % here is flight-load truth, NOT resting state of charge.
+    for fl in sorted({w["flight"] for w in win}, key=int):
+        pts = [float(w["batt"]) for w in win
+               if w["flight"] == fl and w["batt"] is not None
+               and math.isfinite(float(w["batt"]))]
+        volts = [float(w["vbat"]) for w in win
+                 if w["flight"] == fl and w["vbat"] is not None
+                 and math.isfinite(float(w["vbat"]))]
+        if pts:
+            vtail = f", vbat min {min(volts):.2f} V" if volts else ""
+            rep.info(f"FLIGHT {fl} battery {pts[0]:.0f}%→{pts[-1]:.0f}% "
+                     f"(min {min(pts):.0f}% under load){vtail}")
 
     # NaN lat/lon/alt (GPS/telemetry gap, or pre-fix) would silently corrupt the
     # geometric checks — split them out, warn, and run geometry on the finite

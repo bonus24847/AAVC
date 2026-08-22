@@ -60,6 +60,21 @@ MARKER_TO_PAD = MARKER_SIZE_M / PAD_SIZE_M   # 0.4 — blob→marker-equivalent 
 # pad (V≈128) and grass stay below the V floor; white car roofs pass the colour
 # test but fail the dark-centre contrast check (no marker).
 _PAD_S_MAX, _PAD_V_MIN = 60, 170
+# ⚠ _PAD_V_MIN is a CEILING on the gate, not the gate itself (2026-08-21).
+# Running the shipped detector over the 457 real KMUTNB flight frames: the cue
+# fired on ZERO of them, because those frames' own brightness ceiling (per-frame
+# V p99.5: min 144 / median 176 / max 255) sits right on this threshold — and
+# they are pure mono (mean S = 0.0), so the saturation half of "white" is a
+# no-op and this bare brightness number is the whole test. Forcing a short
+# exposure to fight motion blur pushes the pad further under it, i.e. the blur
+# fix and the cue were fighting each other.
+# So the gate now TRACKS the frame's own exposure, bounded on both sides: never
+# stricter than the original 170, never looser than the floor (below which
+# sunlit grass starts passing). Sampled on a stride so it costs ~0.1 ms.
+_PAD_V_FLOOR = 110             # below this, bright ground passes the colour test
+_PAD_V_PCTL = 99.0             # the pad is ~0.2% of frame area at sweep altitude
+_PAD_V_HEADROOM = 25.0         # sit this far under the bright tail's shoulder
+_PAD_V_STRIDE = 8              # every Nth pixel — a percentile needs no more
 _MIN_PAD_SIDE_PX = 18.0        # pad ≈45 px at 12 m/1280 px; floor rejects speckle
                                # while keeping detection out to ~30 m slant
 _MIN_PAD_AREA_PX = 250.0
@@ -68,8 +83,18 @@ _MIN_PAD_EXTENT = 0.80         # contour area / rect area — a filled square
 # Dark-centre contrast: mean gray of the inner (marker) region must sit well
 # below the outer white rim. The 400 mm marker is ~half black, so the inner
 # mean drops hard; a plain white rectangle does not.
-_RIM_MIN_GRAY = 160.0
-_CENTRE_RIM_CONTRAST = 40.0
+# ⚠ These were absolute gray levels, and absolute levels do not survive an
+# exposure change (2026-08-21). A 2-stop-shorter exposure — exactly what the
+# in-flight blur fix forces — takes a white rim from ~255 to ~140 and the pad
+# was rejected by the 160 floor while still being perfectly decodable. The
+# discriminative signal is the CONTRAST between the white rim and the marker,
+# and contrast is best expressed as a RATIO, which is invariant to exposure:
+# printed black-on-white gives 0.5-0.9 at any brightness, while a plain grey
+# pad or a grass blob gives ~0. The absolute terms survive only as noise
+# floors, low enough to pass a dim frame.
+_RIM_MIN_GRAY = 60.0           # noise floor; the white mask's own gate is stricter
+_CENTRE_RIM_CONTRAST = 25.0    # absolute floor, to reject sensor noise
+_CENTRE_RIM_RATIO = 0.30       # (rim - centre) / rim — the exposure-invariant test
 
 # ── decode/booster geometry ──
 _ROI_PAD_FRAC = 0.8            # ROI half-size = (1 + this) × blob half-side
@@ -148,7 +173,8 @@ def _marker_hits(
 def _pad_blobs(img_bgr: np.ndarray, gray: np.ndarray) -> list[PadHit]:
     """White-square-with-dark-centre candidates (marker not yet decodable)."""
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-    white = ((hsv[:, :, 1] <= _PAD_S_MAX) & (hsv[:, :, 2] >= _PAD_V_MIN))
+    v_min = _adaptive_v_min(hsv[:, :, 2])
+    white = ((hsv[:, :, 1] <= _PAD_S_MAX) & (hsv[:, :, 2] >= v_min))
     mask: np.ndarray = white.astype(np.uint8) * 255
     # CLOSE first: the dark marker punches a hole in the white square — merge
     # the rim back into ONE filled blob before shape-testing it.
@@ -174,13 +200,31 @@ def _pad_blobs(img_bgr: np.ndarray, gray: np.ndarray) -> list[PadHit]:
         side = float((w + h) / 2.0)
 
         # Dark-centre vs white-rim contrast — the marker signature at any scale.
+        # ⚠ The rim probes MUST follow the pad's own orientation (fixed
+        # 2026-08-21). They used to sit at fixed IMAGE-axis offsets of
+        # ±0.40·side in x and y — 0.566·side from the centre along the image
+        # diagonal. minAreaRect returns a ROTATED square, whose support in that
+        # fixed direction collapses to 0.5·side as the pad approaches 45°, so
+        # all four probes landed on grass and the blob was dropped: measured
+        # PASS at 0-20° and 70-90°, FAIL at 21-69° — 54% of orientations, at
+        # every altitude. Pads are laid at arbitrary yaw, so roughly half of
+        # them were invisible to the cue, which also silently disabled the ×4
+        # ROI booster and the "revisit undecoded pads" recovery (both are fed
+        # ONLY by these blobs).
+        # Walking 0.8 of the way to each ROTATED corner keeps the original
+        # intent — the pad's white corners, outside the ⌀750 ring — for any
+        # rotation: 0.566·side in the PAD's frame, clear of the ring (0.39)
+        # and inside the pad edge (0.71) even with the probe's own half-width.
         centre = _region_mean(gray, rcx, rcy, side * 0.20)
-        rim = (_region_mean(gray, rcx - side * 0.40, rcy - side * 0.40, side * 0.08)
-               + _region_mean(gray, rcx + side * 0.40, rcy + side * 0.40, side * 0.08)
-               + _region_mean(gray, rcx - side * 0.40, rcy + side * 0.40, side * 0.08)
-               + _region_mean(gray, rcx + side * 0.40, rcy - side * 0.40, side * 0.08)
-               ) / 4.0
-        if rim < _RIM_MIN_GRAY or (rim - centre) < _CENTRE_RIM_CONTRAST:
+        rim = sum(
+            _region_mean(gray, rcx + 0.8 * (bx - rcx), rcy + 0.8 * (by - rcy),
+                         side * 0.08)
+            for bx, by in cv2.boxPoints(rect)
+        ) / 4.0
+        contrast = rim - centre
+        if (rim < max(_RIM_MIN_GRAY, v_min)
+                or contrast < _CENTRE_RIM_CONTRAST
+                or contrast / max(rim, 1.0) < _CENTRE_RIM_RATIO):
             continue
 
         conf = min(_CONF_CUE_MAX,
@@ -193,6 +237,21 @@ def _pad_blobs(img_bgr: np.ndarray, gray: np.ndarray) -> list[PadHit]:
             pad_side_px=round(side, 1),
         ))
     return hits
+
+
+def _adaptive_v_min(v: np.ndarray) -> float:
+    """Brightness floor for the white-pad mask, tracking THIS frame's exposure.
+
+    A fixed floor cannot work across the exposure range the aircraft actually
+    flies: the same number that keeps sunlit grass out of the mask at noon sits
+    above the whole histogram of a short-exposure frame, and the cue then finds
+    nothing at all (measured: 0 cue hits over 457 real flight frames). Anchored
+    to a high percentile — the pad is a fraction of a percent of the frame —
+    and clamped so it can never be stricter than the original fixed value nor
+    loose enough to let the ground in."""
+    sample = v[::_PAD_V_STRIDE, ::_PAD_V_STRIDE]
+    shoulder = float(np.percentile(sample, _PAD_V_PCTL)) - _PAD_V_HEADROOM
+    return float(min(_PAD_V_MIN, max(_PAD_V_FLOOR, shoulder)))
 
 
 def _region_mean(gray: np.ndarray, cx: float, cy: float, half: float) -> float:

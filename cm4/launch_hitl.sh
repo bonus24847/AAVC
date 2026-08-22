@@ -115,7 +115,7 @@ keep_alive "mavlink-router" "$ROUTERD" -c "$ROUTER_CONF"
 echo "[hitl] synthetic camera: targets=$TARGETS feed=udpin:0.0.0.0:14541"
 keep_alive "synthetic-camera" "${PY[@]}" sitl/hitl_synthetic_camera.py \
     --mavlink udpin:0.0.0.0:14541 --targets "$TARGETS"
-for _ in $(seq 1 20); do [ -f /tmp/aavc_nadir.png ] && break; sleep 0.5; done
+for _ in $(seq 1 20); do [ -f /tmp/aavc_nadir.jpg ] && break; sleep 0.5; done
 
 # 3) orchestrator — the V1.3 mission, ONCE (not restarted; a re-run would re-fly).
 echo "[hitl] orchestrator: --connect $CONNECT --config $CONFIG"

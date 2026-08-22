@@ -62,7 +62,7 @@ foreign_sitl() {
     # ENVIRONMENT can: launch_sitl.sh exports PX4_GZ_WORLD, so anything not
     # flying our world belongs to somebody else. Credit: mission_AAVC session.
     local pid world
-    for pid in $(pgrep -f "px4_sitl_default/bin/px4" 2>/dev/null); do
+    for pid in $(pgrep -f "px4_sitl_default/bin/px[4]" 2>/dev/null); do
         world="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
                  | sed -n 's/^PX4_GZ_WORLD=//p' | head -1)"
         [ -n "$world" ] && [ "$world" != "kmutnb_skyfield" ] \

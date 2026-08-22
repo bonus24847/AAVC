@@ -31,7 +31,8 @@ printf '{"ids": [], "updated": 0}\n' > "$REPO_ROOT/captures/pad_assignment.json"
 rm -f "$REPO_ROOT/captures/mission_status.json" 2>/dev/null || true
 # Live camera frames + SITL truth/wind + a stale router conf the next run must
 # not read as its own.
-rm -f /tmp/aavc_nadir.png /tmp/aavc_frame.png /tmp/aavc_targets.json \
+rm -f /tmp/aavc_nadir.jpg /tmp/aavc_frame.jpg \
+      /tmp/aavc_nadir.png /tmp/aavc_frame.png /tmp/aavc_targets.json \
       /tmp/aavc_wind_state /tmp/aavc_flight_router.conf 2>/dev/null || true
 
 # The CM4's own runtime (orchestrator / router / camera / beacon) is cleared by
