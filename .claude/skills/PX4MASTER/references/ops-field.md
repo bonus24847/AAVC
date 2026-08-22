@@ -75,7 +75,26 @@ before a shared field day, diff `tools/preflight_params.py::BOARD` across the
 repos. Approvals do not cross sessions — send data+reasoning+proposal, the
 other repo's operator decides.
 
-## Open items / follow-ups (updated 2026-08-21 — G7 attempt #1 debrief)
+## Bench/field rules added 2026-08-22 (from the full-system review)
+
+- **A spare BEC goes to every field day.** The one feeding the AUX servo rail
+  died on 2026-08-21 and took every egg release with it, while telemetry showed
+  nothing wrong — `system_power.servo_valid` reads 1 on this 6X regardless.
+- **`COM_MOT_TEST_EN=1` (PX4's own default) + `CBRK_IO_SAFETY=22027` means that
+  while DISARMED at the resupply hold, any MAVLink source can drive a latch or
+  a motor.** In flight it is inert (Commander denies ACTUATOR_TEST while armed),
+  so this is a crew-safety and egg-on-the-ground risk between flights, not an
+  airborne one. `docs/SERVO_AUX_MAPPING.md` says to set it back to 0 before
+  flying and nothing enforces it — keep hands and eggs clear of the aircraft
+  while the console is up.
+- **`/tmp` on the CM4 is tmpfs (RAM), 3.9 GB free of 7.8.** Frame files cost no
+  SD wear at any rate we can produce.
+- **The two repos share EVERYTHING except `.aavc_site`** since 2026-08-22 —
+  including both field configs and `tools/`. Run `bash sync_core.sh <other>`
+  after any core change and commit the target too; the drift this closed had
+  left the comp repo without a type audit at all.
+
+## Open items / follow-ups (updated 2026-08-22 — post-review)
 - [x] 🔴 **Zombie mission RE-ARMED the aircraft after pilot takeover —
       FIXED 2026-08-21** (commit on `fix/safety-review-2026-08-19`).
       Symptom: no `PILOT TAKEOVER` audit line in either incident; ~8 min

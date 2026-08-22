@@ -625,3 +625,38 @@ def test_battery_readout_absent_for_legacy_archives() -> None:
     rep = _run(["t=0.0s FLIGHT 1 START eggs=4 ids=1,2,3,4 remaining=1200s",
                 legacy])
     assert not any("battery" in i for i in rep.infos), rep.infos
+
+
+# ── a takeover flight must not PASS (2026-08-22 review) ────────────────────
+# _fire_takeover sets the terminal directly, so no FLIGHT END is written and
+# every per-flight check is skipped: the tool printed
+# "PASS · deliveries: 0/0 across 0 flight(s)" on a flight the safety pilot had
+# to take away.
+
+
+def test_pilot_takeover_is_fatal_not_a_pass() -> None:
+    entries = [
+        "t=1.0s FLIGHT 1 START eggs=4 ids=3,1,4,6 remaining=1200s",
+        *[_telem(t, 19.5) for t in range(2, 10)],
+        "t=11.0s pilot_takeover_posctl",
+        "t=11.0s PILOT TAKEOVER mode=POSCTL — orchestrator standing down",
+    ]
+    rep = _run(entries)
+    assert rep.fails, "a takeover flight passed verification"
+    assert any("takeover" in f.lower() or "no matching END" in f for f in rep.fails)
+
+
+def test_an_unfinished_flight_is_reported_even_without_an_anomaly() -> None:
+    """A process killed mid-air leaves a START with no END, and every
+    downstream check keys off the END."""
+    entries = ["t=1.0s FLIGHT 1 START eggs=1 ids=3 remaining=1200s",
+               *[_telem(t, 19.5) for t in range(2, 12)]]
+    rep = _run(entries)
+    assert any("no matching END" in f for f in rep.fails)
+
+
+def test_a_completed_flight_does_not_trip_the_pairing_check() -> None:
+    entries = ["t=1.0s FLIGHT 1 START eggs=1 ids=3 remaining=1200s",
+               "t=90.0s FLIGHT 1 END delivered=1/1 d_home=2.0m"]
+    rep = _run(entries)
+    assert not any("no matching END" in f for f in rep.fails)

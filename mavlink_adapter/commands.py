@@ -350,6 +350,24 @@ class DroneCommander:
         if self._pilot_in_control:
             raise PilotInControlError(f"pilot has the aircraft — refusing to {what}")
 
+    def _pilot_took_over_midway(self, what: str) -> bool:
+        """True once the pilot has taken over DURING a long-running command.
+
+        ``land()`` and ``rth()`` guard at entry and then block for 30-180 s
+        waiting for touchdown. A takeover inside that window used to land on the
+        unconditional ``action.disarm()`` that follows the wait — i.e. the one
+        command that must never reach a FLYING aircraft, sent precisely when the
+        pilot has just flown it away from the descent we asked for. These two
+        call sites therefore re-check on the far side of the wait; they abandon
+        the tail rather than raise, because the command they were asked to
+        deliver was already delivered and the aircraft is now the pilot's."""
+        if self._pilot_in_control:
+            logger.warning(
+                f"[mavlink] pilot took over mid-{what} — abandoning the disarm tail"
+            )
+            return True
+        return False
+
     def close(self) -> None:
         """Tear down the embedded mavsdk_server subprocess so the process can exit.
 
@@ -981,6 +999,8 @@ class DroneCommander:
         if not disarm:
             return
         await self._wait_until_landed()
+        if self._pilot_took_over_midway("land"):
+            return
         try:
             await self.system.action.disarm()
         except Exception as e:
@@ -1005,6 +1025,8 @@ class DroneCommander:
             logger.warning(f"[mavlink] could not set RTL_LAND_DELAY=0: {e}")
         await self.system.action.return_to_launch()
         if await self._wait_until_landed(timeout_s=180.0):
+            if self._pilot_took_over_midway("return-to-launch"):
+                return
             try:
                 await self.system.action.disarm()
             except Exception as e:

@@ -225,6 +225,39 @@ def _status_age(status: dict | None, path: Path) -> float | None:
         return None
 
 
+def send_lines(mav: object, lines: list[tuple[int, str]], *,
+               dry_run: bool, pace_s: float) -> int:
+    """Send one tick's STATUSTEXTs, SPACED — returns how many went out.
+
+    A tick composes 6-8 lines and used to hand them all to the radio in one
+    go: ~8 x 60 B into TELEM1's 1200 B/s budget is a third of a second of
+    solid air every 5 s, dumped into the ground unit's TX buffer where it sits
+    AHEAD of whatever the operator presses next. The console's own notes
+    already record this link flapping under load, and the servo-release press
+    that took 8 s to move a latch was measured on exactly this air. The gap
+    costs nothing: the tick still finishes ~1 s into a 5 s period.
+
+    A failed send breaks the tick rather than retrying — the next tick carries
+    the same summary 5 s later, so nothing is lost by giving up early on a
+    link that is down."""
+    sent = 0
+    for i, (sev, text) in enumerate(lines):
+        if dry_run:
+            print(f"[beacon] sev={sev} {text}", flush=True)
+            sent += 1
+            continue
+        if i and pace_s > 0:
+            time.sleep(pace_s)
+        try:
+            mav.mav.statustext_send(  # type: ignore[attr-defined]
+                sev, text.encode("ascii", "replace")[:_MAX_TEXT])
+            sent += 1
+        except Exception as e:               # link down, router restarting…
+            print(f"[beacon] send failed ({e}) — retrying next tick", flush=True)
+            break
+    return sent
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--endpoint", default="udpout:127.0.0.1:14550",
@@ -235,6 +268,10 @@ def main() -> int:
     ap.add_argument("--frame", type=Path, default=Path("/tmp/aavc_nadir.jpg"),
                     help="nadir frame the camera grabber writes")
     ap.add_argument("--interval-s", type=float, default=5.0)
+    ap.add_argument("--pace-s", type=float, default=0.15,
+                    help="gap between the STATUSTEXTs of one tick (default 0.15 s) "
+                         "so a tick trickles instead of bursting into the radio's "
+                         "TX buffer; 0 restores the old all-at-once behaviour")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the lines instead of sending (no MAVLink at all)")
     args = ap.parse_args()
@@ -263,15 +300,7 @@ def main() -> int:
             status = _read_status(status_path)
             lines = compose_lines(status, _frame_age(args.frame),
                                   _status_age(status, status_path))
-            for sev, text in lines:
-                if args.dry_run:
-                    print(f"[beacon] sev={sev} {text}", flush=True)
-                    continue
-                try:
-                    mav.mav.statustext_send(sev, text.encode("ascii", "replace")[:_MAX_TEXT])
-                except Exception as e:               # link down, router restarting…
-                    print(f"[beacon] send failed ({e}) — retrying next tick", flush=True)
-                    break
+            send_lines(mav, lines, dry_run=args.dry_run, pace_s=args.pace_s)
         except Exception as e:
             # One malformed status (a bad eta_s, a stray pads_mapped entry from
             # the sibling writer) must NOT kill the loop: on the 🚀 path the

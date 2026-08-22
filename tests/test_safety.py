@@ -745,3 +745,37 @@ def test_stop_gives_up_on_a_wedged_action_rather_than_hanging() -> None:
         await wd.stop(action_timeout_s=0.05)  # returns instead of hanging
 
     asyncio.run(run())
+
+
+def test_ceiling_warn_records_once_across_a_jittering_altitude() -> None:
+    """A held ceiling-warn state must cost ONE anomaly, not one per tick.
+
+    The kind string interpolates the altitude (``altitude_ceiling_warn_20.6m``),
+    so every 0.1 m of jitter used to mint a brand-new "unique" kind — the
+    dedupe never matched, and a minute of warn wrote ~120 lines into the
+    anomaly log, the dashboard list and the SD audit file. The value must still
+    appear in the FIRST recorded line: it is what tells the operator how far
+    over the aircraft actually was."""
+    t = _flying_telemetry()
+    wd, state, _ = _make_wd(t, altitude_ceiling_m=20.0)
+    for alt in (20.6, 20.7, 20.55, 20.8, 20.61):   # a real jittering hold
+        t.relative_alt_m = alt
+        asyncio.run(_check_and_settle(wd))
+    warns = [a for a in state.anomaly_log if "altitude_ceiling_warn" in a]
+    assert len(warns) == 1, state.anomaly_log
+    assert "20.6m" in warns[0]                     # first occurrence's value kept
+
+
+def test_identity_numbered_anomalies_are_still_recorded_separately() -> None:
+    """The dedupe key must not collapse anomalies whose number is an IDENTITY.
+
+    ``no_fly_zone_breach_0`` and ``_1`` are two different zones; a fix that
+    stripped digits to tame the measurement spam would hide the second one."""
+    t = _flying_telemetry()
+    _, state, _ = _make_wd(t)
+    state.record_anomaly("no_fly_zone_breach_0")
+    state.record_anomaly("no_fly_zone_breach_1")
+    state.record_anomaly("release_failed_delivery_2")
+    state.record_anomaly("release_failed_delivery_3")
+    assert len([a for a in state.anomaly_log if "no_fly_zone_breach" in a]) == 2
+    assert len([a for a in state.anomaly_log if "release_failed_delivery" in a]) == 2

@@ -98,8 +98,10 @@ owned = [
     ("Companion", "Raspberry Pi CM4 (เช็ก eMMC/Lite)", 1, 2500, 4500, "ราคาแปรตาม RAM/eMMC"),
     ("โครง", "EFT X6100 hexacopter (wheelbase ~1160mm)", 1, 2500, 5000, "เฟรม hexa-X 6 แขน"),
     ("ใบพัด", "16\" (ชุดใช้งาน)", 3, 400, 700, "หน่วย=คู่ (CW+CCW) — hexa ใช้ 3 คู่"),
-    ("แบตเตอรี่", "DXF 6S 7500mAh 140C LiPo", 2, 2800, 4500,
-     "ต่อขนาน 2 ก้อน = 15,000mAh @6S (2026-07-25); +1.05kg → AUW 8.22kg"),
+    # 2026-08-19: ก้อนเดียว 17000mAh semi-solid ขึ้นลำแทนคู่ขนาน 2x7500 LiPo
+    # (endpoint บนบอร์ด BAT1_V_CHARGED=4.18 / V_EMPTY=3.77 = สเปกก้อนนี้)
+    ("แบตเตอรี่", "DXF 6S 17000mAh semi-solid", 1, 9000, 14000,
+     "ก้อนเดียว (คู่ขนาน 2x7500 LiPo เลิกใช้ 2026-08-19)"),
     ("RC + Telemetry", "RadioMaster TX16S mk2 + Nomad + DBR4 Gemini", 1, 4000, 6000,
      "รีโมท + TX dual-band ELRS + RX diversity (CRSF เข้า TELEM1)"),
 ]
@@ -114,9 +116,12 @@ buy_first = row
 item("Propulsion", "มอเตอร์ (16\" 6S)", "T-Motor MN4014 330KV",
      "SunnySky X4112S 340KV", 6, 1200, 2200, "ซื้อ",
      "6 ตัวสำหรับ hexa; 3.84kg/ตัว @18\" → T/W 3.2:1 ที่ AUW 7.17kg; เช็ก bolt pattern arm X6100")
-item("Propulsion", "ESC 60A DShot", "T-Motor Alpha 60A",
+# ESC ที่ลำนี้ใช้จริงเป็น PWM-only ไม่มีสาย telemetry (ปิดเคสถาวร 2026-08-17:
+# DSHOT_TEL_CFG=0, ESC_STATUS ศูนย์ข้อความ) — ถ้าจะได้ one-motor-out กลับมา
+# ต้องซื้อ ESC ที่มี telemetry ไม่ใช่แก้พารามิเตอร์
+item("Propulsion", "ESC 60A (เลือกรุ่นที่มีสาย telemetry)", "T-Motor Alpha 60A",
      "Hobbywing XRotor 60A", 6, 900, 1500, "ซื้อ",
-     "แยก 6 ตัว (ไม่ใช่ 4-in-1) — ระบายร้อน/ซ่อมง่ายกว่า และ hexa บินต่อได้ถ้าเสีย 1 ตัว")
+     "ของเดิมเป็น PWM-only ไม่มี telemetry; แยก 6 ตัว ระบายร้อน/ซ่อมง่ายกว่า 4-in-1")
 item("Propulsion", "ใบ 16\" คาร์บอน (สำรอง)", "1655 carbon", "", 3, 400, 700, "ซื้อ",
      "หน่วย=คู่; เน้น efficiency")
 
@@ -127,8 +132,12 @@ item("Power", "Power module 6S", "Holybro PM02D", "PM02 V3", 1, 1200, 2000, "ซ
      "มอเตอร์กินจากบอร์ดแยกที่ FC มองไม่เห็น ⇒ BAT1_CAPACITY ต้องเป็น -1 (เกจแรงดันล้วน) "
      "ห้ามตั้ง capacity เด็ดขาด: กระแสที่ FC เห็น (~0.7 A) คือ avionics ไม่ใช่ ~35-43 A "
      "ของการบิน เกจนับ mAh จะโกหกแบบไม่มีวันหมด")
-item("Power", "BEC 5V/5A (เลี้ยง CM4 แยก)", "Mateksys / Pololu", "", 1, 300, 500, "ซื้อ",
-     "อย่าดึงไฟ CM4 จาก FC rail")
+# ลำนี้มี BEC 2 หน้าที่: เลี้ยง CM4 และเลี้ยง "servo rail" ของ AUX (กลอนไข่).
+# ตัวที่เลี้ยง servo rail สายขาดเมื่อ 2026-08-21 -> กลอนไม่ขยับสักตัว ขณะที่
+# telemetry ทุกชั้นบอกว่าปกติ (system_power.servo_valid บน 6X นี้ใช้ไม่ได้)
+# => เผื่อสำรองติดกระเป๋าไปสนามเสมอ
+item("Power", "BEC 5V/5A (CM4 + servo rail AUX)", "Mateksys / Pololu", "", 2, 300, 500,
+     "ซื้อ", "อย่าดึงไฟ CM4 จาก FC rail; ตัว servo rail ควรมีสำรอง 1 ตัว")
 item("Power", "PDB / สาย / XT90 / connector", "—", "", 1, 500, 1000, "ซื้อ", "")
 item("Power", "สาย Y ขนานแบต 2 ก้อน (XT90 บัดกรี)", "สายซิลิโคน 10AWG + XT90",
      "", 1, 200, 500, "ซื้อ",

@@ -200,6 +200,78 @@ def test_arm_and_takeoff_reguards_before_the_takeoff_command() -> None:
     assert act.takeoff_calls == 0
 
 
+def test_land_does_not_disarm_when_the_pilot_takes_over_mid_descent() -> None:
+    """land() guards at entry and then BLOCKS up to 30 s waiting for touchdown.
+    A takeover inside that window used to run straight into the unconditional
+    action.disarm() on the far side — sending the one command that must never
+    reach a flying aircraft, at the exact moment the pilot has just flown it
+    out of the descent we asked for."""
+    class _Act:
+        def __init__(self) -> None:
+            self.land_calls = 0
+            self.disarm_calls = 0
+
+        async def land(self) -> None:
+            self.land_calls += 1
+
+        async def disarm(self) -> None:
+            self.disarm_calls += 1
+
+    act = _Act()
+    c = DroneCommander.__new__(DroneCommander)
+    c.system = type("_Sys", (), {"action": act})()  # type: ignore[assignment]
+
+    async def _land_then_takeover(**kw) -> bool:
+        c.stand_down()                     # pilot flips POSCTL during the descent
+        return True
+
+    disarm_waits: list[int] = []
+
+    async def _wait_disarmed(**kw) -> bool:
+        disarm_waits.append(1)
+        return True
+
+    c._wait_until_landed = _land_then_takeover      # type: ignore[method-assign]
+    c._wait_until_disarmed = _wait_disarmed         # type: ignore[method-assign]
+    asyncio.run(c.land())
+    assert act.land_calls == 1                      # the land command DID go out
+    assert act.disarm_calls == 0                    # …the disarm tail did not
+    assert disarm_waits == []
+
+
+def test_rth_does_not_disarm_when_the_pilot_takes_over_mid_return() -> None:
+    """Same window, 180 s wide: rth() flies home, lands, then disarms."""
+    class _Act:
+        def __init__(self) -> None:
+            self.disarm_calls = 0
+
+        async def return_to_launch(self) -> None:
+            pass
+
+        async def disarm(self) -> None:
+            self.disarm_calls += 1
+
+    class _Param:
+        async def set_param_float(self, name: str, v: float) -> None:
+            pass
+
+    act = _Act()
+    c = DroneCommander.__new__(DroneCommander)
+    c.system = type("_Sys", (), {"action": act, "param": _Param()})()  # type: ignore[assignment]
+
+    async def _land_then_takeover(**kw) -> bool:
+        c.stand_down()
+        return True
+
+    async def _wait_disarmed(**kw) -> bool:
+        return True
+
+    c._wait_until_landed = _land_then_takeover      # type: ignore[method-assign]
+    c._wait_until_disarmed = _wait_disarmed         # type: ignore[method-assign]
+    asyncio.run(c.rth())
+    assert act.disarm_calls == 0
+
+
 # ── FC failsafe pins: NAV_RCL_ACT / battery thresholds (S4) ──
 
 

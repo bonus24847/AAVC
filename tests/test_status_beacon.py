@@ -285,3 +285,40 @@ def test_stale_line_is_a_warning_not_info(tmp_path) -> None:
     stale = next((sev for sev, t in beacon.compose_lines(status, 0.3, 1917.0)
                   if t.startswith("AAVC stale=")), None)
     assert stale == _SEV_WARN
+
+
+def test_a_tick_is_paced_not_burst(monkeypatch) -> None:
+    """One tick composes 6-8 STATUSTEXTs. Handing them to the radio in one go
+    puts ~480 B into a 1200 B/s TELEM1 budget — a third of a second of solid
+    air every 5 s, queued AHEAD of whatever the operator presses next. The
+    sends must be separated by pace_s, with no gap before the first."""
+    sleeps: list[float] = []
+    sent: list[str] = []
+    monkeypatch.setattr(beacon.time, "sleep", lambda s: sleeps.append(s))
+
+    class _Mav:
+        class mav:
+            @staticmethod
+            def statustext_send(sev: int, text: bytes) -> None:
+                sent.append(text.decode())
+
+    n = beacon.send_lines(_Mav(), [(6, "AAVC a"), (6, "AAVC b"), (6, "AAVC c")],
+                          dry_run=False, pace_s=0.15)
+    assert n == 3
+    assert sent == ["AAVC a", "AAVC b", "AAVC c"]
+    assert sleeps == [0.15, 0.15]                # between only, never before
+
+
+def test_a_dead_link_gives_up_the_tick_instead_of_hammering(monkeypatch) -> None:
+    """The next tick carries the same summary 5 s later, so a link that is
+    down must not be retried packet-by-packet inside one tick."""
+    monkeypatch.setattr(beacon.time, "sleep", lambda s: None)
+
+    class _Dead:
+        class mav:
+            @staticmethod
+            def statustext_send(sev: int, text: bytes) -> None:
+                raise OSError("link down")
+
+    assert beacon.send_lines(_Dead(), [(6, "a"), (6, "b")],
+                             dry_run=False, pace_s=0.0) == 0

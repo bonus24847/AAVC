@@ -309,32 +309,14 @@ class SafetyWatchdog:
             # once any in-flight terminal action settles.
             return
 
-        # 1. Telemetry stale — record always; if it stays stale while ARMED,
-        # escalate to RTH (companion-side backstop). PX4's NAV_DLL_ACT (set at
-        # startup) is the FC-level link-loss failsafe; this catches a
-        # degraded-but-connected link. Debounced + armed-gated so a brief
-        # telemetry hiccup (or a pre-arm boot gap) never spuriously RTHs.
-        if t.age_s() > 2.0 and t.is_connected:
-            st.record_anomaly(f"telemetry_stale ({t.age_s():.1f}s)")
-            if t.is_armed:
-                now = asyncio.get_running_loop().time()
-                if self._telemetry_stale_since is None:
-                    self._telemetry_stale_since = now
-                elif now - self._telemetry_stale_since > self.telemetry_stale_threshold_s:
-                    logger.critical(
-                        f"[safety] telemetry stale >{self.telemetry_stale_threshold_s:.0f}s "
-                        "while armed — triggering RTH"
-                    )
-                    st.record_anomaly("telemetry_stale_sustained")
-                    await self._trigger_rth()
-                    return
-            else:
-                self._telemetry_stale_since = None
-        else:
-            self._telemetry_stale_since = None
-
-        # 1.5 Pilot takeover + flight-phase disarm (RC-GO conops 2026-08-12;
-        # reordered ABOVE the armed gate 2026-08-21). The field takeover is
+        # 1. Pilot takeover + flight-phase disarm (RC-GO conops 2026-08-12;
+        # moved above the armed gate 2026-08-21, and above the
+        # telemetry-stale check 2026-08-22 — the docstring said these were
+        # checked FIRST and they were not: a stale-but-connected armed link
+        # escalates with `await self._trigger_rth(); return`, and on every
+        # later tick _trigger_rth short-circuits and returns again, so the
+        # takeover detectors were UNREACHABLE for as long as the condition
+        # held.) The field takeover is
         # "flip POSCTL, then DISARM within ~0.5 s" — faster than the 1.0 s
         # debounce at a 0.5 s tick — and this block used to sit BELOW the
         # armed gate, so the disarm made the watchdog permanently blind the
@@ -376,6 +358,31 @@ class SafetyWatchdog:
         else:
             self._manual_mode_since = None
 
+        # 2. Telemetry stale — record always; if it stays stale while ARMED,
+        # escalate to RTH (companion-side backstop). PX4's NAV_DLL_ACT (set at
+        # startup) is the FC-level link-loss failsafe; this catches a
+        # degraded-but-connected link. Debounced + armed-gated so a brief
+        # telemetry hiccup (or a pre-arm boot gap) never spuriously RTHs.
+        if t.age_s() > 2.0 and t.is_connected:
+            st.record_anomaly(f"telemetry_stale ({t.age_s():.1f}s)",
+                              dedupe_key="telemetry_stale")
+            if t.is_armed:
+                now = asyncio.get_running_loop().time()
+                if self._telemetry_stale_since is None:
+                    self._telemetry_stale_since = now
+                elif now - self._telemetry_stale_since > self.telemetry_stale_threshold_s:
+                    logger.critical(
+                        f"[safety] telemetry stale >{self.telemetry_stale_threshold_s:.0f}s "
+                        "while armed — triggering RTH"
+                    )
+                    st.record_anomaly("telemetry_stale_sustained")
+                    await self._trigger_rth()
+                    return
+            else:
+                self._telemetry_stale_since = None
+        else:
+            self._telemetry_stale_since = None
+
         if not t.is_armed:
             # Pre-takeoff or post-landing — nothing FURTHER to check (the
             # takeover/disarm detectors above already ran; everything below
@@ -383,7 +390,7 @@ class SafetyWatchdog:
             # check until 2026-08-21, which is exactly what blinded it.
             return
 
-        # 2. Battery — both thresholds require the reading to STAY down.
+        # 3. Battery — both thresholds require the reading to STAY down.
         #
         # A single sample used to be enough, which was safe only while the pack
         # had current sensing. It no longer does (2026-08-16: the PM03D failed;
@@ -416,7 +423,8 @@ class SafetyWatchdog:
                 if now - self._battery_land_since >= self.battery_sustain_s:
                     logger.critical(
                         f"[safety] battery {t.battery_percent:.0f}% sustained — LAND NOW")
-                    st.record_anomaly(f"battery_critical_{t.battery_percent:.0f}%")
+                    st.record_anomaly(f"battery_critical_{t.battery_percent:.0f}%",
+                                      dedupe_key="battery_critical")
                     await self._trigger_abort()
                     return
             else:
@@ -431,7 +439,8 @@ class SafetyWatchdog:
                     logger.warning(
                         f"[safety] battery {t.battery_percent:.0f}% sustained — "
                         "triggering RTH")
-                    st.record_anomaly(f"battery_low_{t.battery_percent:.0f}%")
+                    st.record_anomaly(f"battery_low_{t.battery_percent:.0f}%",
+                                      dedupe_key="battery_low")
                     await self._trigger_rth()
                     return
             else:
@@ -458,7 +467,7 @@ class SafetyWatchdog:
                 )
                 st.record_anomaly("battery_telemetry_nan_sustained")
 
-        # 3. GPS health — a SUSTAINED loss of the 3D fix → LAND IN PLACE, not
+        # 4. GPS health — a SUSTAINED loss of the 3D fix → LAND IN PLACE, not
         # RTH (operator 2026-08-17: "เพื่อ safe ลง land เลย"). The physics
         # agrees: with no flow module and no GPS the horizontal estimate dies
         # in seconds, and RTL is a command that cannot navigate — it would
@@ -472,7 +481,8 @@ class SafetyWatchdog:
             now = asyncio.get_running_loop().time()
             if self._gps_lost_since is None:
                 self._gps_lost_since = now
-                st.record_anomaly(f"gps_unhealthy_fix={t.gps_fix_type}")
+                st.record_anomaly(f"gps_unhealthy_fix={t.gps_fix_type}",
+                                  dedupe_key="gps_unhealthy")
             elif now - self._gps_lost_since > self.gps_loss_threshold_s:
                 logger.critical(
                     f"[safety] no GPS 3D fix for >{self.gps_loss_threshold_s:.0f}s "
@@ -539,7 +549,8 @@ class SafetyWatchdog:
                 now = asyncio.get_running_loop().time()
                 if self._ceiling_breach_since is None:
                     self._ceiling_breach_since = now
-                    st.record_anomaly(f"altitude_ceiling_breach_{alt:.1f}m")
+                    st.record_anomaly(f"altitude_ceiling_breach_{alt:.1f}m",
+                                      dedupe_key="altitude_ceiling_breach")
                 elif now - self._ceiling_breach_since > self.ceiling_breach_threshold_s:
                     logger.critical(
                         f"[safety] {alt:.1f} m AGL > ceiling "
@@ -551,7 +562,8 @@ class SafetyWatchdog:
             else:
                 self._ceiling_breach_since = None
                 if alt > self.altitude_ceiling_m + self.ceiling_warn_m:
-                    st.record_anomaly(f"altitude_ceiling_warn_{alt:.1f}m")
+                    st.record_anomaly(f"altitude_ceiling_warn_{alt:.1f}m",
+                                      dedupe_key="altitude_ceiling_warn")
             # 0.5 m tolerance for the EKF/home altitude-frame drift (the same
             # headroom the mission commands + the verifier allows) — a hover
             # commanded just above the floor must not trip a phantom advisory.
@@ -585,7 +597,9 @@ class SafetyWatchdog:
                             f"[safety] terrain clearance {clearance:.1f} m < "
                             f"{self.terrain_min_clearance_m:.0f} m sustained — triggering RTH"
                         )
-                        st.record_anomaly(f"terrain_clearance_breach_{clearance:.0f}m")
+                        st.record_anomaly(
+                            f"terrain_clearance_breach_{clearance:.0f}m",
+                            dedupe_key="terrain_clearance_breach")
                         await self._trigger_rth()
                         return
                 else:

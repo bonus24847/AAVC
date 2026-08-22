@@ -15,6 +15,7 @@ File contract (aavc_gcs.py header + its ``aavcEN`` map helper)::
      "pads_mapped": {"<marker_id>": [east_m, north_m]},
      "pads_identified": {"<marker_id>": [east_m, north_m]},   # orange lane
      "plan": [[lat, lon, kind, seq], ...], "plan_ptr": int,   # console map path
+     "run": str,                                             # mission run id
      "updated": epoch}
 
 ``pads_mapped`` ENU is about the field yaml's ``local_origin`` (== this
@@ -80,8 +81,17 @@ class GcsMissionStatus:
     """Best-effort writer of the AAVC GCS console's mission_status.json."""
 
     def __init__(self, path: Path | str, origin_lat: float, origin_lon: float,
-                 assigned: list[int], serve_cost_s: float = 80.0) -> None:
+                 assigned: list[int], serve_cost_s: float = 80.0,
+                 run_id: str = "") -> None:
         self.path = Path(path)
+        # Identity of THIS mission run, published so the console can tell a new
+        # mission from a re-read of the same one. It matters for the plan
+        # polyline: the console deliberately KEEPS the last plan drawn while
+        # the link is dead, and with no run id it had no way to ever drop it —
+        # so the route from the previous flight stayed on the map through the
+        # next mission's whole preflight, reading as "this is where it is
+        # going" (2026-08-22 review).
+        self._run_id = str(run_id)
         self._origin = (float(origin_lat), float(origin_lon))
         self._lock = threading.Lock()
         self._pads: dict[str, list[float]] = {}
@@ -214,8 +224,18 @@ class GcsMissionStatus:
         n_d = len(self._delivered) if delivered is None else int(delivered)
         n_a = len(self._assigned) if assigned is None else int(assigned)
         n_a = max(n_a, 1)
+        # MissionPhase.LAND covers BOTH the pad landing (tactical_align) and
+        # the final L&R landing (mission.py) — indistinguishable here. So a
+        # "land with eggs left" was read as "still delivering", and after a
+        # DELIVERY abort the console said "ส่งของ pad 4 (3/4)" with pad 4
+        # marked current while the aircraft was landing at home with the eggs
+        # still aboard. The radio carries the same lie: the beacon's `cur=`
+        # is scraped out of this label. A home_reason means the mission has
+        # ALREADY decided it is coming home — after that, LAND is the L&R
+        # landing (2026-08-22 review).
+        coming_home = self._home_reason_code is not None
         serving = phase in ("localize", "drop", "track") or (
-            phase == "land" and n_d < n_a)
+            phase == "land" and n_d < n_a and not coming_home)
         pending = [i for i in self._assigned if i not in self._delivered]
         cur_pad = pending[0] if pending else None
         eta = 0.0
@@ -241,8 +261,9 @@ class GcsMissionStatus:
             label = (f"ส่งของ pad {cur_pad} ({n_d + 1}/{n_a})"
                      if cur_pad is not None else f"ส่งของ ({n_d}/{n_a})")
             eta = (n_a - n_d - 0.5) * self._serve_cost_s + 70
-        elif phase in ("transit_egress", "rth"):
-            pct, label = 92, "บินกลับ"
+        elif phase in ("transit_egress", "rth") or (phase == "land" and coming_home
+                                                    and n_d < n_a):
+            pct, label = 92, ("บินกลับ (ยกเลิกที่เหลือ)" if n_d < n_a else "บินกลับ")
             eta = 70
         elif phase == "land":
             pct, label = 97, "กลับมาลงจอด"
@@ -407,6 +428,7 @@ class GcsMissionStatus:
                     "pads_identified": dict(self._pads_identified),
                     "plan": [list(p) for p in self._plan],
                     "plan_ptr": self._plan_ptr,
+                    "run": self._run_id,
                     "progress": int(self._progress),
                     "progress_label": self._progress_label,
                     "eta_s": self._eta_s,

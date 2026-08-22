@@ -723,6 +723,7 @@ async def run(args: argparse.Namespace) -> int:
         origin_lon=float(cfg["site"]["center_lon"]),
         assigned=assigned_ids,
         serve_cost_s=float(sc.get("serve_cost_s", 80.0)),
+        run_id=run_dir.name,
     )
 
     def _audit_tee(entry: str) -> None:

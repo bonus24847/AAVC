@@ -308,62 +308,62 @@ A bit-for-bit reproduction of the abort that motivated this whole day.
 | 3.5 ✅ | `cm4/deploy.sh:69-71` | `--check` prints "the aircraft flies this working tree" while **`sitl/aavc_config.yaml`, `clear_state.sh` and the `Makefile` are unhashed** — all three are on-aircraft flight-path files, and the config is the one the flight core reads. |
 | 3.6 ✅ | `orchestrator/main.py:1072-1088` | The new `align:` seam casts straight into the dataclass with no bounds check. `lock_cycles: 0` makes `final_locked = 0 >= 0` true — the centred-LAND gate added after the 2.46 m off-pad release is **bypassed**, and every rung breaks on the first fix. A YAML typo is a land-anywhere switch. |
 | 3.7 ✅ | `orchestrator/gcs_status.py:411-413` | `_write()` builds the doc under the lock but does the file ops outside it, through **one shared temp name**. Two threads (vision, now ~10 Hz, and the loop) can tear the file; the beacon then reads it, gets `None`, and broadcasts a spurious `p=idle` mid-flight. |
-| 3.8 | `src/aavc_gcs.py:3639` | The plan polyline is drawn **without** the staleness gate and cached in `window.PLAN_KEEP`, which is never cleared. A leftover SITL `mission_status.json` paints yesterday's simulated route over the real field, unmarked, for the life of the page. |
-| 3.9 | — | **Fix 3 cannot reach a real flight at all**: `status_sync.sh` is deliberately not started by the real launchers and the beacon carries no `plan`, so the polyline is written on the CM4 and never copied to the laptop. Either start the sync (the plan is a few KB, written while WiFi is still up at L&R) or drop the feature until it is. |
+| 3.8 ✅ | `src/aavc_gcs.py:3639` | The plan polyline is drawn **without** the staleness gate and cached in `window.PLAN_KEEP`, which is never cleared. A leftover SITL `mission_status.json` paints yesterday's simulated route over the real field, unmarked, for the life of the page. |
+| 3.9 ⏸ **OPERATOR DECISION** | — | **Fix 3 cannot reach a real flight at all**: `status_sync.sh` is deliberately not started by the real launchers and the beacon carries no `plan`, so the polyline is written on the CM4 and never copied to the laptop. Either start the sync (the plan is a few KB, written while WiFi is still up at L&R) or drop the feature until it is. **Left open deliberately (2026-08-22):** both options change a LOCKED decision — the real console was made radio-only on 2026-08-18 on the operator's own instruction ("เอาไหนที่ใช้วิทยุไม่ได้ เอาออกเลย"), so restoring any WiFi puller, even one scoped to the few-KB plan, is the operator's call and not a bug fix. Everything else about the plan feature now works: it is written, run-scoped, staleness-styled, and it already draws on the SITL/WiFi console. |
 
 ---
 
 ## TIER 4 — real, lower probability, worth a pass when there is time
 
-**Flight core:** `drop_payload` has no exception boundary anywhere up the
-stack, so any failure other than a clean `ActionError` ends the whole mission
-armed on a pad (and the fallback endpoint is a SITL-only port, commented out
-in the shipped config) · `land()`/`rth()` are not re-guarded before their
-`disarm()`, which sits behind waits of 90 and 180 s — a pilot rescue during a
-watchdog LAND can be met with a companion disarm · the ACQUIRE "expanding box"
-never expands (`(ring % 4) // 2 or 1` is always 1) and now re-commands the FC
-~144 times per acquire at 12 Hz · one dead telemetry stream is invisible
-because all 14 tasks share one `_touch()`, and 8 of them have no `try/except`
-at all — a frozen `is_armed` blinds the new disarm detector permanently ·
-`MPC_Z_VEL_MAX_DN` is the manual twin, so the whole per-rung descent ladder is
-inert, and it is left at 3.0 (2× the pin) which *does* apply to the safety
-pilot's POSCTL rescue · the takeover detectors are not actually checked first
-(a stale-telemetry escalation returns above them) · `record_anomaly` dedupes by
-kind, so "camera died" is recorded at most once per mission while
-`altitude_ceiling_warn_{alt:.1f}m` mints a new kind every 0.1 m.
+**Status 2026-08-22: all Tier 4 items below are FIXED except the four marked
+⏸ (they need a measurement or an operator decision, not a patch).**
 
-**GCS:** auto-infra latches `_INFRA_STARTED` even on failure and never re-arms
-after a CM4 reboot (a battery swap silently leaves the aircraft with no
-router/camera/beacon) · the progress label says "delivering pad N" while the
-aircraft is landing home after an abort, and the radio's `cur=` is scraped from
-that same label · `verify_flight.py` has no needle for `PILOT TAKEOVER` and no
-"every FLIGHT START has an END", so a takeover flight PASSES the post-flight
-check with `0/0 deliveries` — and the `mode=` field added today for exactly
-this is parsed and never used.
+**Flight core:** ✅ `drop_payload` now has an exception boundary in
+`tactical_align._drop_once` — any failure records
+`release_failed_delivery_<k>` and returns False instead of ending the mission
+armed on a pad · ✅ `land()`/`rth()` re-check on the far side of their 30 s /
+180 s waits (`_pilot_took_over_midway`) and abandon the disarm tail rather
+than disarming an aircraft the pilot has just flown away · ✅ the ACQUIRE box
+really expands now (`(search_ring - 1) // 4 + 1` → 4, 4, 4, 4, 8, 8, 8, 8,
+12 … m, capped at `accept_radius_m`) · ✅ every telemetry subscriber is named
+and supervised (`_supervise`, per-stream `_touch`, `dead_streams()`,
+exponential-backoff restart, `stream_failures`) so ONE frozen stream is
+visible instead of being masked by the other thirteen · ✅ the descent ladder
+writes `MPC_Z_V_AUTO_DN` — the AUTO twin the mission actually flies — and
+restores the PIN, not the literal 3.0 · ✅ the takeover detectors are now
+physically first in `_check_once` (checks renumbered 1-4) · ✅
+`record_anomaly` takes a `dedupe_key`, so a held ceiling-warn costs ONE line
+instead of one per 0.1 m of jitter, while identity-numbered anomalies
+(`no_fly_zone_breach_1`, `release_failed_delivery_3`) still each record.
 
-**Vision:** the ×4 ROI booster added **zero** decodes across 32 synthetic
-conditions while costing a detector construction + resize + full
-`detectMarkers` per blob, uncapped · `hitl_synthetic_camera.py:50` still holds
-the retired 99.7° FOV, so every HITL "validation" of the vision chain is
-validating the wrong geometry by 1.57× · the size prior reduces to
-`alt_reported / alt_true`, so at the 1.5 m final rung a 0.9 m altitude
-under-report rejects every hit — against ±0.7 m of documented per-arm wander ·
-no camera roll/yaw mount parameter exists, so a camera rotated about its
-optical axis would make the align loop orbit rather than converge, undetected.
+**GCS:** ✅ `_INFRA_STARTED` latches only on `returncode == 0` and re-arms via
+`_reset_infra_latch()` when the CM4 disappears, so a battery swap no longer
+leaves the aircraft with no router/camera/beacon · ✅ the progress label no
+longer says "delivering pad N" during an abort landing (new
+"บินกลับ (ยกเลิกที่เหลือ)") · ✅ `verify_flight.py` treats `PILOT TAKEOVER`,
+`disarm_in_flight_phase` and `release_failed_delivery` as FATAL and checks
+every `FLIGHT n START` has an `END`, so a takeover flight can no longer PASS
+with 0/0 deliveries.
 
-**Hardware:** `COM_MOT_TEST_EN=1` (PX4's own default) plus
-`CBRK_IO_SAFETY=22027` means that **while disarmed at the resupply hold** any
-MAVLink source can drive a latch or a motor — inert in flight, a crew-safety
-and egg-on-the-ground risk between flights · `px4_type_audit.py` does not cover
-the 13 hardcoded setters (all 13 verified correct by hand today, but the next
-one will not be caught) · CLAUDE.md §7 says `connect()` pins the envelope; it
-does not — `main.py` does, and believing otherwise is what hides an
-"applied 0/24" failure · BOM drift: two 7500 packs listed instead of the one
-17000 aboard, ESCs called DShot when they are PWM-only, and the BEC that died
-yesterday is described as feeding the CM4 rather than the servo rail, so the
-new "carry a spare BEC" rule has nothing to buy.
+**Vision:** ✅ `hitl_synthetic_camera.py` now holds the MEASURED 74.2° FOV
+(1.295 rad) — every prior HITL "validation" of the vision chain was rendering
+pads 1.57× off in ground offset · ⏸ the ×4 ROI booster (zero decodes across
+32 synthetic conditions) is left in: the synthetic set is not the real-marker
+daylight case it was written for, and removing a decode path two days before
+a flight on synthetic evidence is the wrong direction of risk — decide it with
+real hover frames · ⏸ the size prior reducing to `alt_reported / alt_true`
+and ⏸ the missing camera roll/yaw mount parameter both need a real measurement
+first.
 
----
+**Hardware:** ⏸ `COM_MOT_TEST_EN=1` + `CBRK_IO_SAFETY` — no code change; it is
+inert in flight and the between-flights risk is now a written field rule in
+the PX4MASTER ledger (keep hands and eggs clear while the console is up) · ✅
+`px4_type_audit.py` now scans the repo for inline-named param writes as well:
+8 hardcoded setters found, all correct, and an inventory test fails if a new
+one appears · ✅ CLAUDE.md no longer claims `connect()` pins the envelope
+(`orchestrator/main.py` does) · ✅ BOM drift fixed — one 17000 mAh
+semi-solid pack, ESCs no longer called DShot, and the BEC row now describes
+the servo rail with a spare in the quantity.
 
 ## Verified correct — what the review confirmed is solid
 
