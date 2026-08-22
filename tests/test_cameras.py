@@ -74,14 +74,24 @@ def test_config_nadir_matches_ov9281_profile() -> None:
     """Parity-lock the shipped camera profile (the Meige OV9281 UVC module):
     1280×720, nadir 90°, fov 74.2° — MEASURED on the real lens 2026-08-17
     (50 mm marker at 0.495 m → 85.5 px → fx 847; replaces the 99.7 unmeasured
-    placeholder) — and no second camera block (the oblique cue was retired)."""
+    placeholder) — and no second camera block (the oblique cue was retired).
+
+    ``mount_yaw_deg`` joined the block 2026-08-22: the rotation of the camera
+    about its optical axis relative to the airframe. It is locked at 0.0 here
+    because 0.0 is an ASSUMPTION nobody has measured, and the day someone reads
+    it off the aircraft this test should fail and be updated with the reading —
+    a silent edit is how a mounting fact becomes folklore. It moves the
+    pixel->lat/lon bearing and the heading the sweep holds; SITL cannot check
+    it, because the gz camera shares the same assumption.
+    """
     import yaml
 
     cfg_path = Path(__file__).resolve().parents[1] / "sitl" / "aavc_config.yaml"
     cams = yaml.safe_load(cfg_path.read_text())["cameras"]
     assert set(cams) == {"nadir"}
     assert cams["nadir"] == {
-        "fov_deg": 74.2, "width_px": 1280, "height_px": 720, "depression_deg": 90.0,
+        "fov_deg": 74.2, "width_px": 1280, "height_px": 720,
+        "depression_deg": 90.0, "mount_yaw_deg": 0.0,
     }
 
 

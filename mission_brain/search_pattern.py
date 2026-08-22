@@ -42,6 +42,13 @@ class SearchPlanSpec:
     swath_m: float
     spacing_m: float
     est_duration_s: float
+    # True bearing the legs run along, and the heading to HOLD while flying
+    # them so the camera's wide (1280 px) image axis lies ACROSS track — the
+    # orientation ``swath_m`` above assumes. See the sweep-heading note in
+    # ``build_search_pattern``. ``sweep_yaw_deg`` is what the mission passes to
+    # every search-phase goto.
+    leg_bearing_deg: float = 0.0
+    sweep_yaw_deg: float = 0.0
 
     def __post_init__(self) -> None:
         # A non-positive or NaN speed makes the mission's leg/RTH timeouts
@@ -175,9 +182,36 @@ def build_search_pattern(
     )
     est = path_len / max(speed_mps, 0.1) + turn_penalty_s * max(0, len(enu_wps) - 1)
 
+    # ── the heading to hold while sweeping ──────────────────────────────────
+    # ``swath`` above is the WIDE image axis on the ground, which is only the
+    # cross-track footprint if that axis actually lies across the legs. The
+    # camera is body-fixed with no gimbal, so that is decided by the heading
+    # the aircraft holds — and until 2026-08-22 nothing chose one: every
+    # ``goto`` passed a NaN yaw, so PX4 fell through to MPC_YAW_MODE. On the
+    # 2026-08-20 flights that param sat at its factory 0 = "towards waypoint",
+    # and the aircraft dutifully turned its nose to face each new sweep
+    # waypoint: the commanded heading walked 145->119->94->69->44->18->353->…
+    # through a full circle at the 25 deg/s cap, 867 deg of yaw in one 122 s
+    # flight (ULog 08_11_09). A body-fixed camera spinning like that smears
+    # every frame — 1 of 457 recorded frames decoded.
+    # Holding this heading fixes both halves: the image stops rotating, and the
+    # wide axis is deliberately placed across track instead of wherever the
+    # aircraft happened to be pointing when it armed. A finite yaw in the goto
+    # BEATS MPC_YAW_MODE in PX4 (FlightTaskAuto.cpp:496 takes the triplet yaw
+    # before ever consulting the param), so this works whatever that param says.
+    if axis_deg is None:
+        leg_bearing = 90.0 if sweep_is_east else 0.0
+    else:
+        leg_bearing = float(axis_deg) if sweep_is_east else float(axis_deg) - 90.0
+    # Wide axis across track <=> nose along the legs, offset by however the
+    # camera is bolted (CameraModel.mount_yaw_rad; 0 = image-up at the nose).
+    sweep_yaw = (leg_bearing - math.degrees(camera.mount_yaw_rad)) % 360.0
+
     return SearchPlanSpec(
         waypoints=waypoints,
         leg_count=n_legs,
+        leg_bearing_deg=leg_bearing % 360.0,
+        sweep_yaw_deg=sweep_yaw,
         sweep_alt_m=alt,
         speed_mps=speed_mps,
         swath_m=swath,

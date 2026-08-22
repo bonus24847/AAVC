@@ -122,9 +122,19 @@ search:
                            # validated 18 px floor; 2 m stays under the 10 m
                            # ceiling for the per-arm wander. Legal band
                            # [search_floor_m 2.5, ceiling 10].
-  overlap_frac: 0.3        # spacing = swath*(1-overlap) ≈ 8.5 m. Along-track
-                           # footprint at 8 m is ~6.8 m — plenty of frames per
-                           # pass for the confirm votes.
+  # ⚠ 0.30 -> 0.44 on 2026-08-22. 0.30 spaced the legs at 70% of the WIDE
+  # (1280 px) image axis, which is only the cross-track footprint if that axis
+  # actually lies across the legs — an assumption search_pattern.py's own
+  # docstring flagged as never validated, and one nothing controlled: the
+  # camera is body-fixed and the held heading was whatever the aircraft was
+  # pointing when it armed. Wrong way round the real swath is the 720 px axis
+  # (0.5625x), leaving a 2.5 m gap per strip at 12 m — a 1 m pad fits inside it
+  # with 1.5 m to spare. 0.44 makes spacing <= the NARROW swath, so coverage is
+  # complete at ANY mount/heading combination. Cost: +1 leg here, and it is
+  # belt-and-braces on top of the sweep_yaw_deg fix (mission now holds a
+  # heading that puts the wide axis across track) — drop it back to 0.30 once
+  # CameraModel.mount_yaw_rad has been MEASURED and the heading is trusted.
+  overlap_frac: 0.44       # spacing = swath*(1-overlap); see above
   margin_m: 5.0            # search-area inset (pads sit >=4 m inside; GPS is coarse)
                            # RAISED 4.0 -> 5.0 on 2026-08-16, executing the
                            # trigger the 2026-08-12 peer note wrote down: at 4.0
@@ -286,6 +296,16 @@ cameras:
     width_px: 1280
     height_px: 720
     depression_deg: 90.0  # optical axis below horizontal; 90 = straight down
+    # Rotation of the camera about its optical axis vs the airframe: 0 = image
+    # "up" points at the NOSE, image-right at the right wing; + = clockwise
+    # seen from above. ⚠ NOT MEASURED — 0 is the assumption, not a reading.
+    # It moves two things: the pixel->lat/lon bearing (a 90 deg error reports a
+    # frame-edge pad ~13 m from where it is, at the 12 m sweep) and the heading
+    # the sweep holds (search_pattern.sweep_yaw_deg = leg bearing - this).
+    # MEASURE: marker 1 m in FRONT of the nose, one nadir frame, see which
+    # image axis it moved along and which way. SITL cannot catch an error here
+    # — the gz camera shares the assumption.
+    mount_yaw_deg: 0.0
 
 # Vision worker + terminal-align frame handling.
 vision:

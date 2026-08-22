@@ -63,6 +63,19 @@ class CameraModel:
     width_px: int = CAMERA_WIDTH_PX
     height_px: int = CAMERA_HEIGHT_PX
     depression_rad: float = math.pi / 2       # nadir by default
+    # Rotation of the camera ABOUT ITS OPTICAL AXIS relative to the airframe.
+    # 0 = the image's "up" (row 0) points at the NOSE and image-right points at
+    # the aircraft's right wing; positive = the camera is turned clockwise seen
+    # from above. It is a mounting fact, not a calibration: bolt the same camera
+    # on rotated 90 deg and every pixel->lat/lon answer rotates 90 deg about the
+    # aircraft with no other symptom. At the 12 m sweep a pad at the frame edge
+    # is ~9 m out, so a 90 deg mount error reports it ~13 m from where it is —
+    # the aircraft then flies to empty grass, never re-acquires, and the
+    # tracker's cluster never confirms. Nothing in SITL can catch that: the gz
+    # camera and this model share the assumption. MEASURE it (put a marker 1 m
+    # in front of the nose, read one nadir frame, see which image axis it moved
+    # along) rather than assuming the default.
+    mount_yaw_rad: float = 0.0
 
     @property
     def fx_px(self) -> float:
@@ -79,8 +92,9 @@ NADIR = CameraModel(name="nadir", depression_rad=math.pi / 2)
 def _cam_overrides(vals: dict[str, float]) -> dict[str, float | int]:
     """Translate a config camera block to ``CameraModel`` field overrides.
 
-    Accepts degrees (``fov_deg``/``depression_deg``) or radians
-    (``fov_rad``/``depression_rad``); ``width_px``/``height_px`` as ints.
+    Accepts degrees (``fov_deg``/``depression_deg``/``mount_yaw_deg``) or
+    radians (``fov_rad``/``depression_rad``/``mount_yaw_rad``);
+    ``width_px``/``height_px`` as ints.
     """
     out: dict[str, float | int] = {}
     if "fov_rad" in vals:
@@ -91,6 +105,10 @@ def _cam_overrides(vals: dict[str, float]) -> dict[str, float | int]:
         out["depression_rad"] = float(vals["depression_rad"])
     elif "depression_deg" in vals:
         out["depression_rad"] = math.radians(float(vals["depression_deg"]))
+    if "mount_yaw_rad" in vals:
+        out["mount_yaw_rad"] = float(vals["mount_yaw_rad"])
+    elif "mount_yaw_deg" in vals:
+        out["mount_yaw_rad"] = math.radians(float(vals["mount_yaw_deg"]))
     if "width_px" in vals:
         out["width_px"] = int(vals["width_px"])
     if "height_px" in vals:
@@ -170,6 +188,15 @@ def project_pixel(
     rx = (cx - camera.width_px / 2.0) / fx
     ry = -(cy - camera.height_px / 2.0) / fx
     rz = 1.0
+
+    # Un-rotate the mount: turn the camera-plane ray into the body-aligned one
+    # BEFORE the depression rotation, which assumes image-right == body-right.
+    # (ψ = 0 leaves the arithmetic untouched, so every existing projection
+    # invariant holds bit-for-bit.)
+    psi = camera.mount_yaw_rad
+    if psi:
+        s_psi, c_psi = math.sin(psi), math.cos(psi)
+        rx, ry = ry * s_psi + rx * c_psi, ry * c_psi - rx * s_psi
 
     # Rotate ray camera→body by the mounting depression δ (rotation about the
     # body 'right' axis). Body frame: X=forward, Y=right, Z=up.
