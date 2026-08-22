@@ -16,6 +16,7 @@ import numpy as np
 from vision.detectors.aruco import (
     _PAD_V_FLOOR,
     _PAD_V_MIN,
+    DECODE_STATS,
     MARKER_TO_PAD,
     VALID_MARKER_IDS,
     PadDetector,
@@ -47,7 +48,15 @@ def _scene(pad_px: int, marker_id: int = 3, *, angle_deg: float = 0.0,
 
 
 def _pad_px(alt_m: float, width_px: int = 1280) -> int:
-    """Pad size in px at a given altitude (1280 px, 99.7 deg HFOV nadir)."""
+    """Pad size in px at a given altitude, on the RETIRED 99.7 deg HFOV scale.
+
+    The real lens measured 74.2 deg on 2026-08-17, which makes every pad
+    ~1.5x BIGGER than this helper draws it (70 px vs 45 px at 12 m). The old
+    number is kept on purpose: every altitude fixture below is then a harder
+    frame than the aircraft will ever see, so a pass here is a floor, not a
+    coincidence. Do not "fix" it to 1.513 without re-reading what each test is
+    claiming to prove.
+    """
     return int(round(1.0 / (alt_m * 2.372 / width_px)))
 
 
@@ -93,6 +102,29 @@ def test_blurred_pad_falls_back_to_cue_with_marker_equivalent_radius() -> None:
 def test_mild_blur_still_decodes_via_booster() -> None:
     hits = find_landing_pads(_scene(_pad_px(12.0), marker_id=2, blur=3))
     assert hits and hits[0].marker_id == 2
+
+
+def test_decode_provenance_counts_which_pass_earned_the_hit() -> None:
+    """DECODE_STATS must attribute a hit to the pass that actually made it.
+
+    The counters exist to settle whether the 4x ROI booster is worth its second
+    detector pass on REAL frames (32 synthetic conditions found nothing only it
+    could decode). A counter that miscounts would answer that question wrongly
+    and get a working decode path deleted, so pin the attribution here.
+    """
+    before = dict(DECODE_STATS)
+    find_landing_pads(_scene(_pad_px(6.0), marker_id=4))     # decodes outright
+    after_direct = dict(DECODE_STATS)
+    assert after_direct["frames"] == before["frames"] + 1
+    assert after_direct["direct"] == before["direct"] + 1
+    assert after_direct["boosted"] == before["boosted"]
+
+    # A pad far too blurred for either pass stays a cue-only blob.
+    find_landing_pads(_scene(_pad_px(12.0), marker_id=5, blur=15))
+    after_cue = dict(DECODE_STATS)
+    assert after_cue["direct"] == after_direct["direct"]
+    assert after_cue["cue_only"] + after_cue["boosted"] > (
+        after_direct["cue_only"] + after_direct["boosted"])
 
 
 # ── multi-pad frames: the registry wants every pad ──

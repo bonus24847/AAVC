@@ -1251,7 +1251,8 @@ def _plan_pusher(dash: Any, gcs_feed: Any) -> Any:
                 logger.exception("[main] plan push failed")
         try:
             pts: list[list[Any]] = []
-            for c in plan.commands:
+            ptr_seq = 0
+            for i, c in enumerate(plan.commands):
                 coord = getattr(c, "coord", None)
                 if coord is None or c.kind == CommandKind.DROP_PAYLOAD:
                     continue
@@ -1259,7 +1260,15 @@ def _plan_pusher(dash: Any, gcs_feed: Any) -> Any:
                             round(float(coord.lon), 7),
                             str(getattr(c.phase, "value", c.phase)),
                             len(pts) + 1])
-            gcs_feed.set_plan(pts, int(pointer))
+                # Translate the pointer from a COMMAND index into the DISPLAY
+                # index the map can actually use. They are not the same number:
+                # DROP_PAYLOAD and any command without a coordinate are skipped,
+                # so a raw pointer of 7 may be the 5th drawn waypoint. Sent
+                # untranslated (until 2026-08-22) it could only ever have
+                # highlighted the wrong stop, which is why nothing drew it.
+                if ptr_seq == 0 and i >= int(pointer):
+                    ptr_seq = len(pts)
+            gcs_feed.set_plan(pts, ptr_seq)
         except Exception:
             logger.exception("[main] gcs plan push failed")
 

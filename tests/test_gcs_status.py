@@ -279,7 +279,12 @@ def test_plan_pusher_writes_the_console_map_path(tmp_path: Path) -> None:
     aircraft is going NEXT — _plan_pusher mirrors every rebuilt live plan
     into mission_status.json as [[lat, lon, kind, seq], ...] + plan_ptr,
     dashboard present or not. DROP_PAYLOAD rides its GOTO's position and is
-    skipped; seq is a 1-based display index over the kept points."""
+    skipped; seq is a 1-based display index over the kept points.
+
+    ``plan_ptr`` is TRANSLATED into that same display index (2026-08-22): the
+    mission counts commands, the map counts drawn waypoints, and every skipped
+    command slides the two apart — a raw pointer would have highlighted the
+    wrong stop, which is why the console never drew it at all."""
     from mission_brain.schemas import (
         CommandKind,
         Coordinate,
@@ -308,7 +313,10 @@ def test_plan_pusher_writes_the_console_map_path(tmp_path: Path) -> None:
     push = _plan_pusher(None, feed)          # headless: no dashboard at all
     push(plan, 2)
     doc = _read(p)
-    assert doc["plan_ptr"] == 2
+    # command 2 is the DROP_PAYLOAD, which is not drawn — the pointer must land
+    # on the next stop that IS (the RTH, display seq 3), never on seq 2, which
+    # is a waypoint the aircraft already left.
+    assert doc["plan_ptr"] == 3
     assert [row[2] for row in doc["plan"]] == ["takeoff", "localize", "rth"]
     assert [row[3] for row in doc["plan"]] == [1, 2, 3]
     assert abs(doc["plan"][0][0] - _LAT0) < 1e-6
@@ -326,5 +334,8 @@ def test_plan_pusher_writes_the_console_map_path(tmp_path: Path) -> None:
     feed._write = _counting                   # type: ignore[method-assign]
     push(plan, 2)
     assert writes == 0
+    # a DIFFERENT raw pointer that means the same drawn leg is also no news
     push(plan, 3)
-    assert writes == 1 and _read(p)["plan_ptr"] == 3
+    assert writes == 0
+    push(plan, 0)
+    assert writes == 1 and _read(p)["plan_ptr"] == 1
