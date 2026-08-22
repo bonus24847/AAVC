@@ -450,7 +450,11 @@ def _maybe_start_infra(host):
         global _INFRA_STARTED, _INFRA_INFLIGHT
         try:
             r = subprocess.run(argv, capture_output=True, text=True, timeout=45)
-            _INFRA_STARTED = True   # command ran (infra now up, or a mission already has it)
+            # ⚠ Latch ONLY on success (2026-08-22 review). This used to latch
+            # whenever the ssh RAN, so a benign rc=1 ("an orchestrator is
+            # already running") or any transient failure permanently disabled
+            # auto-infra for the life of the console.
+            _INFRA_STARTED = (r.returncode == 0)
             if LINK is not None:
                 if r.returncode == 0:
                     LINK._note("[infra] CM4 กล้อง+beacon สตาร์ทแล้ว (auto) — chip กล้องจะเขียวใน 2-3 วิ")
@@ -467,6 +471,15 @@ def _maybe_start_infra(host):
     threading.Thread(target=_run, daemon=True, name="infra-start").start()
 
 
+def _reset_infra_latch():
+    """Allow auto-infra to run again after the CM4 disappears and returns."""
+    global _INFRA_STARTED
+    if _INFRA_STARTED:
+        _INFRA_STARTED = False
+        if LINK is not None:
+            LINK._note("[infra] CM4 หลุด — จะยก camera+beacon ให้ใหม่เมื่อกลับมา")
+
+
 def _cm4_probe_loop():
     global _CM4_OK
     while True:
@@ -480,6 +493,14 @@ def _cm4_probe_loop():
                 _CM4_OK = True
                 _maybe_start_infra(host)     # REAL: auto camera+beacon on connect
             except OSError:
+                # The CM4 went away. RE-ARM the auto-infra latch: a battery
+                # swap between flights reboots it, taking router, camera and
+                # beacon with it, and until 2026-08-22 the console would never
+                # start them again — the only recoveries were pressing 🚀
+                # (which also stages a flight) or restarting the console, and
+                # neither was written down anywhere.
+                if _CM4_OK:
+                    _reset_infra_latch()
                 _CM4_OK = False
         time.sleep(4)
 
@@ -567,6 +588,20 @@ def load_payload_servos():
     labels = {str(k): str(v) for k, v in (cfg.get("labels") or {}).items()}
     return [{"num": int(n), "released_us": rel, "held_us": held,
              "label": labels.get(str(n), "")} for n in outs]
+
+
+# How long a radio beacon field stays usable after it last arrived. The beacon
+# ticks every 5 s over a link the console's own notes record as flapping under
+# load, and the packets of ONE tick are now spaced 0.15 s apart on purpose — so
+# 15 s (3 ticks) meant two lost packets blanked the readout and the operator
+# watched the mission summary flicker in and out while the aircraft was fine.
+# 30 s = 6 ticks: still fast enough to notice a real outage, wide enough that
+# ordinary radio loss does not read as a dead mission. The badge below reports
+# the real age either way, so "old" is visible rather than silently tolerated.
+_RADIO_KEEP_S = 30.0
+# Pad coordinates get a little longer: they are re-sent round-robin, not every
+# tick, so their natural gap is already wider than the beacon period.
+_RADIO_PADS_KEEP_S = 40.0
 
 
 class Link:
@@ -1938,6 +1973,7 @@ class Link:
             self.s["cal_active"] = False
             self.s["cal"]["active"] = False
 
+
     def snapshot(self):
         with self.lock:
             snap = json.loads(json.dumps(self.s))   # deep copy
@@ -1990,12 +2026,12 @@ class Link:
         # right next to the camera — the ONLY camera reading a real flight gets.
         rc = self.s.get("radio_cam")
         snap["cam_radio"] = ({"state": rc["state"], "age": rc.get("age")}
-                             if rc and time.time() - rc["t"] <= 15 else None)
+                             if rc and time.time() - rc["t"] <= _RADIO_KEEP_S else None)
         snap["zones"] = load_zones()
         origin = self._aavc_origin(snap)
         mission = read_mission_status()
         rm = self.s.get("radio_mission")
-        if (rm and time.time() - rm["t"] <= 15          # <= 3 beacon ticks lost
+        if (rm and time.time() - rm["t"] <= _RADIO_KEEP_S      # 6 beacon ticks
                 and not rm["phase"].startswith("idle")
                 and (mission is None or (mission.get("age_s") or 0) > 45)):
             # WiFi feed dead but the radio beacon is alive: run the readouts on
@@ -2007,10 +2043,10 @@ class Link:
             asg = snap.get("assignment") or []
             rp = self.s.get("radio_pads") or {}
             live_pads = {pid: v["en"] for pid, v in rp.items()
-                         if time.time() - v["t"] <= 20}
+                         if time.time() - v["t"] <= _RADIO_PADS_KEEP_S}
             rw = self.s.get("radio_why")
             why = (WHY_TH.get(rw["code"], rw["code"])
-                   if rw and time.time() - rw["t"] <= 15 else None)
+                   if rw and time.time() - rw["t"] <= _RADIO_KEEP_S else None)
             # Age the mission by the DATA, not by the packet. The beacon resends
             # the same file every 5 s, so packet age is always ~0 even for a
             # flight that ended half an hour ago; "AAVC stale=" carries the real
@@ -2018,13 +2054,13 @@ class Link:
             # since that line arrived keeps the number honest between beacons.
             rs = self.s.get("radio_stale")
             data_age = (rs["age"] + (time.time() - rs["t"])
-                        if rs and time.time() - rs["t"] <= 20 else 0.0)
+                        if rs and time.time() - rs["t"] <= _RADIO_PADS_KEEP_S else 0.0)
             # identified-but-unconfirmed ids from "AAVC seen=" — no coords on
             # the radio (budget), so the value is None: the sidebar ladder
             # lights orange from the id alone; the map needs a position and
             # only draws identified pads on the WiFi feed.
             rsn = self.s.get("radio_seen")
-            seen_ids = (rsn["ids"] if rsn and time.time() - rsn["t"] <= 15
+            seen_ids = (rsn["ids"] if rsn and time.time() - rsn["t"] <= _RADIO_KEEP_S
                         else [])
             mission = {"phase": rm["phase"], "delivered": rm["ok"],
                        "assigned": asg if len(asg) == rm["assigned_n"] else [],
@@ -2042,7 +2078,7 @@ class Link:
             # strip finds the CURRENT pad by searching it for "pad N ") and
             # events (it ticks P1·P2·P3 by searching for "ผ่านจุด Pn").
             rg = self.s.get("radio_prog")
-            if rg and time.time() - rg["t"] <= 15:
+            if rg and time.time() - rg["t"] <= _RADIO_KEEP_S:
                 label = PHASE_TH.get(rm["phase"], rm["phase"])
                 if rg["cur"] is not None:
                     label = (f"ส่งของ pad {rg['cur']} "
@@ -2056,6 +2092,14 @@ class Link:
             mission, origin = self._demo_mission(snap, origin)   # demo: always show a live mission
         snap["origin"] = origin
         snap["mission"] = mission
+        # Age of the NEWEST beacon packet of any kind. The freshness gates
+        # above hide staleness by design — a field just disappears — so on a
+        # link that is degrading the readouts thin out with nothing on screen
+        # saying why. This one number drives the "📻 ขาด N s" badge, which is
+        # the difference between "the mission stopped" and "the radio did".
+        _rt = [v["t"] for k, v in self.s.items()
+               if k.startswith("radio_") and isinstance(v, dict) and v.get("t")]
+        snap["radio_age"] = round(time.time() - max(_rt), 1) if _rt else None
         bb = snap.get("blackbox") or {}
         bb["age_s"] = (round(time.time() - bb["t"], 1)
                        if bb.get("t") else None)   # seconds since last recorded fix
@@ -3300,6 +3344,12 @@ function renderProgress(s){
  // ⏱ mission clock removed (operator 2026-08-18) — ETA stays: it is OUR
  // progress prediction, not the official time.
  if(ms.phase!=='done'&&ms.eta_s!=null)right.push(fmtEta(ms.eta_s));
+ // 📻 badge: the beacon ticks every 5 s, so anything past ~8 s means at
+ // least one tick was lost. The readouts themselves tolerate 30 s now
+ // (they used to blank at 15) — without this the operator could not tell
+ // a quiet radio from a stopped mission, which is exactly the confusion
+ // that pulled flight 1 down early on 2026-08-21.
+ if(s.radio_age!=null&&s.radio_age>8)right.push('📻 ขาด '+Math.round(s.radio_age)+' วิ');
  document.getElementById('peta').textContent=right.join(' · ');
 }
 function renderTimeline(s){
@@ -3656,6 +3706,13 @@ function aavcMap(s){
  // over WiFi only ("plan" in mission_status.json, first written at gate
  // release while the launch-point WiFi still holds) and is deliberately
  // KEPT drawn while the feed is stale — that is exactly when it is needed.
+ // …but only for THIS run. mission_status carries a run id; when it
+ // changes, the kept plan belongs to a finished flight and must go — with
+ // no such check the previous mission's route stayed on the map through
+ // the next one's whole preflight, reading as "this is where it is going"
+ // (2026-08-22 review). An empty plan on a LIVE feed clears it too.
+ if(ms.run&&window.PLAN_RUN!==ms.run){window.PLAN_RUN=ms.run;window.PLAN_KEEP=null;}
+ if(!stale&&ms.plan&&!ms.plan.length)window.PLAN_KEEP=null;
  var plan=(ms.plan&&ms.plan.length)?ms.plan:(window.PLAN_KEEP||[]);
  if(ms.plan&&ms.plan.length)window.PLAN_KEEP=ms.plan;
  var psig=JSON.stringify(plan);
@@ -3664,8 +3721,10 @@ function aavcMap(s){
   for(var lp=0;lp<lplan.length;lp++)lmap.removeLayer(lplan[lp]);lplan=[];
   if(plan.length>=1){
    var ppts=plan.map(function(r){return [r[0],r[1]];});
-   lplan.push(L.polyline(ppts,{color:'#a371f7',weight:3,dashArray:'6 6',opacity:.85})
-    .addTo(lmap).bindTooltip('เส้นทาง mission'));
+   var kept=!(ms.plan&&ms.plan.length);      // drawn from PLAN_KEEP, not live
+   lplan.push(L.polyline(ppts,{color:'#a371f7',weight:3,dashArray:'6 6',
+    opacity:kept?.45:.85}).addTo(lmap)
+    .bindTooltip(kept?'เส้นทาง mission (ค่าล่าสุด — ลิงก์ขาด)':'เส้นทาง mission'));
    for(var pj=0;pj<plan.length;pj++){
     var prow=plan[pj];
     lplan.push(L.marker([prow[0],prow[1]],{icon:L.divIcon({className:'planicon',
