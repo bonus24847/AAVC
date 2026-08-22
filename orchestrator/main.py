@@ -72,6 +72,70 @@ def _load_config(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text()) or {}
 
 
+# How far apart ``site.center`` and ``ground_operation.launch_recovery`` may
+# sit before the config is calling one point by two different names. Both
+# shipped configs write the SAME 7-decimal pair, so any real gap is a copy that
+# was never updated, not rounding — 5 m is loose enough never to cry over a
+# re-typed coordinate and tight enough to catch a stale field block.
+_SITE_ORIGIN_TOL_M = 5.0
+
+
+def _resolve_site_origin(cfg: dict[str, Any]) -> tuple[float, float] | None:
+    """The L&R point: the ENU origin every pad coordinate is expressed about.
+
+    Read from ``ground_operation.launch_recovery`` FIRST, because that is the
+    point the aircraft itself uses: PX4 captures home where the vehicle arms —
+    the L&R pad — and the console re-anchors the ENU it receives at the
+    vehicle's own origin (``aavcEN(e, n, origin.lat, origin.lon)``). Anchor the
+    outgoing ENU anywhere else and every pad marker slides by the difference,
+    silently, with each individual number looking perfectly reasonable.
+
+    ``site.center`` is the older spelling of the SAME point (the SITL world
+    origin and PX4_HOME are both defined equal to it, CLAUDE.md §8) and stays
+    as the fallback for configs that predate the ``ground_operation`` block.
+    They must agree, so a disagreement is reported LOUDLY rather than quietly
+    resolved: the SITL pad spawner, ``tools/box_truth.py`` and the Svelte
+    dashboard all still read ``site.center`` directly, so preferring the right
+    one here fixes the flight path without fixing them.
+
+    Found 2026-08-22: ``sitl/kmitl_config.yaml`` shipped with the PRACTICE
+    field's whole ``site:`` block — name, coordinates and rooftop ground
+    altitude — over the competition field's own L&R, 31.5 km away, while the
+    comment on that very line claimed the two were equal. Every pad the
+    console drew at KMITL would have been placed 31.5 km off the map.
+
+    Returns None when the config carries neither, which is a config error the
+    caller reports; there is no sensible default for "where the field is".
+    """
+    lr = (cfg.get("ground_operation") or {}).get("launch_recovery")
+    site = cfg.get("site") or {}
+    center = (site.get("center_lat"), site.get("center_lon"))
+    pair: tuple[float, float] | None = None
+    if isinstance(lr, (list, tuple)) and len(lr) >= 2:
+        pair = (float(lr[0]), float(lr[1]))
+    if center[0] is not None and center[1] is not None:
+        c = (float(center[0]), float(center[1]))
+        if pair is None:
+            pair = c
+        else:
+            # Flat-earth metres: this number is a REPORT, not a control
+            # input, and the case it exists to describe is kilometres wide.
+            dn = math.radians(c[0] - pair[0]) * 6371000.0
+            de = (math.radians(c[1] - pair[1]) * 6371000.0
+                  * math.cos(math.radians(pair[0])))
+            off = math.hypot(dn, de)
+            if off > _SITE_ORIGIN_TOL_M:
+                logger.error(
+                    f"[main] config site.center {c[0]:.7f},{c[1]:.7f} is "
+                    f"{off:,.0f} m from ground_operation.launch_recovery "
+                    f"{pair[0]:.7f},{pair[1]:.7f} — they name the SAME point. "
+                    "Flying on launch_recovery; the SITL pad spawner and the "
+                    "Svelte dashboard read site.center and will be wrong until "
+                    "the config is fixed"
+                )
+    return pair
+
+
 def _parse_assigned_ids(raw: str | list[Any]) -> list[int]:
     """Parse + validate the committee-assigned marker ids (L2).
 
@@ -639,11 +703,17 @@ async def run(args: argparse.Namespace) -> int:
         telem.state,
         udp_port=int((cfg.get("connection") or {}).get("raw_telemetry_port", 0)),
     )
+    # The L&R point, resolved ONCE (see _resolve_site_origin): it is both the
+    # plan's home until GPS reports one and the anchor of every pad coordinate
+    # the console and the radio beacon carry.
+    site_origin = _resolve_site_origin(cfg)
+    if site_origin is None:
+        logger.error("[main] config names no L&R point — set "
+                     "ground_operation.launch_recovery (or site.center_lat/lon); "
+                     "without it there is nothing to anchor pad coordinates to")
+        return 2
     # Build a minimal initial plan so state is valid; rebuilt once GPS is known.
-    placeholder_home = Coordinate(
-        lat=float(cfg.get("site", {}).get("center_lat", 0.0)),
-        lon=float(cfg.get("site", {}).get("center_lon", 0.0)),
-    )
+    placeholder_home = Coordinate(lat=site_origin[0], lon=site_origin[1])
     # Blind search inside the SEARCH AREA (the pads live there); the controlled
     # airspace is the geofence. Both polygons are mission-critical (V1.3).
     if len(geofence) < 3:
@@ -719,8 +789,8 @@ async def run(args: argparse.Namespace) -> int:
     # VisionWorker below.
     gcs_feed = GcsMissionStatus(
         path=Path(cfg.get("gcs_status_path", "captures/mission_status.json")),
-        origin_lat=float(cfg["site"]["center_lat"]),
-        origin_lon=float(cfg["site"]["center_lon"]),
+        origin_lat=site_origin[0],
+        origin_lon=site_origin[1],
         assigned=assigned_ids,
         serve_cost_s=float(sc.get("serve_cost_s", 80.0)),
         run_id=run_dir.name,
