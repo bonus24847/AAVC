@@ -266,9 +266,22 @@ single sortie" is history, not current design.)
   Because
   `calculateStateOfChargeVoltageBased` only load-compensates when current > 0,
   the gauge sags under thrust and rebounds, so `safety.py` requires both
-  battery thresholds to hold for `battery_sustain_s` (5 s) before acting. Height
+  battery thresholds to hold for `battery_sustain_s` (5 s) before acting. **Absolute
+  height is BARO at BOTH fields** (`EKF2_HGT_REF=0`, operator 2026-08-23;
+  practice moved 2026-08-20, competition followed): on PX4's default `=1` (GPS)
+  the baro-vs-GPS divergence measured **10.8 m peak-to-peak** inside one flight,
+  the reported AGL inflated to 12.0 m while the aircraft physically held ~8.5 m,
+  and the ceiling watchdog — correct on its inputs — RTH'd a flight that was
+  tracking transit to 1.7 m. NOT `=2` (range): that makes the local origin ride
+  ground level, so a shed cargo box or a person under the beam would move
+  "down". ⚠ `reboot_required` — PX4 stores a new value immediately while the
+  estimator keeps running on the OLD reference, so a read-back says "held" and
+  proves nothing; it is deliberately NOT in `verify_envelope_pins`, and
+  `tools/preflight_params.py` checks it as a **`BOOT_LATCHED`** STOP against the
+  field config in force. Height
   aiding for the real bird is a **Benewake TFmini-S** downward lidar
-  (`EKF2_RNG_CTRL=1` pinned; its `SENS_TFMINI_CFG` port is chosen at the bench).
+  (`EKF2_RNG_CTRL=1` pinned, conditional aiding below `EKF2_RNG_A_HMAX=7.0` m
+  pinning the final metres; its `SENS_TFMINI_CFG` port is chosen at the bench).
   **Optical flow was CUT 2026-07-22** — no flow module in the kit, so
   `EKF2_OF_CTRL` is pinned to 0. The single nadir camera (Meige OV9281 UVC, mono
   global-shutter) is **HARD-MOUNTED looking down — no gimbal** (operator

@@ -89,3 +89,46 @@ def test_mission_restores_the_pinned_pad_descent_speed() -> None:
         "mission.py restores a descent speed the config does not pin")
     assert _LAND_STAGE_MPS > _PAD_DESCENT_MPS
     assert _LAND_STAGE_MPS <= cfg["MPC_Z_VEL_MAX_DN"]
+
+
+# ── the height stance is a decision, not a per-field preference ────────────
+#
+# 2026-08-20 at KMUTNB, on EKF2_HGT_REF=1 (GPS, PX4's default): baro-vs-GPS
+# divergence 10.8 m peak-to-peak inside one flight, reported AGL inflating to
+# 12.0 m while the aircraft physically held ~8.5 m, and the ceiling watchdog —
+# correct on its inputs — RTH'd an aircraft that was tracking transit to 1.7 m.
+# Flight 3 the same afternoon on =0 (baro): transit 3/3 at 1.4-2.0 m, no
+# altitude event at all.
+#
+# The practice config moved to baro on that evidence; kmitl_config.yaml kept
+# GPS for three more days on the reasoning that a 20 m ceiling has more margin.
+# It has 2.5 m (transit commanded 19.5, watchdog RTH at 22) against a measured
+# 10.8 m. Operator closed it 2026-08-23: baro everywhere, lidar still pinning
+# the last few metres. This walks EVERY field config so the next one cannot
+# quietly ship PX4's default again.
+
+_FIELD_CONFIGS = sorted((Path(__file__).resolve().parent.parent / "sitl")
+                        .glob("*config.yaml"))
+
+
+def test_every_field_flies_baro_height_with_lidar_aiding() -> None:
+    assert len(_FIELD_CONFIGS) >= 2, f"expected both fields, found {_FIELD_CONFIGS}"
+    for path in _FIELD_CONFIGS:
+        tune = (yaml.safe_load(path.read_text(encoding="utf-8")) or {})["px4_tuning"]
+        assert tune["EKF2_HGT_REF"] == 0, (
+            f"{path.name}: height reference must be BARO (0). 1 = GPS is PX4's "
+            "default and cost a flight on 2026-08-20; 2 = range makes the local "
+            "origin ride ground level, so a shed cargo box would move 'down'")
+        assert tune["EKF2_RNG_CTRL"] == 1, f"{path.name}: lidar aiding off"
+        assert tune["EKF2_RNG_A_HMAX"] == 7.0, f"{path.name}: aiding ceiling moved"
+        assert tune["EKF2_OF_CTRL"] == 0, (
+            f"{path.name}: optical flow on, and there is no flow module aboard")
+
+
+def test_the_code_fallback_agrees_with_the_fields() -> None:
+    """DEFAULT_PX4_TUNING is what a config-absent run flies. It has carried
+    baro since 2026-08-20 — pin that it cannot drift back while the configs
+    move on."""
+    assert DEFAULT_PX4_TUNING["EKF2_HGT_REF"] == 0.0
+    assert DEFAULT_PX4_TUNING["EKF2_RNG_CTRL"] == 1.0
+    assert DEFAULT_PX4_TUNING["EKF2_OF_CTRL"] == 0.0

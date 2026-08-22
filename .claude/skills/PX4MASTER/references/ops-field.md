@@ -305,9 +305,12 @@ other repo's operator decides.
 - [ ] CM4 online: rsync real audit archives + frames; extract real
       `FLIGHT n ENERGY` lines; first real-frame `make replay`.
 - [ ] Printed pad: fabricate + bench decode + daytime flight (G7 evidence).
-- [ ] KMITL comp config: decide its own height-reference stance
-      (`EKF2_HGT_REF=1` there today; 20 m ceiling has 2.5 m watchdog margin
-      vs the +2.9 m step measured at KMUTNB — the comp operator's call).
+- [x] KMITL comp config height-reference stance — **DECIDED 2026-08-23: baro,
+      same as practice** (see the dated entry at the end of this file). This
+      item's own arithmetic was what settled it, once the number it compared
+      against was the right one: it cited a "+2.9 m step", but the ULog review
+      measured **10.8 m peak-to-peak** of baro-vs-GPS divergence on the
+      phantom-ceiling flight. 2.5 m of margin never covered that.
 - [x] PILOT-takeover guard at the command layer — DONE 2026-08-21 as part of
       the zombie-re-arm fix above: `_guard_pilot` now covers every
       FC-state-changing method (motion, arming, mission upload, raw drop
@@ -326,14 +329,27 @@ other repo's operator decides.
       writing down: the TFmini returns plausible ranges to ~10 m over daytime
       grass, so it can veto a false breach reported below that and nothing
       above it. Own review, still.
-- [ ] 🟠 **`EKF2_HGT_REF=1` (GPS) is still what `kmitl_config.yaml` asks for**,
-      i.e. the competition field is configured with the setting that cost
-      flight 2. The earlier note left it as "the comp operator's call" on the
-      reasoning that KMITL's 20 m ceiling has more watchdog margin — but the
-      measured divergence is **10.8 m p2p**, and the RTH threshold sits 2.5 m
-      above the commanded transit altitude. The margin does not cover it.
-      Practice moved to `=0` on this evidence; competition has not. **Operator
-      decision, one line.**
+- [x] **`EKF2_HGT_REF` = 0 (BARO) at BOTH fields — operator decision
+      2026-08-23** ("เรื่องความสูงเป็นสิ่งที่สำคัญมาก แนะนำให้ใช้ baro กับ
+      lidar ตามเดิม"). `kmitl_config.yaml` had carried PX4's default 1 (GPS)
+      for three days after the practice field moved off it, on the reasoning
+      that a 20 m ceiling has more watchdog margin. It has **2.5 m** (transit
+      commanded 19.5 m, watchdog RTH at 22 m) against a **measured 10.8 m** of
+      baro-vs-GPS divergence — the same breach, on a scored flight, inside a
+      20-minute window that does not survive an RTH. Everything else about the
+      height stance was already identical at both fields and stays: lidar fused
+      (`EKF2_RNG_CTRL=1`) with conditional aiding below 7 m pinning the final
+      metres, flow off, and NOT `=2` (range as the reference) — that makes the
+      local origin ride ground level, so a shed cargo box or a person under the
+      beam would move "down". `DEFAULT_PX4_TUNING` has been baro since
+      2026-08-20, so the config was the last place the old value lived.
+      Caught-by: `test_px4_tuning_parity.py::test_every_field_flies_baro_height_with_lidar_aiding`
+      walks EVERY `sitl/*config.yaml`, so a field added later cannot ship PX4's
+      default quietly, plus the `BOOT_LATCHED` check above.
+      ⚠ **reboot_required**: pushing it at mission start stores the value and
+      changes nothing until the FC reboots. On the field day, run
+      `tools/preflight_params.py` — if the board still reads 1, reboot after the
+      push and re-check.
 - [x] **`EKF2_HGT_REF` is now CHECKED before a field day — DONE 2026-08-23.**
       It was in neither `preflight_params.py` list, and it could not simply
       join PINNED: the EKF latches its height reference the first time any

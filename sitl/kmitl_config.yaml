@@ -607,17 +607,32 @@ px4_tuning:
   # (0.1-12 m), and inside PX4's own 1..10 limit. Chosen from what the SENSOR
   # can be believed at, not merely to dodge the rung numbers.
   EKF2_RNG_A_HMAX: 7.0      # range aiding engages below this (m); PX4 default 5.0
-  # Which source owns absolute height. 1 = GPS, PX4's default, and the right
-  # answer here: 2 (range) makes the local origin ride ground level, so a shed
-  # cargo box or a person under the beam would move "down". The rangefinder
-  # still pins the last few metres through conditional aiding above. Pinned so
-  # a param reset or a well-meant edit is caught by verify_envelope_pins.
+  # Which source owns absolute height. ⚠ **1 (GPS) -> 0 (BARO) on 2026-08-23,
+  # operator decision** — this file was still carrying PX4's default, i.e. the
+  # setting that has already ended a flight. Measured at KMUTNB 2026-08-20 on
+  # `=1`: baro-vs-GPS divergence **10.8 m peak-to-peak** in one flight, the
+  # reported AGL inflating to 12.0 m while the aircraft physically held ~8.5 m,
+  # and the ceiling watchdog — correct on its inputs — RTH'd an aircraft that
+  # was tracking transit to 1.7 m. Flight 3 the same afternoon on `=0` flew
+  # transit 3/3 at 1.4-2.0 m with no altitude event at all.
+  # The earlier note left this at 1 here on the reasoning that the competition
+  # ceiling is 20 m and therefore has more margin. It does not have enough:
+  # transit is commanded at 19.5 m and the watchdog RTHs at 22 m, so the margin
+  # is **2.5 m against a measured 10.8 m** — the same breach, on a scored
+  # flight, with a 20-minute window that does not survive an RTH.
+  # Baro is step-free over a <20 min flight; GPS still owns horizontal; the
+  # TFmini still pins the final metres through the conditional aiding above
+  # (EKF2_RNG_CTRL=1 / EKF2_RNG_A_HMAX=7.0, unchanged).
+  # NOT 2 (range): that makes the local origin ride ground level, so a shed
+  # cargo box or a person under the beam would move "down".
   # ⚠ reboot_required — a change applies from the NEXT boot, and PX4 stores
   # the new value immediately, so a read-back says "held" while the estimator
   # still runs on the old reference. That is why this key is deliberately NOT
   # in verify_envelope_pins (a gate that can only report success gets
-  # believed); tools/param_audit.py checks it at the bench instead.
-  EKF2_HGT_REF: 1           # GPS is the height reference (PX4 default; pinned)
+  # believed). `tools/preflight_params.py` reads it as a BOOT_LATCHED STOP,
+  # taking the expected value from THIS file — run it before the field day, and
+  # if the board still reads 1, REBOOT the FC after the push and re-check.
+  EKF2_HGT_REF: 0           # height reference = BARO (see the note above)
   # ── STATUS BEACON PATH (cm4/status_beacon.py) ──
   # MAV_1 = TELEM2 = the CM4's link. Forwarding lets the CM4's broadcast
   # STATUSTEXT cross to the radio instance so the operator sees the mission +
