@@ -356,9 +356,12 @@ which pass earned each hit and `vision_worker.stop()` logs
 `decode provenance: frames=… direct=… boosted=… cue_only=…` at the end of every
 flight. `boosted=0` after a real hover over a printed marker is what deletes
 it; anything else keeps it, and either way the answer comes from the field log
-rather than another synthetic run · ⏸ the size prior reducing to `alt_reported / alt_true`
-and ⏸ the missing camera roll/yaw mount parameter both need a real measurement
-first.
+rather than another synthetic run · ✅ **the camera mount YAW parameter shipped
+2026-08-22** (`CameraModel.mount_yaw_rad`, applied in `project_pixel`, and the
+sweep's held heading derives from it) — but its VALUE is still the assumed 0.0
+until `tools/measure_mount_yaw.py` is run on the aircraft; mount ROLL remains
+absent and unmeasured · ⏸ the size prior reducing to `alt_reported / alt_true`
+still needs a real measurement first.
 
 **Hardware:** ⏸ `COM_MOT_TEST_EN=1` + `CBRK_IO_SAFETY` — no code change; it is
 inert in flight and the between-flights risk is now a written field rule in
