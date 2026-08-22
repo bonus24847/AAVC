@@ -393,15 +393,20 @@ class _FakeGeofence:
     is holding AFTER the upload — the whole point of the readback, since PX4
     answers a missing fence with "accept all points" instead of an error."""
 
-    def __init__(self, stored: str = "as-uploaded") -> None:
+    def __init__(self, stored: str = "as-uploaded", *, fail_first: int = 0) -> None:
         self.uploaded: object | None = None
         self.cleared = False
         self._stored = stored
+        self.fail_first = fail_first     # transient RPC timeouts before success
+        self.attempts = 0
 
     async def clear_geofence(self) -> None:
         self.cleared = True
 
     async def upload_geofence(self, data: object) -> None:
+        self.attempts += 1
+        if self.attempts <= self.fail_first:
+            raise TimeoutError("TIMEOUT: 'Timeout'; origin: upload_geofence()")
         self.uploaded = data
 
     async def download_geofence(self) -> object:
@@ -560,3 +565,35 @@ def test_unreadable_pin_is_a_finding_not_a_pass():
     bad = asyncio.run(
         _commander_with_param(p).verify_envelope_pins({"RTL_RETURN_ALT": 20.0}))
     assert len(bad) == 1 and "RTL_RETURN_ALT" in bad[0]
+
+
+# ── the fence upload retries; the fence CONTRACT does not soften ───────────
+#
+# One shot until 2026-08-23, and on 2026-08-19 that cost two staged flights in
+# a single session: clear_geofence TIMEOUT, upload error, "FC geofence NOT
+# verified — refusing to fly", twice, twenty seconds apart, on a link that was
+# otherwise fine. The refusal is right — PX4 reads a missing fence as "accept
+# all points" — so the fix is to stop losing the upload, not to stop checking.
+
+def test_a_transient_timeout_no_longer_grounds_the_aircraft():
+    gf = _FakeGeofence(fail_first=2)          # fails twice, succeeds on the 3rd
+    assert asyncio.run(_commander_with_geofence(gf).upload_geofence(_AIRSPACE)) == 4
+    assert gf.attempts == 3
+    assert gf.cleared, "each retry must clear before re-uploading"
+
+
+def test_a_fence_that_never_lands_is_still_do_not_fly():
+    """Retrying must not turn 'unverified' into 'good enough'."""
+    gf = _FakeGeofence(fail_first=99)
+    with pytest.raises(RuntimeError, match="not verified after 3 attempts"):
+        asyncio.run(_commander_with_geofence(gf).upload_geofence(_AIRSPACE))
+    assert gf.attempts == 3
+
+
+def test_a_fence_that_reads_back_as_another_field_is_refused_every_attempt():
+    """The readback failure mode, not the RPC one: the upload 'succeeds' each
+    time and the FC holds someone else's airspace. Retrying cannot fix that,
+    and it must still refuse rather than fly fenced to the wrong field."""
+    gf = _FakeGeofence("other-field")
+    with pytest.raises(RuntimeError, match="not verified after 3 attempts"):
+        asyncio.run(_commander_with_geofence(gf).upload_geofence(_AIRSPACE))

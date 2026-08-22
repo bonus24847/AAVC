@@ -567,6 +567,46 @@ other repo's operator decides.
       `gcs/kmutnb_field.yaml` when this field's console reads
       `aavc-gcs/aavc_field.yaml`. None are read by code. All of them are read
       by whoever writes the briefing.
+### 2026-08-23 — two things the archived flight logs were saying all along
+
+- [x] **PX4's battery SIMULATOR was being written to the real aircraft, on the
+      pad, inside the scored window.** Every real mission start logged three
+      `SIM_BAT_* failed: TIMEOUT` warnings and `applied 0/3` — **~9 s** of the
+      20-minute window spent proving a module that is not in the fmu-v6x build
+      is not there. The gate was `_is_sitl_endpoint`, and its OWN docstring
+      says why that is wrong here: `cm4/launch_flight.sh` runs the real
+      aircraft through a mavlink-router at `udpin://0.0.0.0:14540`, so the real
+      bird reads as SITL. `_detect_simulator` — which asks for `SIM_GZ_EN`, a
+      param that exists only in px4_sitl builds — **was written for exactly
+      this and then never called by anything.** Now it is, via
+      `_should_push_sim_battery`, with the endpoint heuristic kept only for
+      "the link could not answer at all" (a wrong guess about a battery
+      simulator costs a timeout, never safety — which is why a fallback is
+      acceptable here and would not be for a safety pin).
+      The seconds are the smaller half. The bigger one: `applied 0/3` at every
+      launch teaches the operator that `applied 0/N` is normal, and
+      **`applied 0/24` is the signature this project relies on** to catch a
+      dead param link (the stale-mavsdk_server story). A warning that always
+      fires is a warning that stops being read.
+- [x] **The geofence upload retries now (3 attempts, 1 s apart).** It was one
+      shot, and on 2026-08-19 that cost **two staged flights in one session**:
+      `clear_geofence: TIMEOUT` → upload error → "FC geofence NOT verified …
+      refusing to fly", twice, twenty seconds apart, on a link that was
+      otherwise healthy. The refusal is CORRECT and stays — PX4 answers a
+      missing fence with "accept all points", so an unverified fence is no
+      fence — but the fix for a flaky RPC is to stop losing the upload, not to
+      stop checking it. Retrying weakens nothing: `_verify_geofence` still has
+      to pass on the attempt that lands, and a fence that reads back as another
+      field's is refused on every attempt. Competition day gives 5 minutes of
+      setup before the clock starts; a re-stage does not fit in it.
+- [x] **`EKF2_HGT_REF` and `MAV_1_FORWARD` TIMEOUTs in those same logs are
+      ALREADY FIXED** — checked, not assumed. Both are INT32 and were being
+      written with `set_param_float`, which PX4 answers with silence that
+      MAVSDK reports as `TIMEOUT`; both are in `_INT_PARAMS` today, and the
+      last run of that session already shows `28/29` instead of `27/29`. Worth
+      recording because the two failure lines look identical to the SIM_BAT
+      ones and it would be easy to "fix" them twice.
+
 ### 2026-08-22 — the camera was spinning because nobody ever chose a heading
 
 - [x] 🔴 **ROOT CAUSE FOUND for the in-flight blur: `MPC_YAW_MODE` sat at PX4's
