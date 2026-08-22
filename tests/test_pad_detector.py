@@ -14,9 +14,13 @@ import cv2
 import numpy as np
 
 from vision.detectors.aruco import (
+    _PAD_V_FLOOR,
+    _PAD_V_MIN,
     MARKER_TO_PAD,
     VALID_MARKER_IDS,
     PadDetector,
+    _adaptive_v_min,
+    _pad_blobs,
     find_landing_pads,
     render_pad_bgr,
 )
@@ -165,3 +169,61 @@ def test_decode_on_grayscale_replicated_frame() -> None:
     mono3 = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)      # R=G=B, like the OV9281
     hits = find_landing_pads(mono3)
     assert hits and hits[0].marker_id == 3
+
+
+# ── the cue must survive pad ROTATION and the frame's own exposure ──────────
+# (2026-08-21 review, both measured) The rim probes used to sit at fixed
+# IMAGE-axis offsets, so a pad rotated toward 45° put all four of them on the
+# grass: PASS at 0-20° and 70-90°, FAIL at 21-69° — 54% of orientations, and
+# pads are laid at arbitrary yaw. Losing the blob also silently disabled the
+# ×4 ROI booster and the "revisit undecoded pads" recovery, which are fed only
+# by these blobs. Separately, the fixed V>=170 gate sat on the real flight
+# frames' own brightness ceiling, so the cue fired on 0 of 457 of them.
+
+
+def _rotated_pad_frame(marker_px: int, rot_deg: float, marker_id: int = 2):
+    """A pad of the real artwork, rotated on textured ground."""
+    rng = np.random.default_rng(7)
+    bg = rng.integers(60, 110, (720, 1280, 3), dtype=np.uint8)
+    pad_side = int(marker_px * 2.5)
+    big = int(pad_side * 1.5)
+    canvas = np.zeros((big, big, 3), np.uint8)
+    o = (big - pad_side) // 2
+    canvas[o:o + pad_side, o:o + pad_side] = render_pad_bgr(marker_id, pad_side)
+    m = cv2.getRotationMatrix2D((big / 2, big / 2), rot_deg, 1.0)
+    rot = cv2.warpAffine(canvas, m, (big, big), flags=cv2.INTER_LINEAR)
+    mask = cv2.warpAffine(np.full((big, big), 255, np.uint8), m, (big, big))
+    y, x = 360 - big // 2, 640 - big // 2
+    roi = bg[y:y + big, x:x + big]
+    roi[mask > 128] = rot[mask > 128]
+    return bg
+
+
+def test_white_pad_cue_survives_every_pad_rotation() -> None:
+    for marker_px in (42, 28):                    # the 8 m and 12 m bands
+        failed = [rot for rot in range(0, 91, 5)
+                  if not _pad_blobs(
+                      (f := _rotated_pad_frame(marker_px, rot)),
+                      cv2.cvtColor(f, cv2.COLOR_BGR2GRAY))]
+        assert not failed, f"{marker_px}px: cue lost the pad at {failed}°"
+
+
+def test_brightness_gate_tracks_the_frames_exposure() -> None:
+    """Never stricter than the historical fixed value, never loose enough to
+    let sunlit ground in — but it must MOVE, or a short-exposure frame has its
+    whole histogram below the gate."""
+    bright = np.full((720, 1280), 250, np.uint8)
+    dim = np.full((720, 1280), 120, np.uint8)
+    assert _adaptive_v_min(bright) == _PAD_V_MIN          # capped at the old value
+    assert _adaptive_v_min(dim) == _PAD_V_FLOOR           # clamped at the floor
+    mid = np.full((720, 1280), 180, np.uint8)
+    assert _PAD_V_FLOOR < _adaptive_v_min(mid) < _PAD_V_MIN
+
+
+def test_a_dim_pad_is_still_found_when_the_whole_frame_is_dim() -> None:
+    """The exposure fix and the cue must not fight each other: forcing a short
+    exposure to kill motion blur darkens the pad too."""
+    frame = _rotated_pad_frame(42, 30)
+    dim = (frame.astype(np.float32) * 0.55).astype(np.uint8)   # ~2 stops down
+    assert _pad_blobs(dim, cv2.cvtColor(dim, cv2.COLOR_BGR2GRAY)), \
+        "cue lost the pad once the frame was darkened"
