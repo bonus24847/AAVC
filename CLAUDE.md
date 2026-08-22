@@ -492,6 +492,9 @@ make test           # pytest
 make lint           # ruff + mypy
 # post-flight drone-response check (operator requirement):
 #   .venv/bin/python tools/verify_flight.py runs/<mission_id>/audit.jsonl --truth …
+# read the camera's mount rotation off the airframe (see the tool's docstring
+# for the bench procedure; 0.0 in config is an ASSUMPTION until this is run):
+#   .venv/bin/python tools/measure_mount_yaw.py --grid /tmp/g.jpg
 # regenerate the pad models after a geometry change:
 #   .venv/bin/python tools/gen_pads.py
 # land-ON precision bench (SITL tuning aid, NOT the scored mission):

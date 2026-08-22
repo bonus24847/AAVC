@@ -547,8 +547,23 @@ other repo's operator decides.
       camera. Cost +1 leg at KMITL. Drop back to 0.30 only once
       `mount_yaw_deg` is MEASURED.
 - [ ] **MEASURE `cameras.nadir.mount_yaw_deg` — still 0.0 = an assumption, not
-      a reading** (operator not on site 2026-08-22). Marker 1 m in FRONT of the
-      nose, one nadir frame, see which image axis it moved along and which way.
+      a reading** (operator not on site 2026-08-22). **Tool + full procedure:
+      `tools/measure_mount_yaw.py`** (its docstring is the runbook). Short
+      form: ELEVATE the aircraft 0.8-1.5 m — parked, the lens is 3.5 cm off the
+      ground and can neither see nor focus — power FC+CM4, start the camera
+      with `CAM_EXPOSURE=0` (the 2 ms daylight default renders an indoor frame
+      black), put a distinctive object on the floor 20-40 cm straight out from
+      the NOSE, then
+      `.venv/bin/python tools/measure_mount_yaw.py --grid /tmp/g.jpg`.
+      It finds a printed ArUco itself, or takes `--pixel U,V` for any object —
+      `--grid` writes a labelled 100 px ruler to read that pixel off by eye.
+      It prints the angle, snaps to the nearest 90°, warns when the object sits
+      too near centre (< 60 px = noise) or lands > 12° off a right angle, and
+      gives the exact config line. The sign convention lives in the tool, not
+      in a note: `psi = atan2(cx - u, cy - v) - object_bearing`, and
+      `tests/test_measure_mount_yaw.py` round-trips it through `project_pixel`
+      for 6 pixels × 3 headings so a flipped sign fails the suite instead of
+      the flight.
       It sets both the projection bearing (a 90° error reports a frame-edge pad
       ~13 m from where it is at the 12 m sweep — the aircraft flies to empty
       grass and the cluster never confirms) and the heading the sweep holds.
