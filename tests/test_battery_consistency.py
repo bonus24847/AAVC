@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 from tools.preflight_params import BOARD
@@ -57,6 +58,12 @@ def test_the_power_reference_quotes_the_endpoints_the_preflight_enforces() -> No
     """power-battery.md is what a human reads before touching the board; BOARD
     is what STOPS the field day. If they disagree, one of them is teaching the
     wrong number — and the doc is the one that gets believed at 07:30."""
+    if not _POWER_DOC.exists():
+        # The PX4MASTER skill lives in the practice repo only; sync_core.sh
+        # deliberately does not copy .claude/. Skipping HERE rather than
+        # softening the assertion keeps the check real where the doc exists —
+        # and the doc is where the operator reads the number.
+        pytest.skip(f"{_POWER_DOC.name} not in this repo (skill not synced)")
     doc = _POWER_DOC.read_text(encoding="utf-8")
     for param in ("BAT1_V_CHARGED", "BAT1_V_EMPTY"):
         m = re.search(rf"{param}\s*=\s*([0-9.]+)", doc)
