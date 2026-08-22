@@ -174,13 +174,19 @@ other repo's operator decides.
       takeover DURING flight — blocked on the RC re-acquire item below.
       Field rule stays: **after ANY takeover, stop the mission (⏹) BEFORE
       approaching the aircraft.**
-- [ ] Dashboard raw dispatches BYPASS the pilot guard (follow-up from the
-      2026-08-21 review, deliberately not folded into the fix): web
-      `/api/cmd/takeoff`, `/vehicle_arm`, `/resume`, `/hold` call
-      `commander.system.action.*` directly (dashboard/commands.py:299-390),
-      so a post-takeover operator click can still arm/fly a pilot-owned
-      aircraft. `/vehicle_disarm` + `/kill` must STAY unguarded (legitimate
-      post-takeover safing).
+- [x] **Dashboard raw dispatches no longer bypass the pilot guard — DONE
+      2026-08-23.** They called `commander.system.action.*` directly, so they
+      never passed `_guard_pilot` and a console click could arm or fly a
+      pilot-owned aircraft. Closed at `_dispatch`, the single choke point every
+      verb goes through, so no handler can be added later that forgets:
+      `_POST_TAKEOVER_ALLOWED = {"kill", "vehicle_disarm"}` and everything else
+      gets a 409. Those two stay open deliberately — the pilot may have taken
+      over BECAUSE something is wrong, and taking the kill switch away from
+      them is the wrong failure direction. `DroneCommander.pilot_in_control` is
+      now a public property so callers outside the class can refuse BEFORE
+      acting instead of learning it from an exception. Caught-by:
+      `tests/test_dashboard_commands.py` — 6 flying verbs refused, both safing
+      verbs still dispatched, and the ordinary no-takeover path unchanged.
 - [x] **GCS shows pads AS THEY ARE FOUND — DONE 2026-08-21** (mission repo
       d3f01cd + aavc-gcs 9e34b4f). Symptom: operator pulled flight 1 down
       while ids 4,5 were being identified live behind a blank console.
@@ -202,9 +208,32 @@ other repo's operator decides.
       numbered stops, kept on screen when the feed goes stale. WiFi-only by
       design (too big for the radio). Caught-by:
       `tests/test_gcs_status.py::test_plan_pusher_writes_the_console_map_path`.
-- [ ] G7 attempt #1 analysis pending: why sweep legs stalled from wp7
-      (wind? speed?), why only 2/6 markers decoded (coverage vs camera) —
-      ULog from the FC card + frames from the CM4.
+- [x] **G7 attempt #1 analysis — DONE 2026-08-23, and the question was wrong.**
+      The item read "why sweep legs stalled from wp7". They did not stall from
+      wp7: `audit_20260819T154517Z.jsonl` shows **wp0 through wp7 timing out in
+      turn, at Δ≈25.0 s each** — exactly `_ProgressGuard`'s "no 1 m of closure
+      for 25 s" window — while all three ingress transit points were MISSED by
+      40.0 / 43.7 / 47.3 m. The TELEM track says why: `armed=0` and
+      `alt≈0.0` from t≈41 s, max altitude 5.7 m, max distance from the start
+      fix 15.4 m. **The aircraft was parked and disarmed while the mission flew
+      on until t=369 s.** That is the ZOMBIE MISSION, root-caused and fixed
+      2026-08-21 (`4fe3935`) — the pilot took over and disarmed inside the
+      0.46 s the old detector could not see. Matches ULog `07_21_36` (42 s
+      armed, ended by takeover) exactly. The other half of the item, "only 2/6
+      markers decoded", is the yaw spin + blur root-caused 2026-08-22. **Both
+      halves are closed by fixes that already shipped; neither needed a new
+      one.** Lesson: the anomaly names described the SYMPTOM's location, and
+      reading them as the fault sent the question to the wrong subsystem for
+      two days. `armed=` was in every TELEM line the whole time.
+- [x] **The other two flights of that session now read cleanly too**, which is
+      what made the above legible: flight 2 (`audit_20260819T155948Z`) flew
+      transit P1 1.7 m / P2 1.8 m then `altitude_ceiling_warn_10.6m` →
+      `breach_12.0m` → `sustained` at t=30.7 s → RTH, P3 missed at 9.6 m
+      because it was already returning. Flight 3 (`audit.jsonl`) flew
+      **transit 3/3 at 1.5 / 2.0 / 1.4 m** and was RTH'd by `battery_low_28%`
+      at t=68.2 s on a part-charged pack. So the navigation is good: three
+      flights, three unrelated causes, and the aircraft tracked its route to
+      ~1.5 m whenever it was allowed to fly.
 - [ ] 🔴 **RC does not RE-ACQUIRE after a TX power-cycle** (2026-08-21 bench,
       undiagnosed — operator parked it): link was available=True 100%, TX
       off→on, FC stayed available=False. Candidates: TX boot warning screen
@@ -285,8 +314,38 @@ other repo's operator decides.
       side-channel, param/failsafe/geofence/gimbal setters); `abort()` alone
       stays unguarded (emergency motor kill). The 2026-08-20 zombie
       (gotos to a disarmed aircraft for 3.5 min) was the same mechanism.
-- [ ] Watchdog ceiling cross-check against TFmini below 12 m (would have
-      voted down flight 2's phantom breach) — safety-code change, own review.
+- [ ] Watchdog ceiling cross-check against TFmini below 12 m — **re-scoped
+      2026-08-23, and NOT the fix for what happened.** Flight 2's "phantom
+      ceiling" was a height-REFERENCE artifact: it flew on `EKF2_HGT_REF=1`
+      (GPS) with 10.8 m of baro-vs-GPS divergence p2p, so the fused altitude
+      wandered into a 12.0 m reading against a 10 m ceiling. Flight 3 the same
+      afternoon on `=0` (baro) had no altitude event at all. Fixing the cause
+      beats teaching the watchdog to disbelieve its own input, and a veto layer
+      would have MASKED a 10.8 m estimator error rather than surfaced it. The
+      cross-check survives only as defence-in-depth, and with a bound worth
+      writing down: the TFmini returns plausible ranges to ~10 m over daytime
+      grass, so it can veto a false breach reported below that and nothing
+      above it. Own review, still.
+- [ ] 🟠 **`EKF2_HGT_REF=1` (GPS) is still what `kmitl_config.yaml` asks for**,
+      i.e. the competition field is configured with the setting that cost
+      flight 2. The earlier note left it as "the comp operator's call" on the
+      reasoning that KMITL's 20 m ceiling has more watchdog margin — but the
+      measured divergence is **10.8 m p2p**, and the RTH threshold sits 2.5 m
+      above the commanded transit altitude. The margin does not cover it.
+      Practice moved to `=0` on this evidence; competition has not. **Operator
+      decision, one line.**
+- [x] **`EKF2_HGT_REF` is now CHECKED before a field day — DONE 2026-08-23.**
+      It was in neither `preflight_params.py` list, and it could not simply
+      join PINNED: the EKF latches its height reference the first time any
+      source fuses (`EKF/height_control.cpp:61` returns early once
+      `_height_sensor_ref` is set), so `apply_param_overrides` writing it at
+      mission start changes the NEXT flight, not the one about to happen. Only
+      the value the board BOOTED with counts. It is therefore a third class —
+      `BOOT_LATCHED` — checked as a BOARD-grade STOP, with the expected value
+      read from the field config in force (`.aavc_site`, or `--config`) rather
+      than hard-coded, because the two fields disagree today and a check that
+      is wrong at one of them gets ignored at both. An unreadable config skips
+      the check instead of inventing a value to compare against.
 - [ ] `kmitl_config.yaml` battery-block comment mirror (only power narrative
       was synced 2026-08-20).
 - [ ] Automated cross-file battery-endpoint consistency check (manual rule in

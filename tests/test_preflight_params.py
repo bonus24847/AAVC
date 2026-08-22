@@ -58,3 +58,50 @@ def test_sys_hitl_zero_is_a_board_check() -> None:
     assert BOARD.get("SYS_HITL") == 0
     assert _board_ok("SYS_HITL", 0.0, 0.0)
     assert not _board_ok("SYS_HITL", 1.0, 0.0)
+
+
+# ── boot-latched params: the config decides, and the BOARD must already hold it ──
+#
+# EKF2_HGT_REF picks the sensor the whole flight's altitude is measured against,
+# and the EKF latches it the first time any height source fuses
+# (EKF/height_control.cpp:61 returns early once _height_sensor_ref is set), so
+# apply_param_overrides writing it at mission start changes the NEXT flight, not
+# this one. It sat in neither list until 2026-08-23 — while already having cost
+# a flight: 2026-08-20 on GPS reference, 10.8 m of baro-vs-GPS divergence, a
+# 12.0 m "ceiling breach" against a 10 m ceiling, and a watchdog RTH on a flight
+# that was tracking transit to 1.7 m.
+
+def test_boot_latched_value_comes_from_the_field_config_not_a_constant() -> None:
+    """The two fields disagree today (practice baro, competition GPS). A
+    hard-coded expectation would be wrong at one of them, and a check that is
+    wrong anywhere is a check that gets ignored everywhere."""
+    from pathlib import Path
+
+    from tools.preflight_params import BOOT_LATCHED, boot_latched_expected
+
+    assert "EKF2_HGT_REF" in BOOT_LATCHED
+    root = Path(__file__).resolve().parents[1]
+    practice = boot_latched_expected(root / "sitl" / "aavc_config.yaml")
+    comp = boot_latched_expected(root / "sitl" / "kmitl_config.yaml")
+    assert practice["EKF2_HGT_REF"] == 0.0      # baro — the 2026-08-20 lesson
+    assert comp["EKF2_HGT_REF"] == 1.0          # GPS — still the operator's call
+
+
+def test_an_unreadable_config_skips_the_check_instead_of_inventing_a_value() -> None:
+    """A preflight tool that reports a mismatch it cannot justify is worse than
+    one that says nothing — the whole reason this file exists (see its
+    docstring on the raw-pymavlink version that cried wolf)."""
+    from pathlib import Path
+
+    from tools.preflight_params import boot_latched_expected
+
+    assert boot_latched_expected(None) == {}
+    assert boot_latched_expected(Path("/nonexistent/config.yaml")) == {}
+
+
+def test_the_site_marker_names_the_config_this_repo_flies() -> None:
+    from tools.preflight_params import _active_config_path, boot_latched_expected
+
+    p = _active_config_path(None)
+    assert p is not None and p.name == "aavc_config.yaml"   # this is aavc-practice
+    assert boot_latched_expected(p) == {"EKF2_HGT_REF": 0.0}

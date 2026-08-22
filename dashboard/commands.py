@@ -64,6 +64,16 @@ DESTRUCTIVE_COMMANDS: frozenset[str] = frozenset(
     {"rtl", "land", "abort", "kill", "vehicle_disarm", "drop"}
 )
 
+# Verbs that stay available AFTER a pilot takeover, because they SAFE the
+# aircraft — refusing them would be the wrong failure direction. Everything
+# else is refused: once the pilot has the aircraft on RC it is theirs until
+# they land it, and a console click that arms or flies it is fighting them for
+# the controls. Found by the 2026-08-21 review and deliberately left out of
+# that fix's scope: these handlers call ``commander.system.action.*`` directly,
+# so they never pass through ``DroneCommander._guard_pilot`` the way every
+# mission-side command does.
+_POST_TAKEOVER_ALLOWED: frozenset[str] = frozenset({"kill", "vehicle_disarm"})
+
 # Manual DROP altitude interlock (S3). Mirrors the autonomous touchdown gate in
 # orchestrator/tactical_align.py: release is refused unless telemetry reads at or
 # below this height. A missing (NaN) altitude fails closed. `force` overrides.
@@ -205,6 +215,15 @@ def make_command_router(
         result back when the underlying coroutine settles.
         """
         _audit(f"dispatch verb={verb} note={note!r}")
+        if (verb not in _POST_TAKEOVER_ALLOWED
+                and getattr(commander, "pilot_in_control", False)):
+            _audit(f"verb={verb} REFUSED — pilot has the aircraft")
+            _emit_result(verb, ok=False, detail="pilot in control", note=note)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(f"นักบินยึดคุมเครื่องอยู่ — ปฏิเสธคำสั่ง {verb} "
+                        "(ปุ่ม disarm กับ kill ยังใช้ได้)"),
+            )
         loop = asyncio.get_running_loop()
         try:
             coro = make_coro()
