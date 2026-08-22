@@ -62,9 +62,39 @@ rsync -a "$SRC/sitl/aavc_config.yaml" "$SRC/sitl/kmitl_config.yaml" "$DST/sitl/"
 # repo has never had, and they must survive the sync.
 for f in preflight_params.py px4_type_audit.py param_audit.py verify_flight.py \
          fence_probe.py alt_watch.py replay_frames.py landing_trial.py \
-         gen_pads.py gen_aruco_glyphs.py gen_grass.py; do
+         gen_pads.py gen_aruco_glyphs.py gen_grass.py measure_mount_yaw.py; do
     [ -f "$SRC/tools/$f" ] && rsync -a "$SRC/tools/$f" "$DST/tools/$f"
 done
+
+# …and CHECK that list, because it is hand-maintained and tests/ is not.
+# 2026-08-22: tools/measure_mount_yaw.py was written with its test; the test
+# crossed (tests/ is copied wholesale) and the tool did not, so the comp suite
+# stopped at "1 error during collection" — 630 tests refusing to run because of
+# one missing import. That is the same shape as the 11 failures the header
+# above already records. A list nobody validates is a list that drifts, so this
+# names the file to add instead of leaving the next person a collection error.
+python3 - "$SRC" "$DST" <<'GUARD'
+import pathlib, re, sys
+src, dst = (pathlib.Path(a) for a in sys.argv[1:3])
+missing = []
+for t in sorted((dst / "tests").glob("test_*.py")):
+    body = t.read_text()
+    if '"tools"' not in body and "/ 'tools'" not in body:
+        continue                       # not a tools-importing test
+    for mod in re.findall(r"^from ([a-z_][a-z0-9_]*) import", body, re.M):
+        if (dst / "tools" / f"{mod}.py").exists():
+            continue
+        if (src / "tools" / f"{mod}.py").exists():
+            missing.append((t.name, f"{mod}.py"))
+if missing:
+    print("[sync_core] ✘ tests copied without the tools they import:",
+          file=sys.stderr)
+    for test, mod in missing:
+        print(f"[sync_core]     {test} needs tools/{mod}", file=sys.stderr)
+    print("[sync_core]   add it to the tools list in sync_core.sh and re-run",
+          file=sys.stderr)
+    raise SystemExit(1)
+GUARD
 # The reset + sync scripts themselves are shared verbatim.
 rsync -a "$SRC/clear_state.sh" "$SRC/sync_core.sh" "$DST/"
 
