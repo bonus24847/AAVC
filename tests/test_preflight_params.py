@@ -71,20 +71,29 @@ def test_sys_hitl_zero_is_a_board_check() -> None:
 # 12.0 m "ceiling breach" against a 10 m ceiling, and a watchdog RTH on a flight
 # that was tracking transit to 1.7 m.
 
-def test_boot_latched_value_comes_from_the_field_config_not_a_constant() -> None:
-    """The two fields disagree today (practice baro, competition GPS). A
-    hard-coded expectation would be wrong at one of them, and a check that is
-    wrong anywhere is a check that gets ignored everywhere."""
+def test_boot_latched_value_comes_from_the_field_config_not_a_constant(tmp_path) -> None:
+    """The expectation is READ, not compiled in.
+
+    Written when the two fields disagreed (practice baro, competition GPS) —
+    which made the property self-evident and the test lazy. The operator closed
+    that on 2026-08-23 and both now say baro, so the mechanism is proved the
+    honest way instead: hand it a config saying something else and it must come
+    back with that. A constant would sail through and be wrong the first time a
+    field needs its own answer."""
     from pathlib import Path
+
+    import yaml
 
     from tools.preflight_params import BOOT_LATCHED, boot_latched_expected
 
     assert "EKF2_HGT_REF" in BOOT_LATCHED
     root = Path(__file__).resolve().parents[1]
-    practice = boot_latched_expected(root / "sitl" / "aavc_config.yaml")
-    comp = boot_latched_expected(root / "sitl" / "kmitl_config.yaml")
-    assert practice["EKF2_HGT_REF"] == 0.0      # baro — the 2026-08-20 lesson
-    assert comp["EKF2_HGT_REF"] == 1.0          # GPS — still the operator's call
+    for name in ("aavc_config.yaml", "kmitl_config.yaml"):
+        assert boot_latched_expected(root / "sitl" / name)["EKF2_HGT_REF"] == 0.0
+
+    odd = tmp_path / "somewhere_else.yaml"
+    odd.write_text(yaml.safe_dump({"px4_tuning": {"EKF2_HGT_REF": 2}}))
+    assert boot_latched_expected(odd) == {"EKF2_HGT_REF": 2.0}
 
 
 def test_an_unreadable_config_skips_the_check_instead_of_inventing_a_value() -> None:
