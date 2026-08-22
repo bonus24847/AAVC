@@ -44,6 +44,8 @@ from typing import Any, Callable
 from loguru import logger
 
 _R_EARTH_M = 6_378_137.0
+# Grid the identified-pad lane snaps to before it counts as "changed" (m).
+_IDENT_GRID_M = 0.5
 
 # Same discriminator as sitl/payload_detach_bridge.parse_release, minus the
 # payload capture: pad=None (an id-unverified touchdown release) deliberately
@@ -148,12 +150,19 @@ class GcsMissionStatus:
     def set_identified(self, mapping: dict[str, list[float]]) -> None:
         """Replace the identified-but-unconfirmed pad set ({id: [e, n]}).
 
-        Writes only on CHANGE: this rides the vision on_fix cadence (~3 Hz
-        while a pad is in view), and an unconditional write would hammer the
-        CM4's SD — the same class of bug
-        test_a_recurring_anomaly_is_not_rewritten_every_tick guards against.
+        Writes only on CHANGE — and the change has to be one the OPERATOR
+        could see. This rides the vision on_fix cadence (now every decoded
+        frame, up to ~25 Hz), and the lane's ENU comes from a fused median
+        that shifts by millimetres on every new vote, so comparing
+        centimetre-rounded values made the guard almost never fire and the
+        status file was rewritten per frame (2026-08-21 review). Quantising to
+        _IDENT_GRID_M keeps the guard meaningful: a marker's position on the
+        console map is not useful to half a metre anyway.
         A pad promoted to CONFIRMED simply stops appearing in ``mapping``
         (the tracker's identified_unconfirmed() no longer returns it)."""
+        mapping = {k: [round(v[0] / _IDENT_GRID_M) * _IDENT_GRID_M,
+                       round(v[1] / _IDENT_GRID_M) * _IDENT_GRID_M]
+                   for k, v in mapping.items()}
         with self._lock:
             if mapping == self._pads_identified:
                 return
@@ -408,8 +417,19 @@ class GcsMissionStatus:
                 }
                 if self._mission_time is not None:
                     doc["mission_time"] = round(self._mission_time, 1)
-            tmp = self.path.with_name(self.path.name + ".tmp")
-            tmp.write_text(json.dumps(doc), encoding="utf-8")
-            os.replace(tmp, self.path)
+            # A per-write temp name: the doc is built under the lock but the
+            # file ops are not, and two writers (the vision thread and the
+            # event loop) sharing one ".tmp" path truncate each other's
+            # half-written file. The beacon then reads a torn document, gets
+            # None, and broadcasts "no mission yet" mid-flight (2026-08-21).
+            tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.{id(doc):x}.tmp")
+            try:
+                tmp.write_text(json.dumps(doc), encoding="utf-8")
+                os.replace(tmp, self.path)
+            finally:
+                try:
+                    tmp.unlink(missing_ok=True)   # no-op after a successful replace
+                except OSError:
+                    pass
         except Exception as e:  # display aid — never raise into the flight path
             logger.debug(f"[gcs_status] write skipped: {e}")

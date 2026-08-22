@@ -187,17 +187,48 @@ PhaseCb = Callable[[MissionPhase], None]
 DropPredCb = Callable[[drop_trajectory.DropPrediction], None]
 
 
-def _hit_world_fix(hit: PadHit, state: OrchestratorState) -> GroundFix | None:
-    """Project a nadir pad centroid to a full ground fix, composing the
-    drone's roll/pitch so a tilted correction doesn't shift the projected point."""
+# (lat, lon, alt_agl, yaw, roll, pitch) as it was when the frame was READ.
+_Pose = tuple[float, float, float, float, float, float]
+
+
+def _frame_mtime(path: Path) -> float | None:
+    """Modification time of the nadir frame, or None if it cannot be read.
+
+    Module level so the freshness source is patchable the same way
+    ``_detect_nadir`` is — a test that fakes the detector is, by definition,
+    faking a camera, and it has to be able to fake a LIVE one."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def _pose_snapshot(state: OrchestratorState) -> _Pose | None:
+    """The pose to geolocate the frame on disk RIGHT NOW with.
+
+    Must be taken BEFORE the decode, not after (2026-08-21 review). The decode
+    costs ~55 ms on the CM4 and ``state.telemetry`` is a live object the
+    subscriber keeps rewriting, so reading it afterwards geolocated every pad
+    with the attitude the aircraft had once the work was done. That is a bias
+    in the direction of travel — not noise — so the median filter cannot
+    remove it, and it eats the same budget the 12 Hz retune was bought to free."""
     t = state.telemetry
     if math.isnan(t.lat) or math.isnan(t.lon):
         return None
-    alt = t.relative_alt_m if not math.isnan(t.relative_alt_m) else 0.0
-    yaw = t.heading_deg if not math.isnan(t.heading_deg) else 0.0
-    roll = t.roll_deg if not math.isnan(t.roll_deg) else 0.0
-    pitch = t.pitch_deg if not math.isnan(t.pitch_deg) else 0.0
-    return project_pixel((hit.cx, hit.cy), t.lat, t.lon, alt, yaw, NADIR,
+    return (t.lat, t.lon,
+            t.relative_alt_m if not math.isnan(t.relative_alt_m) else 0.0,
+            t.heading_deg if not math.isnan(t.heading_deg) else 0.0,
+            t.roll_deg if not math.isnan(t.roll_deg) else 0.0,
+            t.pitch_deg if not math.isnan(t.pitch_deg) else 0.0)
+
+
+def _hit_world_fix(hit: PadHit, pose: _Pose | None) -> GroundFix | None:
+    """Project a nadir pad centroid to a full ground fix, composing the
+    drone's roll/pitch so a tilted correction doesn't shift the projected point."""
+    if pose is None:
+        return None
+    lat, lon, alt, yaw, roll, pitch = pose
+    return project_pixel((hit.cx, hit.cy), lat, lon, alt, yaw, NADIR,
                          roll_deg=roll, pitch_deg=pitch)
 
 
@@ -335,14 +366,14 @@ async def acquire_and_land_drop(
     # Decoded sightings of THIS sortie's assigned id — the LAND gate's evidence.
     id_seen = 0
 
-    def _accept(hit: PadHit | None) -> GroundFix | None:
+    def _accept(hit: PadHit | None, pose: _Pose | None) -> GroundFix | None:
         """A hit that projects, sits on the commanded target, AND is the right
         apparent size — else None (treated as a lost detection). Counts decoded
         assigned-id sightings for the LAND gate."""
         nonlocal id_seen
         if hit is None:
             return None
-        gf = _hit_world_fix(hit, state)
+        gf = _hit_world_fix(hit, pose)
         if gf is None or not _on_target(gf) or not _radius_ok(hit, gf, params):
             return None
         if (hit.marker_id is not None
@@ -357,16 +388,40 @@ async def acquire_and_land_drop(
         pitch = 0.0 if math.isnan(pitch) else pitch
         return abs(roll) > params.tilt_gate_deg or abs(pitch) > params.tilt_gate_deg
 
-    async def _read_nadir() -> PadHit | None:
+    last_frame_mtime: list[float] = [-1.0]
+
+    def _frame_is_new() -> bool:
+        """True when the grabber has written a frame this loop has not decoded.
+
+        Without this the loop re-decoded whatever was on disk every cycle. That
+        is not merely wasted CPU: the pose is sampled per read, so ONE image
+        yielded a sequence of world fixes that translate WITH the aircraft, and
+        the commanded goto then chases the vehicle's own motion instead of
+        correcting it — while ``lock_cycles`` could be satisfied from a handful
+        of distinct frames (2026-08-21 review). A stat is ~1000x cheaper than
+        the decode it skips."""
+        mtime = _frame_mtime(nadir_frame)
+        if mtime is None or mtime == last_frame_mtime[0]:
+            return False
+        last_frame_mtime[0] = mtime
+        return True
+
+    async def _read_nadir() -> tuple[PadHit | None, _Pose | None]:
         """Detect the pad in the nadir frame, but reject a frozen frame from a
         dead camera writer first (S2). A stale frame returns None so the loop's
         lost-detection/climb-back path runs — the id-vote LAND gate must never be
-        satisfied by a frame the camera stopped refreshing."""
+        satisfied by a frame the camera stopped refreshing.
+
+        Returns the hit AND the pose the frame belongs to, snapshotted here —
+        before the ~55 ms decode, not after it."""
         if frame_too_old(nadir_frame, params.frame_max_age_s):
             state.record_anomaly("nadir_frame_stale")
-            return None
-        return await asyncio.to_thread(
-            _detect_nadir, nadir_frame, params.min_confidence, params.assigned_marker_id)
+            return None, None
+        pose = _pose_snapshot(state)
+        hit = await asyncio.to_thread(
+            _detect_nadir, nadir_frame, params.min_confidence,
+            params.assigned_marker_id)
+        return hit, pose
 
     # Median-fused world fixes (component-wise) smooth the commanded setpoint.
     fix_window: deque[tuple[float, float]] = deque(maxlen=max(1, params.median_window))
@@ -387,11 +442,14 @@ async def acquire_and_land_drop(
     t_start = state.now()
     search_ring = 0
     while _running(state) and (state.now() - t_start) < params.acquire_timeout_s:
-        hit = await _read_nadir()
+        if not _frame_is_new():
+            await pacer.wait()      # nothing new to look at — do NOT re-decode
+            continue
+        hit, pose = await _read_nadir()
         # Accept ONLY a pad that projects near the commanded target AND is the
         # right apparent size — a pad seen while still over a neighbour (or a
         # wrong-size blob) is rejected so the loop keeps flying to THIS one.
-        fix = _accept(hit)
+        fix = _accept(hit, pose)
         if fix is not None:
             best_latlon = (fix.lat, fix.lon)
             res.acquired = True
@@ -436,8 +494,15 @@ async def acquire_and_land_drop(
             if _too_tilted():
                 await pacer.wait()
                 continue
-            hit = await _read_nadir()
-            fix = _accept(hit)
+            if not _frame_is_new():
+                # Same reasoning as the tilt gate: no NEW evidence is not the
+                # same as a LOST pad, so this must not feed the climb-back
+                # counter — and re-projecting the previous image against a
+                # newer pose would drag the setpoint along with the aircraft.
+                await pacer.wait()
+                continue
+            hit, pose = await _read_nadir()
+            fix = _accept(hit, pose)
             if fix is not None:
                 last_err = fix.ground_dist_m
                 lost = 0

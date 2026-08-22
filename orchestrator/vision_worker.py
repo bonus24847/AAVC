@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import math
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -162,10 +163,16 @@ class VisionWorker:
     def on_fix(self, cb: Callable[[TargetFix], None]) -> None:
         """Subscribe to every fresh per-camera :class:`TargetFix`.
 
-        WARNING: the callback fires on the worker THREAD (``_tick`` runs under
-        ``asyncio.to_thread``), not the event loop. The search-and-serve target
-        tracker's ``ingest`` is built for this (it holds its own lock); a callback
-        that schedules work on the asyncio loop must hop threads itself."""
+        WARNING — the thread depends on ``decode_workers``: at 1 the callback
+        fires on the worker THREAD (``_tick`` runs under ``asyncio.to_thread``);
+        above 1 the decodes run on pool threads but the callbacks fire on the
+        EVENT LOOP, because emitting in frame order is what keeps the tracker's
+        vote span sane. So a callback must be safe on either, and must be
+        CHEAP: on the loop it delays the align loop's pacer and the MAVLink
+        streams (2026-08-21 review — a status-file write on this path was
+        landing synchronous disk IO on the event loop). The target tracker's
+        ``ingest`` is safe on both (it holds its own lock); anything doing real
+        IO belongs behind a rate limit or a thread of its own."""
         self._on_fix.append(cb)
 
     # ---------- public state ----------
@@ -298,9 +305,16 @@ class VisionWorker:
         if frame_too_old(self.nadir_frame, self.frame_max_age_s):
             self.state.record_anomaly(f"{NADIR.name}_frame_stale")
             return None
+        # ONE file descriptor for both the stamp and the bytes. stat() then
+        # read() is not atomic: the grabber replaces the file by rename, so a
+        # replace landing between them recorded frame N's mtime against frame
+        # N+1's bytes — N+1 was then decoded AGAIN on the next poll and voted
+        # TWICE into a confirm_votes=3 cluster from a single image. fstat on
+        # the open fd is bound to the inode we actually read (2026-08-21).
         try:
-            mtime = self.nadir_frame.stat().st_mtime
-            data = self.nadir_frame.read_bytes()
+            with self.nadir_frame.open("rb") as fh:
+                mtime = os.fstat(fh.fileno()).st_mtime
+                data = fh.read()
         except OSError:
             return None
         self._last_frame_mtime = mtime
@@ -342,12 +356,17 @@ class VisionWorker:
         if frame_too_old(frame_path, self.frame_max_age_s):
             self.state.record_anomaly(f"{camera.name}_frame_stale")
             return []
-        try:                       # claim this frame BEFORE the expensive part
-            self._last_frame_mtime = frame_path.stat().st_mtime
+        # Claim the frame BEFORE the expensive part, reading the stamp and the
+        # bytes through ONE descriptor so they cannot belong to different
+        # frames (see _claim_frame for what that race cost).
+        try:
+            with frame_path.open("rb") as fh:
+                self._last_frame_mtime = os.fstat(fh.fileno()).st_mtime
+                data = fh.read()
         except OSError:
-            pass
+            return []
         pose = self._pose_now()    # …and the pose it belongs to, likewise
-        img = cv2.imread(str(frame_path))
+        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
         if img is None:
             return []
         return self._fixes_from_image(img, camera, pose)

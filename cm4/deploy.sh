@@ -66,9 +66,16 @@ if [ "$CHECK" -eq 1 ]; then
     # plus the two sitl/ files the REAL stack actually executes (the grabber
     # and the 🚀 launcher; added 2026-08-21 with the exposure fix, which would
     # otherwise deploy invisible to this check since sitl/ isn't hashed).
-    MD5_CMD='find orchestrator mission_brain vision mavlink_adapter tools cm4 gcs \
-        sitl/camera_grabber.py sitl/run_mission.sh \
-        -name "*.py" -o -name "*.sh" | sort | xargs md5sum | md5sum | cut -d" " -f1'
+    # ⚠ Everything the AIRCRAFT executes or reads must be in here, or the
+    # check prints "the aircraft flies this working tree" while it does not
+    # (2026-08-21 review found three such files). The find's -name filters
+    # only apply to the DIRECTORY walk; the explicit files are listed after it
+    # so a .yaml or a Makefile is included regardless of suffix.
+    MD5_CMD='{ find orchestrator mission_brain vision mavlink_adapter tools cm4 gcs \
+        -name "*.py" -o -name "*.sh"; \
+      ls sitl/camera_grabber.py sitl/run_mission.sh sitl/aavc_config.yaml \
+         sitl/kmitl_config.yaml clear_state.sh Makefile 2>/dev/null; \
+      } | sort | xargs md5sum | md5sum | cut -d" " -f1'
     LOCAL_MD5=$(cd "$REPO_ROOT" && eval "$MD5_CMD")
     REMOTE_MD5=$(ssh "${SSH_ID[@]}" "$HOST" "cd ~/$DIR && $MD5_CMD" || echo "unreachable")
     echo "[deploy --check] local : $LOCAL_MD5"

@@ -14,6 +14,7 @@ the decision logic.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import math
 from pathlib import Path
 
@@ -136,6 +137,16 @@ def _centred_hit(marker_id) -> PadHit:
                   confidence=0.9, corners=(), pad_side_px=0.0)
 
 
+def _patch_live_camera(monkeypatch) -> None:
+    """A faked detector is a faked camera — make it a LIVE one.
+
+    Since 2026-08-21 the loop only decodes frames it has not seen, so a frozen
+    mtime means one decode and then nothing: that is the frozen-camera case,
+    not the flying one. Every test that fakes _detect_nadir must fake this too."""
+    ticks = itertools.count(1.0, 0.05)
+    monkeypatch.setattr(ta, "_frame_mtime", lambda _p: next(ticks))
+
+
 def _patch_detector(monkeypatch, marker_id) -> None:
     def fake(frame_path, min_conf, assigned_id):
         alt = max(state_ref.telemetry.relative_alt_m, 0.5)
@@ -144,6 +155,7 @@ def _patch_detector(monkeypatch, marker_id) -> None:
         return PadHit(cx=hit.cx, cy=hit.cy, marker_id=hit.marker_id,
                       radius_px=exp, confidence=0.9, corners=(), pad_side_px=0.0)
     monkeypatch.setattr(ta, "_detect_nadir", fake)
+    _patch_live_camera(monkeypatch)
 
 
 state_ref: OrchestratorState
@@ -188,6 +200,7 @@ def test_wrong_pad_never_acquires_and_defers(monkeypatch) -> None:
     cmd = FakeCommander(state)
     # _detect_nadir itself rejects wrong ids → the loop sees nothing at all.
     monkeypatch.setattr(ta, "_detect_nadir", lambda f, c, a: None)
+    _patch_live_camera(monkeypatch)
 
     res = asyncio.run(acquire_and_land_drop(
         cmd, state, Coordinate(lat=_LAT, lon=_LON), 2, params=_fast_params()))
@@ -218,6 +231,7 @@ def test_uncentred_final_rung_defers_instead_of_landing(monkeypatch) -> None:
                       confidence=0.9, corners=(), pad_side_px=0.0)
 
     monkeypatch.setattr(ta, "_detect_nadir", biased)
+    _patch_live_camera(monkeypatch)
 
     res = asyncio.run(acquire_and_land_drop(
         cmd, state, Coordinate(lat=_LAT, lon=_LON), 1, params=_fast_params()))
@@ -366,3 +380,57 @@ def test_align_config_block_moves_the_trio_together() -> None:
     lock_s, lost_s, _ = _wall_clock(_align_for(COMPETITION, 2.0, tuning))
     assert lock_s == pytest.approx(0.75, abs=0.1)
     assert lost_s == pytest.approx(2.0, abs=0.2)
+
+
+# ── the landing loop must not re-decode a frame it has already seen ─────────
+# (2026-08-21 review) The pose is sampled per read, so re-decoding one image
+# yields a SEQUENCE of world fixes that translate WITH the aircraft: the
+# commanded goto then chases the vehicle's own motion instead of correcting
+# it, and lock_cycles can be satisfied from a handful of distinct frames.
+
+
+def test_a_frozen_frame_is_decoded_once_not_every_cycle(monkeypatch) -> None:
+    global state_ref
+    state = state_ref = _state()
+    cmd = FakeCommander(state)
+    calls = []
+
+    def counting(frame_path, min_conf, assigned_id):
+        calls.append(1)
+        return _centred_hit(3)
+
+    monkeypatch.setattr(ta, "_detect_nadir", counting)
+    monkeypatch.setattr(ta, "_frame_mtime", lambda _p: 7.0)   # camera frozen
+    asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1, params=_fast_params()))
+
+    assert len(calls) == 1, f"decoded a frozen frame {len(calls)} times"
+
+
+def test_a_missing_frame_never_decodes(monkeypatch) -> None:
+    """No camera at all must not spin the decode path — the staleness gate and
+    the lost-detection counter own that case."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = FakeCommander(state)
+    calls = []
+    monkeypatch.setattr(ta, "_detect_nadir",
+                        lambda f, c, a: (calls.append(1), None)[1])
+    monkeypatch.setattr(ta, "_frame_mtime", lambda _p: None)
+    asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1, params=_fast_params()))
+    assert not calls
+
+
+def test_the_pose_belongs_to_the_frame_not_to_the_decode(monkeypatch) -> None:
+    """_hit_world_fix must project with the pose passed IN, so a pose captured
+    before a ~55 ms decode is the one used — a live read afterwards is a bias
+    in the direction of travel, which the median filter cannot remove."""
+    hit = _centred_hit(3)
+    pose_a = (_LAT, _LON, 10.0, 0.0, 0.0, 0.0)
+    pose_b = (_LAT + 0.001, _LON, 10.0, 0.0, 0.0, 0.0)   # ~111 m north
+    fix_a = ta._hit_world_fix(hit, pose_a)
+    fix_b = ta._hit_world_fix(hit, pose_b)
+    assert fix_a is not None and fix_b is not None
+    assert abs(fix_b.lat - fix_a.lat) > 0.0009        # it really used the pose
+    assert ta._hit_world_fix(hit, None) is None

@@ -150,6 +150,26 @@ class MjpegPassthroughBackend:
         if not self._cap.isOpened():
             raise RuntimeError(f"v4l2 device {device!r} did not open")
 
+    def verify_resolution(self) -> tuple[int, int] | None:
+        """Decode ONE frame and return its true (w, h), or None if unreadable.
+
+        The plain V4L2 path resizes when the driver ignores the requested size;
+        passthrough cannot, because it never decodes. That silence is
+        dangerous: vision/projection derives BOTH the focal length and the
+        principal point from the CONFIGURED width/height, and nothing
+        downstream ever looks at the real frame. A camera that only offers
+        MJPG at 1920x1080 would make fx 1.5x wrong and the centre off by
+        (320, 180) px — every pixel->lat/lon silently scaled and shifted, with
+        the size prior and the accept radius both wide enough to let it
+        through (2026-08-21 review)."""
+        payload = self.grab_bytes()
+        if payload is None:
+            return None
+        img = cv2.imdecode(np.frombuffer(payload, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+        return int(img.shape[1]), int(img.shape[0])
+
     def grab_bytes(self) -> bytes | None:
         ok, raw = self._cap.read()
         if not ok or raw is None:
@@ -344,6 +364,21 @@ def main() -> int:
     if passthrough:
         nadir = MjpegPassthroughBackend(args.nadir_device, args.width,
                                         args.height, fps=args.fps)
+        got = nadir.verify_resolution()
+        if got is None:
+            nadir.close()
+            raise SystemExit("[grabber] MJPEG passthrough produced no decodable "
+                             "frame — rerun with CAM_PASSTHROUGH=0")
+        if got != (args.width, args.height):
+            nadir.close()
+            raise SystemExit(
+                f"[grabber] camera delivered {got[0]}x{got[1]}, not "
+                f"{args.width}x{args.height}. Passthrough cannot resize, and "
+                "the projection derives fx AND the principal point from the "
+                "configured size — flying this would scale and shift every "
+                "pixel->lat/lon silently. Fix the config/camera, or use "
+                "CAM_PASSTHROUGH=0 to fall back to the resizing path.")
+        print(f"[grabber] passthrough resolution verified {got[0]}x{got[1]}")
     else:
         nadir = _make_backend(args.backend, args.nadir_device, args.width,
                               args.height, fps=args.fps, fourcc=args.fourcc)

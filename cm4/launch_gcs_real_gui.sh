@@ -286,11 +286,17 @@ printf '%s' "$HOST" > "$HOSTFILE"
 # (router/กล้อง/beacon) กลับขึ้นทันที. การ์ดสำคัญ: ถ้า orchestrator กำลังรันอยู่
 # (mission กลางคัน!) ห้ามเคลียร์เด็ดขาด — ปรัชญาเดียวกับปุ่ม stop ที่ไม่แตะโดรน.
 # best-effort: CM4 ไม่ตอบก็เปิด console ต่อได้ (ปุ่ม 🚀 ยก infra เองอยู่แล้ว)
+# ⚠ ต้องใช้ $M_DIR ของ mission ที่เลือก ไม่ใช่ ~/mission ตายตัว (แก้ 2026-08-21):
+# สนามแข่ง KMITL อยู่ใน repo ~/aavc-comp ดังนั้นการ hardcode ~/mission จะไป
+# ลบ mission_status.json ของอีก repo แล้วสตาร์ท beacon ที่ชี้ผิดที่ — พอกด 🚀
+# ensure_infra เห็นว่า beacon มีแล้วจึงไม่ยกตัวที่ถูก ผลคือ beacon อ่านไฟล์ที่
+# เพิ่งถูกลบ แล้วออกอากาศ "AAVC p=idle" ทั้งรอบแข่ง ซึ่งจอกรองทิ้ง = จอว่าง
+# ทั้งที่เครื่องบินทำงานถูกทุกอย่าง (ซ้ำรอยเหตุที่ทำให้ดึงเครื่องลงเมื่อ G7)
 CLR=$(ssh "${SSH_ID[@]}" -o ConnectTimeout=6 -o BatchMode=yes \
         -o StrictHostKeyChecking=accept-new "$HOST" '
     if pgrep -f "orchestrator[.]main" >/dev/null 2>&1; then echo BUSY
     else
-        cd ~/mission && bash clear_state.sh >/dev/null 2>&1
+        cd ~/'"$M_DIR"' && bash clear_state.sh >/dev/null 2>&1
         bash cm4/start_infra.sh >/dev/null 2>&1
         echo CLEARED
     fi' 2>/dev/null || true)

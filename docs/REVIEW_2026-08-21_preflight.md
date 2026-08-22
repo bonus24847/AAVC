@@ -1,5 +1,11 @@
 # Full-system review — 2026-08-21, two days before the flight test
 
+> **STATUS 2026-08-22:** Tier 1 and the Tier-3 defects introduced by that day's
+> work are FIXED and committed (see the "Review fixes" commits). Each fix below
+> is marked ✅ FIXED, with what was measured after. Tier 2 (the competition
+> config and the `aavc-comp` repo) and Tier 4 remain open — Tier 2 must be done
+> before travelling.
+
 Four independent read-only reviews (flight core · vision · GCS/ops · hardware
 config), plus a live board read. Nothing here is speculation about code that
 was not read; where a finding needs a runtime value to confirm, it says so and
@@ -20,6 +26,9 @@ flight first.
 ## TIER 1 — fix before the next flight
 
 ### 1.1 The landing ladder's top rung IS the ceiling
+**✅ FIXED** — the top rung now keeps the same 0.5 m margin the transit and
+decode hover use. KMUTNB 10.0 → 9.5; competition unchanged at 12.0.
+
 `orchestrator/main.py:1064-1069` → `orchestrator/tactical_align.py:80`
 
 `_rungs_for` computes `top = min(12.0, ceiling)`. The KMUTNB profile's ceiling
@@ -43,6 +52,9 @@ the ceiling silently moved the calculation into the branch where
 **Fix:** give the top rung the same margin the rest of the mission has.
 
 ### 1.2 The transit permanently doubles the climb-speed pin
+**✅ FIXED** — the leg now reads the pin once and restores THAT, instead of a
+literal 2.0.
+
 `orchestrator/mission.py:465, 489`
 
 `_set_climb_cap(1.0)` then `_set_climb_cap(2.0)` "to restore the fast cap" —
@@ -73,6 +85,10 @@ margin — it is that a percentage of a sagging voltage cannot be compared
 against a percentage of capacity at all.
 
 ### 1.4 The watchdog's RTH is fire-and-forget; the aircraft can end up landed and ARMED
+**✅ FIXED** — `watchdog.stop()` waits for the terminal action (the disarm
+rides on it), with a 200 s backstop so it can never hang a shutdown. Two tests
+pin both halves.
+
 `orchestrator/safety.py:242-246, 624-652` + `orchestrator/main.py:1010-1053`
 
 `_spawn_action` creates a task that **nothing ever awaits or cancels**.
@@ -89,6 +105,10 @@ the recovery crew walks up to it. This path has already been exercised (G7
 flight 3 RTH'd at 68 s).
 
 ### 1.5 The white-pad cue rejects 54 % of pad orientations
+**✅ FIXED** — the probes now walk 0.8 of the way to each ROTATED corner.
+Re-measured **19/19 rotations** at both the 8 m and 12 m marker sizes (was
+8/19).
+
 `vision/detectors/aruco.py:177-184` — **measured**
 
 The four rim probes sit at fixed **image-axis** diagonal offsets (0.566·side
@@ -106,6 +126,13 @@ undecoded pads at the 10 m floor" — is fed only by the cue. In
 where the marker does not decode counts as lost → climb back → defer.
 
 ### 1.6 On real flight footage the cue fires on 0 of 457 frames
+**✅ FIXED (the thresholds)** — the V gate now tracks the frame's own exposure
+(clamped 110-170), and the rim/contrast test became a RATIO, which is
+exposure-invariant. The cue now survives down to 0.45x brightness (was lost by
+0.55x) with **zero false positives over the 152 sampled real frames**. Those
+frames still yield no cue hits: their pads are blur, not pads. That is the open
+camera gate, and no threshold can fix it.
+
 `vision/detectors/aruco.py:62` — `_PAD_V_MIN = 170`, **measured**
 
 Running the shipping detector over the real KMUTNB video: **1 decoded frame,
@@ -122,6 +149,11 @@ Together, 1.5 and 1.6 mean pad-finding currently has **one** working leg — the
 raw full-frame ArUco decode — and that leg scored 1/457 in flight.
 
 ### 1.7 The landing loop never got today's two fixes
+**✅ FIXED** — the landing loop now snapshots the pose BEFORE the decode and
+skips frames it has already seen (a skip, not a lost detection — the same
+treatment the tilt gate gets). The frame-mtime source is module level so a test
+that fakes the detector can fake a LIVE camera.
+
 `orchestrator/tactical_align.py:190-201` and `:360-369`
 
 `vision_worker` got a new-frame guard and a pose snapshot taken *before* the
@@ -139,6 +171,11 @@ neither:
   it, and `lock_cycles=9` can be satisfied from ~3 distinct frames.
 
 ### 1.8 `decode_workers: 2` moved the callbacks onto the event loop
+**✅ PARTLY FIXED** — the `on_fix` contract now documents both modes, and the
+status-file write that made it dangerous no longer fires per frame (the lane is
+quantised to 0.5 m, so the write-on-change guard is real). Moving the callbacks
+off the loop entirely is still open.
+
 `orchestrator/vision_worker.py:162-168` + `orchestrator/main.py:937-951`
 
 Verified by running it: with 2 workers, `on_fix` fires on the **loop** thread,
@@ -222,7 +259,7 @@ materialised.
   field at 9 m. Decide it deliberately; do not leave doc and code
   contradicting each other on the morning.
 
-### 2.5 The GCS icon starts the beacon from the wrong repo
+### 2.5 The GCS icon starts the beacon from the wrong repo  ✅ FIXED
 `cm4/launch_gcs_real_gui.sh:293` hardcodes `cd ~/mission` although `$M_DIR`
 holds the selected mission's remote dir — and the KMITL entry is `aavc-comp`.
 
@@ -244,13 +281,13 @@ A bit-for-bit reproduction of the abort that motivated this whole day.
 
 | # | Where | What |
 |---|---|---|
-| 3.1 | `vision_worker.py::_claim_frame`, `_detect_one` | `stat()` then read is not atomic: if the grabber replaces the file between them, the mtime of frame N is recorded for the bytes of N+1, so N+1 is decoded **twice** and votes twice into a `confirm_votes=3` scheme. Fix: one `open()`, `fstat` the same fd. |
-| 3.2 | `camera_grabber.py::MjpegPassthroughBackend` | No resolution check. `V4l2Backend` resizes if the driver ignored the request; passthrough writes whatever arrives. A 1920×1080 stream makes `fx` 1.5× wrong and the principal point off by (320,180) — every projection silently scaled and offset, and no gate catches it. |
-| 3.3 | `src/aavc_gcs.py:1966` | The console's camera chip still stats `/tmp/aavc_nadir.png`. In SITL there is no beacon, so this is the only camera reading: a permanent grey n/a with a healthy camera. |
-| 3.4 | `dashboard/routes.py:174` | The MJPEG stream still labels each JPEG part `Content-Type: image/png`. SITL/HITL only. |
-| 3.5 | `cm4/deploy.sh:69-71` | `--check` prints "the aircraft flies this working tree" while **`sitl/aavc_config.yaml`, `clear_state.sh` and the `Makefile` are unhashed** — all three are on-aircraft flight-path files, and the config is the one the flight core reads. |
-| 3.6 | `orchestrator/main.py:1072-1088` | The new `align:` seam casts straight into the dataclass with no bounds check. `lock_cycles: 0` makes `final_locked = 0 >= 0` true — the centred-LAND gate added after the 2.46 m off-pad release is **bypassed**, and every rung breaks on the first fix. A YAML typo is a land-anywhere switch. |
-| 3.7 | `orchestrator/gcs_status.py:411-413` | `_write()` builds the doc under the lock but does the file ops outside it, through **one shared temp name**. Two threads (vision, now ~10 Hz, and the loop) can tear the file; the beacon then reads it, gets `None`, and broadcasts a spurious `p=idle` mid-flight. |
+| 3.1 ✅ | `vision_worker.py::_claim_frame`, `_detect_one` | `stat()` then read is not atomic: if the grabber replaces the file between them, the mtime of frame N is recorded for the bytes of N+1, so N+1 is decoded **twice** and votes twice into a `confirm_votes=3` scheme. Fix: one `open()`, `fstat` the same fd. |
+| 3.2 ✅ | `camera_grabber.py::MjpegPassthroughBackend` | No resolution check. `V4l2Backend` resizes if the driver ignored the request; passthrough writes whatever arrives. A 1920×1080 stream makes `fx` 1.5× wrong and the principal point off by (320,180) — every projection silently scaled and offset, and no gate catches it. |
+| 3.3 ✅ | `src/aavc_gcs.py:1966` | The console's camera chip still stats `/tmp/aavc_nadir.png`. In SITL there is no beacon, so this is the only camera reading: a permanent grey n/a with a healthy camera. |
+| 3.4 ✅ | `dashboard/routes.py:174` | The MJPEG stream still labels each JPEG part `Content-Type: image/png`. SITL/HITL only. |
+| 3.5 ✅ | `cm4/deploy.sh:69-71` | `--check` prints "the aircraft flies this working tree" while **`sitl/aavc_config.yaml`, `clear_state.sh` and the `Makefile` are unhashed** — all three are on-aircraft flight-path files, and the config is the one the flight core reads. |
+| 3.6 ✅ | `orchestrator/main.py:1072-1088` | The new `align:` seam casts straight into the dataclass with no bounds check. `lock_cycles: 0` makes `final_locked = 0 >= 0` true — the centred-LAND gate added after the 2.46 m off-pad release is **bypassed**, and every rung breaks on the first fix. A YAML typo is a land-anywhere switch. |
+| 3.7 ✅ | `orchestrator/gcs_status.py:411-413` | `_write()` builds the doc under the lock but does the file ops outside it, through **one shared temp name**. Two threads (vision, now ~10 Hz, and the loop) can tear the file; the beacon then reads it, gets `None`, and broadcasts a spurious `p=idle` mid-flight. |
 | 3.8 | `src/aavc_gcs.py:3639` | The plan polyline is drawn **without** the staleness gate and cached in `window.PLAN_KEEP`, which is never cleared. A leftover SITL `mission_status.json` paints yesterday's simulated route over the real field, unmarked, for the life of the page. |
 | 3.9 | — | **Fix 3 cannot reach a real flight at all**: `status_sync.sh` is deliberately not started by the real launchers and the beacon carries no `plan`, so the polyline is written on the CM4 and never copied to the laptop. Either start the sync (the plan is a few KB, written while WiFi is still up at L&R) or drop the feature until it is. |
 

@@ -33,6 +33,16 @@ from orchestrator.state import OrchestratorState, TerminalState
 from .realtime import RealtimeBroadcaster
 
 CAMERA_FRAME_PATH = Path("/tmp/aavc_frame.jpg")
+
+
+def _frame_media_type(path: Path) -> str:
+    """Content type of a frame file, from its SUFFIX.
+
+    The URLs keep their historical ``.png`` names (bookmarks, the Svelte
+    widget), so the type has to come from the file itself — browsers follow
+    the header, not the path."""
+    return ("image/jpeg" if path.suffix.lower() in (".jpg", ".jpeg")
+            else "image/png")
 CAMERA_SPECTATOR_PATH = Path("/tmp/aavc_spectator.png")
 CAMERA_STREAM_HZ = 5.0
 # Pre-cached OSM/ESRI tiles for the AAVC field. The directory may not
@@ -131,8 +141,7 @@ def make_router(
             camera_frame_path,
             # the frame file is JPEG since 2026-08-21 (the URL keeps its
             # historical .png name; browsers follow the Content-Type)
-            media_type="image/jpeg" if camera_frame_path.suffix.lower()
-            in (".jpg", ".jpeg") else "image/png",
+            media_type=_frame_media_type(camera_frame_path),
             headers={"Cache-Control": "no-store"},
         )
 
@@ -169,9 +178,14 @@ def make_router(
                         b = None
                     if b is not None and b != last_bytes:
                         last_bytes = b
+                        # The part type must follow the FILE, not the URL:
+                        # frames became JPEG on 2026-08-21 while this said
+                        # image/png, and every consumer of the stream rendered
+                        # nothing (the snapshot endpoint was fixed, this was
+                        # missed).
                         yield (
                             f"--{boundary}\r\n"
-                            "Content-Type: image/png\r\n"
+                            f"Content-Type: {_frame_media_type(camera_frame_path)}\r\n"
                             f"Content-Length: {len(b)}\r\n\r\n"
                         ).encode("utf-8") + b + b"\r\n"
                     await asyncio.sleep(period)

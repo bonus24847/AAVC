@@ -1101,10 +1101,35 @@ def _align_tuning(cfg: dict[str, Any]) -> dict[str, Any]:
     (see AlignParams)."""
     ac = cfg.get("align", {}) or {}
     out: dict[str, Any] = {}
-    for key, cast in (("cycle_hz", float), ("lock_cycles", int),
-                      ("max_lost_cycles", int), ("median_window", int)):
-        if key in ac:
-            out[key] = cast(ac[key])
+    # ⚠ BOUNDS ARE NOT OPTIONAL HERE (2026-08-21 review). These land straight
+    # in AlignParams, and `final_locked = in_tol >= lock_cycles` means
+    # lock_cycles=0 evaluates 0 >= 0 -> True: the centred-LAND gate added
+    # after the 2026-07-15 run that released 2.46 m off-pad would be bypassed
+    # and every rung would break on its first fix. A YAML typo must not be a
+    # land-anywhere switch. median_window must stay ODD (an even window is a
+    # mean, not a median) and small (its lag IS landing error).
+    limits: dict[str, tuple[Any, Any, Any]] = {
+        "cycle_hz": (float, 1.0, 30.0),
+        "lock_cycles": (int, 1, 100),
+        "max_lost_cycles": (int, 1, 200),
+        "median_window": (int, 1, 9),
+    }
+    for key, (cast, lo, hi) in limits.items():
+        if key not in ac:
+            continue
+        try:
+            value = cast(ac[key])
+        except (TypeError, ValueError):
+            raise ValueError(f"align.{key}={ac[key]!r} is not a {cast.__name__}") from None
+        if not lo <= value <= hi:
+            raise ValueError(
+                f"align.{key}={value} outside [{lo}, {hi}] — refusing to fly a "
+                "landing loop tuned outside its validated envelope")
+        if key == "median_window" and value % 2 == 0:
+            raise ValueError(
+                f"align.median_window={value} must be ODD (an even window is a "
+                "mean, not a median, so a single outlier moves the setpoint)")
+        out[key] = value
     return out
 
 
