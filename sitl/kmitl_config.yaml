@@ -166,28 +166,23 @@ search:
                            # 2026-08-22 site.center incident — practice-field
                            # text inside the competition file.)
                            # LEGAL BAND HERE: sweep >= 10 m (rules), <= 20 m.
-  # ⚠ 0.30 -> 0.44 on 2026-08-22. 0.30 spaced the legs at 70% of the WIDE
-  # (1280 px) image axis, which is only the cross-track footprint if that axis
-  # actually lies across the legs — an assumption search_pattern.py's own
-  # docstring flagged as never validated, and one nothing controlled: the
-  # camera is body-fixed and the held heading was whatever the aircraft was
-  # pointing when it armed. Wrong way round the real swath is the 720 px axis
-  # (0.5625x), leaving a 2.5 m gap per strip at 12 m — a 1 m pad fits inside it
-  # with 1.5 m to spare. 0.44 makes spacing <= the NARROW swath, so coverage is
-  # complete at ANY mount/heading combination. Cost here is +2 LEGS, not the
-  # "+1" this comment used to claim: 5 -> 7 legs, 407 -> 565 s of sweep.
-  # ⚠⚠ THE TRIGGER THIS COMMENT SET HAS FIRED. It said "drop it back to 0.30
-  # once CameraModel.mount_yaw_rad has been MEASURED and the heading is
-  # trusted" — measured 2026-08-23 (180, four placements) and the heading is
-  # now derived nose-first in search_pattern.py, so the wide axis IS across
-  # track by construction, which is the only thing 0.44 was insuring against.
-  # Keeping 0.44 costs 158 s of a 1200 s window, and the KMITL budget cannot
-  # afford it: a full-sweep 4-egg sortie is ~1051 s, which leaves the LAST
-  # delivery's gate (can_start_delivery, 300 s floor) just 21 s of slack. At
-  # 0.30 the same sortie is ~893 s and that slack is 179 s.
-  # LEFT AT 0.44 PENDING THE OPERATOR because it changes flight geometry —
-  # see the 2026-08-23 review section in CLAUDE.md.
-  overlap_frac: 0.44       # spacing = swath*(1-overlap); see above
+  # ✅ 0.44 -> 0.30 on 2026-08-24, after the SITL test the operator asked for.
+  # 0.44 was belt-and-braces for an UNMEASURED camera mount: if the wide image
+  # axis did not lie across track the real swath was the 720 px axis and 0.30
+  # left a 2.5 m gap per strip. The mount was MEASURED 2026-08-23 (180 deg,
+  # four placements) and search_pattern.py now derives a nose-first heading, so
+  # the wide axis is across track BY CONSTRUCTION — the assumption 0.44 insured
+  # against cannot occur any more.
+  # Flown head to head in SITL at KMITL optics (12 m sweep, 400 mm marker at
+  # 28 px), same pad seed 1301, competition envelope:
+  #        pads found  ids correct  eggs  release err     mission
+  #   0.30    6/6         6/6        4/4  0.09-0.22 m      536 s
+  #   0.44    6/6         6/6        4/4  0.15-0.20 m      647 s
+  # Identical coverage and identical delivery success; 0.30 is 111 s faster on
+  # that field and a computed 158 s faster on KMITL's larger polygon. Decode was
+  # separately verified to work at EVERY across-track offset out to 94 % of the
+  # half-swath, so the wider spacing never puts a pad where the detector fails.
+  overlap_frac: 0.30       # spacing = swath*(1-overlap); see above
   margin_m: 5.0            # search-area inset (pads sit >=4 m inside; GPS is coarse)
                            # RAISED 4.0 -> 5.0 on 2026-08-16, executing the
                            # trigger the 2026-08-12 peer note wrote down: at 4.0
@@ -243,9 +238,16 @@ search:
   # the window was computing against a field a third of the size, so it
   # approved work it could not finish — and the per-delivery abort gate reads
   # the same numbers, so it could not catch it either.
-  sortie_cost_s: 420.0     # FULL-SWEEP sortie. The real sweep of the 227 x 74 m
-                           # KMITL polygon at the new 12 m is 407 s (5 legs at
-                           # 3 m/s + turns); 240 under-estimated it by 2.7x.
+  sortie_cost_s: 900.0     # FULL-SWEEP 4-EGG sortie, rebuilt 2026-08-24. The old
+                           # 420 was wrong twice: its arithmetic predated the
+                           # 0.30->0.44 change AND it sized ONE serve while
+                           # eggs_aboard=4 flies four. Parts: takeoff 17 (G4'
+                           # measured) + ingress 57 (171 m at 3 m/s) + sweep 407
+                           # (search_pattern.py, this config) + 4 x serve_cost_s
+                           # 80 = 320 + egress 57 + land 35 = 893, rounded up.
+                           # Cross-checked against the 2026-08-24 SITL run: 536 s
+                           # there with a 192 s sweep, so 343 s of non-sweep work
+                           # against KMITL's 407 s sweep and longer transits.
   known_sortie_cost_s: 280.0  # registry-known sortie, no search: the far pad is
                            # 291 m from L&R = ~97 s each way at MPC_XY_CRUISE
                            # 3.0, plus one serve. 140 was the KMUTNB number.

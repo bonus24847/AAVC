@@ -347,6 +347,15 @@ def _nadir_camera() -> tuple[float, float, float]:
     body Y and its NARROW axis (the aspect-scaled vertical FOV) spans body X.
     Get that mapping backwards and the cheap escape axis looks like the
     expensive one: at this 16:9 aspect the cone is 1.78x wider across Y.
+
+    YAW is therefore checked as a HALF-TURN INVARIANT, not as zero (2026-08-24).
+    The model went to yaw pi that day so sim carries the same upside-down mount
+    the airframe was measured to have. A half turn about the optical axis maps
+    the wide FOV onto body Y still — only the sign flips, and the frustum is
+    symmetric — so every number below is unchanged. A QUARTER turn is a
+    different matter: it swaps wide for narrow and silently makes the 1.78x
+    cheap axis look expensive, which is exactly what this guard exists to
+    catch. ``sin(yaw) ~ 0`` admits 0 and +-pi and rejects +-pi/2.
     """
     root = ET.parse(_AIRCRAFT_MODEL).getroot()
     model = root.find("model")
@@ -356,7 +365,11 @@ def _nadir_camera() -> tuple[float, float, float]:
     # camera_link is a TOP-LEVEL link → its pose is MODEL-frame; convert to
     # base_link frame like the cargo helper (merged base root pose +0.35)
     z -= _base_frame_offset_z()
-    assert (x, y, roll, yaw) == (0.0, 0.0, 0.0, 0.0), "nadir camera moved off-centre"
+    assert (x, y, roll) == (0.0, 0.0, 0.0), "nadir camera moved off-centre"
+    assert abs(math.sin(yaw)) < 1e-3, (
+        f"nadir camera yaw {yaw:.4f} rad is not a multiple of pi — a quarter "
+        "turn swaps the image's wide and narrow axes, so the frustum's fore/aft "
+        "and lateral half-angles below would be the wrong way round")
     assert abs(pitch - math.pi / 2) < 1e-3, "nadir camera no longer looks straight down"
     cam = link.find(".//sensor/camera")
     assert cam is not None
@@ -430,3 +443,49 @@ def test_cargo_box_still_static_after_payload_addition() -> None:
     model = root.find("model")
     assert model is not None
     assert (model.findtext("static") or "").strip() == "true"
+
+
+def test_the_camera_yaw_guard_rejects_a_quarter_turn() -> None:
+    """The guard above admits 0 and +-pi and must REJECT +-pi/2 — pin that,
+    because the assertion it replaced was `yaw == 0` and simply deleting it
+    would have let a quarter turn through unnoticed.
+
+    A quarter turn is the dangerous one: it puts the image's WIDE axis along
+    body X, so `_nadir_camera`'s fore/aft and lateral half-angles come back
+    swapped and a belly box on the 1.78x-narrower axis reads as clear.
+    """
+    ok = (0.0, math.pi, -math.pi, 2 * math.pi)
+    bad = (math.pi / 2, -math.pi / 2, 3 * math.pi / 2)
+    for yaw in ok:
+        assert abs(math.sin(yaw)) < 1e-3, f"{yaw} should be accepted"
+    for yaw in bad:
+        assert abs(math.sin(yaw)) >= 1e-3, f"{yaw} should be rejected"
+
+
+def test_the_sim_camera_carries_the_measured_airframe_mount() -> None:
+    """sim and the flight config must agree on how the camera is bolted.
+
+    They disagreed for one day: 2026-08-23 measured the real mount at 180 and
+    wrote it into both configs while this model still sat at yaw 0, so every
+    SITL pixel->lat/lon came out point-mirrored. The 2026-08-24 SITL run that
+    found it decoded all six pads with every id correct and still delivered
+    0 of 4 — positions 3.7-20.2 m out, the aircraft flying to empty grass at
+    each pad. This test is the reason that cannot recur silently.
+    """
+    import yaml
+
+    root = ET.parse(_AIRCRAFT_MODEL).getroot()
+    model = root.find("model")
+    assert model is not None
+    link = next(ln for ln in model.findall("link") if ln.get("name") == "camera_link")
+    yaw = float((link.findtext("pose") or "").split()[5])
+
+    cfg = Path(__file__).resolve().parents[1] / "sitl" / "aavc_config.yaml"
+    cfg_yaw = math.radians(
+        yaml.safe_load(cfg.read_text())["cameras"]["nadir"]["mount_yaw_deg"])
+    # compare as a rotation, so pi and -pi are the same mount
+    diff = abs(math.atan2(math.sin(yaw - cfg_yaw), math.cos(yaw - cfg_yaw)))
+    assert diff < 1e-3, (
+        f"the gz camera is mounted at {math.degrees(yaw):.1f} deg while "
+        f"cameras.nadir.mount_yaw_deg says {math.degrees(cfg_yaw):.1f} — SITL "
+        "would report every pad rotated about the aircraft")

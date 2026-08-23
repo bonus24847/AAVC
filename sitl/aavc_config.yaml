@@ -122,19 +122,23 @@ search:
                            # validated 18 px floor; 2 m stays under the 10 m
                            # ceiling for the per-arm wander. Legal band
                            # [search_floor_m 2.5, ceiling 10].
-  # ⚠ 0.30 -> 0.44 on 2026-08-22. 0.30 spaced the legs at 70% of the WIDE
-  # (1280 px) image axis, which is only the cross-track footprint if that axis
-  # actually lies across the legs — an assumption search_pattern.py's own
-  # docstring flagged as never validated, and one nothing controlled: the
-  # camera is body-fixed and the held heading was whatever the aircraft was
-  # pointing when it armed. Wrong way round the real swath is the 720 px axis
-  # (0.5625x), leaving a 2.5 m gap per strip at 12 m — a 1 m pad fits inside it
-  # with 1.5 m to spare. 0.44 makes spacing <= the NARROW swath, so coverage is
-  # complete at ANY mount/heading combination. Cost: +1 leg here, and it is
-  # belt-and-braces on top of the sweep_yaw_deg fix (mission now holds a
-  # heading that puts the wide axis across track) — drop it back to 0.30 once
-  # CameraModel.mount_yaw_rad has been MEASURED and the heading is trusted.
-  overlap_frac: 0.44       # spacing = swath*(1-overlap); see above
+  # ✅ 0.44 -> 0.30 on 2026-08-24, after the SITL test the operator asked for.
+  # 0.44 was belt-and-braces for an UNMEASURED camera mount: if the wide image
+  # axis did not lie across track the real swath was the 720 px axis and 0.30
+  # left a 2.5 m gap per strip. The mount was MEASURED 2026-08-23 (180 deg,
+  # four placements) and search_pattern.py now derives a nose-first heading, so
+  # the wide axis is across track BY CONSTRUCTION — the assumption 0.44 insured
+  # against cannot occur any more.
+  # Flown head to head in SITL at KMITL optics (12 m sweep, 400 mm marker at
+  # 28 px), same pad seed 1301, competition envelope:
+  #        pads found  ids correct  eggs  release err     mission
+  #   0.30    6/6         6/6        4/4  0.09-0.22 m      536 s
+  #   0.44    6/6         6/6        4/4  0.15-0.20 m      647 s
+  # Identical coverage and identical delivery success; 0.30 is 111 s faster on
+  # that field and a computed 158 s faster on KMITL's larger polygon. Decode was
+  # separately verified to work at EVERY across-track offset out to 94 % of the
+  # half-swath, so the wider spacing never puts a pad where the detector fails.
+  overlap_frac: 0.30       # spacing = swath*(1-overlap); see above
   margin_m: 5.0            # search-area inset (pads sit >=4 m inside; GPS is coarse)
                            # RAISED 4.0 -> 5.0 on 2026-08-16, executing the
                            # trigger the 2026-08-12 peer note wrote down: at 4.0
@@ -184,8 +188,14 @@ search:
   decode_dwell_s: 4.0      # hover time over an unidentified candidate to decode its ID
   serve_cost_s: 80.0       # time budget: align + land-ON + release + climb out
                            # (shorter rungs from 4 m; re-measure at G4-KMUTNB)
-  sortie_cost_s: 240.0     # time budget: FULL-SWEEP sortie (~340 m sweep path at
-                           # 3 m/s + turns; re-measure at G4-KMUTNB)
+  sortie_cost_s: 690.0     # FULL-SWEEP 4-EGG sortie, rebuilt 2026-08-24 the same
+                           # way as the KMITL twin: the old 240 sized ONE serve
+                           # and predated the overlap change. takeoff 17 +
+                           # ingress 23 + sweep 265 + 4 x serve 80 + egress 23 +
+                           # land 35 = 683, rounded up. The 2026-08-24 SITL run
+                           # measured 536 s on the competition envelope (12 m
+                           # sweep); this profile sweeps lower and flies more
+                           # legs, hence the larger figure.
   known_sortie_cost_s: 140.0  # registry-known sortie, no search (re-measure)
   rth_reserve_s: 45.0      # time budget: egress + land at L&R from the far side
                            # (the far corner is only ~75 m out)
