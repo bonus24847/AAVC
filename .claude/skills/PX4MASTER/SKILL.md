@@ -110,9 +110,12 @@ trust a home-MSL cache taken while the frame was still moving.
    marker and confirm live decode DURING flight. Mitigations: prop balance,
    camera-mount stiffness, forced short exposure if needed.
    Full data: docs/evidence/ulog_review_2026-08-21.md (finding 1 + addendum).
-2. RC-loss drill + ELRS failsafe mode = **No Pulses** — AND the 🔴 open
-   finding first: RC did not RE-ACQUIRE after a TX power-cycle (2026-08-21,
-   undiagnosed — see ops-field.md).
+2. RC-loss drill + ELRS failsafe mode = **No Pulses**. The 🔴 "RC did not
+   re-acquire after a TX power-cycle" finding that used to block this is
+   CLOSED (2026-08-23): the kill switch was engaged, which clears PX4's RC
+   health bit while the link is perfect, and every indicator we own reads that
+   bit. `tools/rc_check.py` now tells the two apart. The DRILL itself is still
+   outstanding — do not read the closure as RC being signed off.
 3. ESC low-voltage cutoff vs the semi-solid pack (motors can cut in the air
    with charge remaining; no current sensor will warn us).
    (FC microSD replacement: ✅ DONE 2026-08-21 — full-surface-verified

@@ -330,14 +330,32 @@ Bench session with the CM4 + FC live. Three findings, in the order they bit.
       at t=68.2 s on a part-charged pack. So the navigation is good: three
       flights, three unrelated causes, and the aircraft tracked its route to
       ~1.5 m whenever it was allowed to fly.
-- [ ] 🔴 **RC does not RE-ACQUIRE after a TX power-cycle** (2026-08-21 bench,
-      undiagnosed — operator parked it): link was available=True 100%, TX
-      off→on, FC stayed available=False. Candidates: TX boot warning screen
-      holding RF off, ELRS model-match, RX in bind mode after today's rapid
-      battery cycles. **MUST be resolved + the RC-loss drill completed before
-      ANY flight** — the safety pilot is the last net. Drill tooling works
-      (rc_status watcher via CM4 router); pick it back up at "turn TX on,
-      wait for ACQUIRED".
+- [x] 🔴 **"RC does not RE-ACQUIRE after a TX power-cycle" — ROOT CAUSE FOUND
+      2026-08-23, and it was never the radio.** The KILL SWITCH was engaged.
+      `RC_MAP_KILL_SW=8` and ch8 sat at 2011 (ON); a TX power-cycle re-reads the
+      physical switch positions, which is exactly why the symptom appeared at
+      that moment and never cleared. Mechanism, verified in the v1.17 source:
+      `manualControlCheck.cpp` raises `armingCheckFailure(...,
+      health_component_t::remote_control, "Kill switch engaged")`, and
+      `SYS_STATUS.hpp::fillOutComponent` sets the RC_RECEIVER health bit ONLY
+      when that component has no arming-check error — so an engaged switch
+      CLEARS the RC health bit while the link is perfect. Every RC indicator
+      this project owns (MAVSDK `rc_status`, QGC's RC bar, the drill script)
+      reads that bit, so a switch position and a dead transmitter produce the
+      identical "RC unavailable".
+      Evidence at the bench, in order: RF fine (TX16S full bars, RX solid
+      green); FC receiving (`RC_CHANNELS chancount=16 rssi=100`); frames LIVE
+      (ch1-ch4 moved 624-930 us while the sticks were worked — which killed the
+      "RX is sending a frozen failsafe frame" hypothesis); PX4 naming it
+      (`[sev 2] Preflight Fail: Kill switch engaged`); and the confirming flip —
+      switch off → `healthy=True`, MAVSDK `available=True signal=100%`.
+      **Caught from now on by `tools/rc_check.py`**, which reports frames,
+      movement, the raw present/enabled/health triplet, the kill/arm channel
+      values and the FC's own STATUSTEXT, and returns 2 for "no frames — this
+      IS the link" vs 1 for "frames arrive, a SWITCH cleared the health bit".
+      ⚠ The OTHER half of this blocker is still OPEN: the **RC-loss drill** has
+      not been run, and the ELRS failsafe mode still needs to be set to **No
+      Pulses**. Do not read this tick as "RC is signed off".
 - [x] **FC microSD swap DONE 2026-08-21**: new SanDisk Extreme U3 32 GB —
       full-surface verified in the laptop (29 GiB write+read, zero
       mismatches), factory FAT32 kept; old card archived whole

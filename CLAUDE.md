@@ -524,6 +524,9 @@ make test           # pytest
 make lint           # ruff + mypy
 # post-flight drone-response check (operator requirement):
 #   .venv/bin/python tools/verify_flight.py runs/<mission_id>/audit.jsonl --truth …
+# is the RC link down, or is PX4 refusing an RC it can hear? (a switch in the
+# wrong position clears the RC health bit that every indicator reads):
+#   .venv/bin/python tools/rc_check.py --endpoint udpout:127.0.0.1:14550
 # read the camera's mount rotation off the airframe (see the tool's docstring
 # for the bench procedure; 0.0 in config is an ASSUMPTION until this is run):
 #   .venv/bin/python tools/measure_mount_yaw.py --grid /tmp/g.jpg
