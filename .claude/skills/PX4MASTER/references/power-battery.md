@@ -23,9 +23,15 @@ Endpoints on the board (17000 semi-solid, since 2026-08-19):
 `BAT1_V_CHARGED=4.18`, `BAT1_V_EMPTY=3.77` (25.1 V full / ~22.6 V empty).
 BOARD-checked every preflight. Two claims, verify separately: a correct
 VOLTAGE (divider) and a correct PERCENTAGE (endpoints).
-⚠ `BAT1_V_DIV` REOPENED 2026-08-20: its multimeter closure was on the old
-converter wiring; one multimeter-vs-GCS check ON THE PM02D re-closes it
-(three real flights flew it with plausible voltages — re-verify, not fault).
+✅ `BAT1_V_DIV` RE-CLOSED ON THE PM02D 2026-08-23. Its earlier closure was on
+the old converter wiring and the divider belongs to the module, so it was
+re-verified the same way: multimeter **24.9 V** at the connector vs the FC's
+own **24.89 V** read over MAVSDK — 0.01 V, 0.04%. Board still carries
+`BAT1_V_DIV = -1` (the 6X default divider), i.e. nothing to change.
+Both claims were checked in that one reading, which is the point of splitting
+them: the VOLTAGE agrees with a meter, and the PERCENTAGE agrees with its own
+arithmetic — 4.148 V/cell through `interpolate(3.77, 4.18)` is 92% against the
+FC's 93-94%. Re-verify again after any change to the power module.
 
 ## Measured sag per flight (ULog ground truth, 2026-08-20 session)
 
