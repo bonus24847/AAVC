@@ -396,7 +396,8 @@ Bench session with the CM4 + FC live. Three findings, in the order they bit.
       (RC-loss drill · SD card swap · ESC LVC · CM4-AP-vs-GPS EMI A/B ·
       ArUco decode floor · powerbank idle-cut · MPC_THR_HOVER re-seed ·
       pack discharge curve · v1.17.0 session-hygiene rules).
-- [ ] `BAT1_V_DIV` re-verify multimeter-vs-GCS on the PM02D wiring.
+- [x] `BAT1_V_DIV` re-verified on the PM02D 2026-08-23: multimeter 24.9 V vs
+      FC 24.89 V (0.04%). Stays -1. Endpoints checked in the same reading.
 - [ ] Charger-mAh + rest-voltage log: start at the next charge cycle.
 - [ ] CM4 online: rsync real audit archives + frames; extract real
       `FLIGHT n ENERGY` lines; first real-frame `make replay`.
@@ -784,24 +785,19 @@ Bench session with the CM4 + FC live. Three findings, in the order they bit.
       the whole problem, which is why the test builds an explicit 1280×720
       camera. Cost +1 leg at KMITL. Drop back to 0.30 only once
       `mount_yaw_deg` is MEASURED.
-- [ ] **MEASURE `cameras.nadir.mount_yaw_deg` — still 0.0 = an assumption, not
-      a reading** (operator not on site 2026-08-22). **Tool + full procedure:
-      `tools/measure_mount_yaw.py`** (its docstring is the runbook). Short
-      form: ELEVATE the aircraft 0.8-1.5 m — parked, the lens is 3.5 cm off the
-      ground and can neither see nor focus — power FC+CM4, start the camera
-      with `CAM_EXPOSURE=0` (the 2 ms daylight default renders an indoor frame
-      black), put a distinctive object on the floor 20-40 cm straight out from
-      the NOSE, then
-      `.venv/bin/python tools/measure_mount_yaw.py --grid /tmp/g.jpg`.
-      It finds a printed ArUco itself, or takes `--pixel U,V` for any object —
-      `--grid` writes a labelled 100 px ruler to read that pixel off by eye.
-      It prints the angle, snaps to the nearest 90°, warns when the object sits
-      too near centre (< 60 px = noise) or lands > 12° off a right angle, and
-      gives the exact config line. The sign convention lives in the tool, not
-      in a note: `psi = atan2(cx - u, cy - v) - object_bearing`, and
-      `tests/test_measure_mount_yaw.py` round-trips it through `project_pixel`
-      for 6 pixels × 3 headings so a flipped sign fails the suite instead of
-      the flight.
+- [x] **`cameras.nadir.mount_yaw_deg` MEASURED 2026-08-23 = 180** — the camera
+      is bolted UPSIDE DOWN; the shipped 0.0 was an assumption and was wrong by
+      ~175 deg in every direction. Four placements of one floor object round
+      the raised, levelled airframe (nose/right/tail/left) solved 180.3 /
+      187.4 / 183.4 / 186.1. Both field configs carry 180.0; the four pixels
+      are data in `tests/test_measure_mount_yaw.py::_BENCH_2026_08_23`, so a
+      config drift or a re-mount breaks the suite. The confirmation placement
+      also caught a SIGN ERROR in the tool itself — `psi = ang - bearing` where
+      `projection.py` wants `psi = ang + bearing`, identical at the runbook's
+      own nose placement and wrong by 2x the bearing anywhere else. The tests
+      now round-trip through `project_pixel` at 0/90/180/270/37/-125 rather
+      than checking the tool's arithmetic against itself.
+      Re-measure after ANY camera re-mount — SITL cannot see this.
 - [x] **`sync_core.sh` now CHECKS its own hand-maintained tools list.** Writing
       that tool exposed the trap the script's header already described: `tests/`
       is copied wholesale, `tools/` is an allowlist, so the new test crossed to
