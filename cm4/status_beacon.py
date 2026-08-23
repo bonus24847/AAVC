@@ -74,7 +74,8 @@ _STATUS_STALE_S = 30.0
 
 
 def compose_lines(status: dict | None, frame_age_s: float | None,
-                  status_age_s: float | None = None) -> list[tuple[int, str]]:
+                  status_age_s: float | None = None,
+                  decode: dict | None = None) -> list[tuple[int, str]]:
     """``[(severity, text)]`` for one beacon tick. Pure — unit-testable without
     a link, a simulator or a camera.
 
@@ -82,6 +83,13 @@ def compose_lines(status: dict | None, frame_age_s: float | None,
     (phase/assigned/delivered/pads_mapped/updated); ``None`` before the first
     mission of the session. ``frame_age_s`` is the age of the nadir frame, or
     ``None`` when the file does not exist at all.
+
+    ``decode`` is ``tools/hover_decode.py``'s rolling summary, or ``None`` when
+    that tool is not running — which is the normal case, so the line simply does
+    not appear. The beacon deliberately does NOT decode anything itself: it is
+    part of the flight stack, and a JPEG decode per tick would compete with the
+    vision worker for the CM4 the whole time the aircraft is flying. It reads a
+    file, exactly as it already reads mission_status.json.
     """
     lines: list[tuple[int, str]] = []
 
@@ -189,6 +197,28 @@ def compose_lines(status: dict | None, frame_age_s: float | None,
         lines.append((_SEV_WARN, f"AAVC cam=DEAD {frame_age_s:.0f}s stale"))
     else:
         lines.append((_SEV_INFO, f"AAVC cam=OK {frame_age_s:.1f}s"))
+
+    # `cam=OK` says the grabber is still writing. It does NOT say the pictures
+    # are usable, and the difference has already cost a flight: G7 attempt 1 ran
+    # a healthy camera for a whole sortie and decoded 0 of 402 frames. This line
+    # carries the missing half.
+    #
+    # It leads with a WORD. The numbers behind it need two reference values held
+    # in the operator's head (the bench scored 680-780, the failed flight 41-76)
+    # and a verdict needs none — and the four failing words point at four
+    # different fixes: fly lower (BLUR), you are simply too high (HIGH), raise
+    # the gain (DARK), it is working, remember this height (GOOD). STATUSTEXT is
+    # ASCII here, so the sentence is assembled on the console; the radio carries
+    # the token.
+    verdict = (decode or {}).get("verdict")
+    if verdict:
+        frames = int(decode.get("frames") or 0)
+        decodes = int(decode.get("decodes") or 0)
+        sharp = int(decode.get("sharpness") or 0)
+        severity = _SEV_INFO if verdict in ("GOOD", "WEAK") else _SEV_WARN
+        lines.append((severity,
+                      f"AAVC cam={verdict} dec={decodes}/{frames} "
+                      f"sh={sharp}"[:_MAX_TEXT]))
     return lines
 
 
@@ -196,6 +226,27 @@ def _read_status(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text())
     except Exception:
+        return None
+
+
+_DECODE_STALE_S = 30.0
+
+
+def _read_decode(path: Path) -> dict | None:
+    """``tools/hover_decode.py``'s rolling summary, or None.
+
+    Missing is the normal case and must be silent — that tool runs only for a
+    deliberate decode test. A STALE file is treated as missing too: the summary
+    is rewritten every frame while the tool lives, so anything older than
+    ``_DECODE_STALE_S`` is a verdict about a moment that has passed, and a radio
+    line saying GOOD about thirty seconds ago is worse than no line at all.
+    """
+    try:
+        age = time.time() - path.stat().st_mtime
+        if age > _DECODE_STALE_S:
+            return None
+        return json.loads(path.read_text())
+    except Exception:                                # noqa: BLE001
         return None
 
 
@@ -267,6 +318,11 @@ def main() -> int:
                     help="dir holding mission_status.json (default: ./captures)")
     ap.add_argument("--frame", type=Path, default=Path("/tmp/aavc_nadir.jpg"),
                     help="nadir frame the camera grabber writes")
+    ap.add_argument("--decode-summary", type=Path,
+                    default=Path("/tmp/aavc_decode.json"),
+                    help="tools/hover_decode.py's rolling verdict; the "
+                         "cam=<VERDICT> line is omitted when it is absent or "
+                         "stale, which is the normal flight case")
     ap.add_argument("--interval-s", type=float, default=5.0)
     ap.add_argument("--pace-s", type=float, default=0.15,
                     help="gap between the STATUSTEXTs of one tick (default 0.15 s) "
@@ -299,7 +355,8 @@ def main() -> int:
         try:
             status = _read_status(status_path)
             lines = compose_lines(status, _frame_age(args.frame),
-                                  _status_age(status, status_path))
+                                  _status_age(status, status_path),
+                                  _read_decode(args.decode_summary))
             send_lines(mav, lines, dry_run=args.dry_run, pace_s=args.pace_s)
         except Exception as e:
             # One malformed status (a bad eta_s, a stray pads_mapped entry from
