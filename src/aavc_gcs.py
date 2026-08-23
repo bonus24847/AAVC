@@ -708,6 +708,28 @@ _RADIO_KEEP_S = 30.0
 _RADIO_PADS_KEEP_S = 40.0
 
 
+# What each decode verdict MEANS, and what to do about it. The radio can only
+# carry the token; this is the other half, and it lives at module scope so the
+# tests pin the shipped wording instead of a copy of it. Three fields on
+# purpose: what is wrong, what to do, and only then the numbers — an operator
+# holding a hover should not have to remember that the bench scored 680-780 and
+# the failed flight 41-76 before a sharpness figure means anything.
+DECODE_SAID = {
+    "GOOD": ("ok", "🟢 อ่าน marker ได้ต่อเนื่อง",
+             "จำความสูงนี้ไว้ — นี่คือเพดานที่ใช้งานได้จริง"),
+    "WEAK": ("warn", "🟡 อ่านได้บ้าง ไม่สม่ำเสมอ",
+             "ลดความสูงลงอีกจนตัวเลขนิ่ง"),
+    "BLUR": ("bad", "🔴 ภาพเบลอเกินกว่าจะอ่าน marker",
+             "ลดความสูง/บินช้าลง — ถ้านิ่งแล้วยังเบลอ คือปัญหาการสั่น"),
+    "HIGH": ("warn", "🟠 ภาพคมแต่ยังอ่านไม่ออก",
+             "ไม่ใช่เรื่องเบลอ — สูงเกินไป หรือ pad ไม่อยู่ใต้กล้อง"),
+    "DARK": ("bad", "🟣 ภาพมืดเกินไป",
+             "exposure 2 ms ไม่มี auto-gain — เพิ่ม CAM_GAIN"),
+    "NOFRAMES": ("bad", "⚫ ไม่มีเฟรมให้ตรวจ",
+                 "กล้องไม่ได้เขียนภาพ — ดูสถานะกล้อง"),
+}
+
+
 class Link:
     """Owns the MAVLink connection: a background reader + thread-safe senders."""
 
@@ -1128,6 +1150,24 @@ class Link:
             # pad moves to the "AAVC pads" coordinate line instead.
             ids = [int(x) for x in m.group(1).split(",") if x.isdigit()]
             self.s["radio_seen"] = {"t": now, "ids": ids}
+            return
+        # The decode verdict (tools/hover_decode.py -> status_beacon). It has to
+        # be matched BEFORE the liveness pattern below, which would otherwise
+        # swallow "cam=BLUR" and overwrite the OK/DEAD state with it — a camera
+        # that is WRITING and a camera that is READABLE are different questions
+        # and the console must be able to say both at once.
+        m = re.match(r"AAVC cam=(GOOD|WEAK|BLUR|HIGH|DARK|NOFRAMES)"
+                     r" dec=(\d+)/(\d+) sh=(\d+)", txt)
+        if m:
+            prev = (self.s.get("radio_decode") or {}).get("verdict")
+            self.s["radio_decode"] = {"t": now, "verdict": m.group(1),
+                                      "decodes": int(m.group(2)),
+                                      "frames": int(m.group(3)),
+                                      "sharpness": int(m.group(4))}
+            if prev is not None and prev != m.group(1):
+                buf = self.s["messages"]
+                buf.append({"t": time.strftime("%H:%M:%S"), "txt": txt})
+                del buf[:-40]
             return
         m = re.match(r"AAVC cam=(\w+)(?:\s+([\d.]+)s)?", txt)
         if m:
@@ -2131,6 +2171,22 @@ class Link:
         rc = self.s.get("radio_cam")
         snap["cam_radio"] = ({"state": rc["state"], "age": rc.get("age")}
                              if rc and time.time() - rc["t"] <= _RADIO_KEEP_S else None)
+        # The radio can only carry an ASCII token in 50 bytes; the SENTENCE is
+        # assembled here, where there is room and where the person is. A word
+        # plus what to do about it is the readout — the numbers ride along as
+        # evidence, not as the thing to interpret (the operator would otherwise
+        # need to remember that the bench scored 680-780 and the failed flight
+        # 41-76 before a sharpness figure meant anything).
+        rd = self.s.get("radio_decode")
+        snap["decode_radio"] = None
+        if rd and time.time() - rd["t"] <= _RADIO_KEEP_S:
+            said = DECODE_SAID.get(rd["verdict"], ("warn", rd["verdict"], ""))
+            snap["decode_radio"] = {
+                "verdict": rd["verdict"], "level": said[0],
+                "says": said[1], "do": said[2],
+                "detail": (f"{rd['decodes']} จาก {rd['frames']} เฟรม · "
+                           f"ความคม {rd['sharpness']} (บนโต๊ะได้ 680)"),
+            }
         snap["zones"] = load_zones()
         origin = self._aavc_origin(snap)
         mission = read_mission_status()
@@ -2648,6 +2704,16 @@ body.side-collapsed .colside{width:0;padding:0;border-right:none;overflow:hidden
 .dm{color:#f0b90b;font-size:30px;line-height:1;text-align:center;transform-origin:50% 50%;text-shadow:0 0 3px #000}
 .leaflet-container{background:#0d1117}
 .sensors{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px}
+/* Decode-test verdict. Reads as a sentence, not a gauge: the colour says how
+   bad, the first line says what is wrong, the second says what to do, and the
+   numbers come last because they are evidence, not the instruction. */
+.decverdict{margin-top:10px;padding:9px 11px;border-radius:8px;border-left:4px solid;line-height:1.45}
+.decverdict .dvsay{font-weight:700;font-size:14px}
+.decverdict .dvdo{font-size:13px;margin-top:2px}
+.decverdict .dvnum{font-size:11px;color:#8b98a5;margin-top:4px;font-family:ui-monospace,monospace}
+.dv-ok{background:#0d2b17;border-color:#3fb950;color:#c9f5d4}
+.dv-warn{background:#2b2410;border-color:#d29922;color:#f2e2b8}
+.dv-bad{background:#2d1214;border-color:#f85149;color:#ffd4d2}
 .schip{display:flex;align-items:center;gap:5px;font-size:13px;padding:4px 8px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#8b98a5}
 .schip .sdot{height:9px;width:9px;border-radius:50%;background:#6e7681;flex:none}
 .schip.sok{border-color:#238636;color:#7ee787}.schip.sok .sdot{background:#3fb950}
@@ -2941,6 +3007,7 @@ body.fieldmode #fmbtn{background:#238636;color:#fff;border-color:#3fb950}
   </div>
   <div class=mlabel>ความเร็ว Motor (%)</div>
   <div class=motors id=motors></div>
+  <div class=decverdict id=decverdict style=display:none></div>
   <div class=mlabel>สถานะ Sensor</div>
   <div class=sensors id=sensors></div>
  </div>
@@ -3140,6 +3207,20 @@ function initMap(){
  window.addEventListener('resize',function(){if(lmap)lmap.invalidateSize()});
  mapReady=true;
 }
+function renderDecodeVerdict(s){
+ /* The decode test readout. Hidden entirely when tools/hover_decode.py is not
+    running, which is every normal flight — an empty panel would just train the
+    eye to skip that part of the screen. */
+ var box=document.getElementById('decverdict'); if(!box) return;
+ var d=s.decode_radio;
+ if(!d){box.style.display='none';return;}
+ box.style.display='block';
+ box.className='decverdict dv-'+d.level;
+ box.innerHTML='<div class=dvsay></div><div class=dvdo></div><div class=dvnum></div>';
+ box.querySelector('.dvsay').textContent=d.says;
+ box.querySelector('.dvdo').textContent=d.do;
+ box.querySelector('.dvnum').textContent=d.detail;
+}
 function renderSensors(s){
  var box=document.getElementById('sensors');if(!box)return;
  var pres=s.present||{},hl=s.health||{},g=s.gps||{},html='';
@@ -3257,6 +3338,7 @@ function renderInsti(s){
  if(box){var ms=s.motors||[];
   if(box.children.length!==ms.length){box.innerHTML='';for(var i=0;i<ms.length;i++){var d=document.createElement('div');d.className='mrow';d.innerHTML='<span>M'+(i+1)+'</span><div class=mtrack><i></i></div><b>–</b>';box.appendChild(d);}}
   for(var j=0;j<ms.length;j++){var pct=Math.round(ms[j]*100);var row=box.children[j];var fill=row.querySelector('.mtrack>i');fill.style.width=pct+'%';fill.style.background=pct>85?'#f85149':pct>60?'#d29922':'#3fb950';row.querySelector('b').textContent=pct+'%';row.title='M'+(j+1)+': '+pct+'%';}}
+ renderDecodeVerdict(s);
  renderSensors(s);
  drawMap(s);
 }
