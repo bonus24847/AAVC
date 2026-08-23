@@ -58,20 +58,40 @@ Both deliver 4/4 when nothing goes wrong. The difference is what one bad gust,
 one re-align or one decode visit costs: at 0.44 anything 22 s over plan drops an
 egg.
 
-- **F-01 `overlap_frac` — the config's own trigger has fired (OPEN, operator).**
-  Its comment said "drop it back to 0.30 once `mount_yaw_rad` has been MEASURED
-  and the heading is trusted". Measured 2026-08-23 (180, four placements) and
-  `search_pattern.py` now derives a nose-first heading, so the wide axis is
-  across track BY CONSTRUCTION — the only thing 0.44 insured against. Returning
-  to 0.30 is the value every passing G4 run flew, not a new bet. Worth 158 s.
-  Left at 0.44 pending the operator: it changes flight geometry.
-- **F-02 `time_policy.sortie_cost_s` = 420 is wrong; the real figure is ~1051.**
-  Two compounding errors: the comment's arithmetic predates the 0.30→0.44 change
-  (+158 s) and it sizes ONE serve while `eggs_aboard=4` flies four (+240 s). The
-  GO gate therefore believes a full-sweep sortie needs 630 s when it needs 1261 —
-  more than the whole window. Flight 1 is unaffected (the window is full), but a
-  recovery flight would be approved and then RTH'd mid-sweep. Fix AFTER F-01 —
-  the correct value depends on the overlap.
+- **F-01 `overlap_frac` 0.44 -> 0.30 — TESTED AND CHANGED 2026-08-24.** The
+  operator held 0.44 out of doubt the camera would find the pads at the real
+  field, and asked for it to be settled in Gazebo with numbers first. Flown head
+  to head at KMITL OPTICS (competition envelope, 12 m sweep so the marker is
+  28.2 px, same pad seed 1301, only overlap different):
+
+  | | 0.30 | 0.44 |
+  |---|---|---|
+  | legs / pads found / ids / eggs | 5 · 6/6 · 6/6 · 4/4 | 6 · 6/6 · 6/6 · 4/4 |
+  | release error | 0.09-0.22 m | 0.15-0.20 m |
+  | mission time | **536 s** | 647 s |
+
+  Identical coverage, identical delivery success, **111 s faster** on that field
+  and a computed **158 s** on KMITL's larger polygon. Decode was separately
+  measured at EVERY across-track offset out to 94% of the half-swath, so wider
+  spacing never puts a pad where the detector fails. Evidence:
+  `docs/evidence/sweep_overlap_2026-08-24.txt` + both audit trails.
+- **F-02 `sortie_cost_s` — CORRECTED 2026-08-24.** KMITL 420 -> **900**,
+  practice 240 -> **690**. Both were wrong the same two ways: the arithmetic
+  predated the overlap change, and both sized ONE serve while `eggs_aboard=4`
+  flies four. Rebuilt from parts (KMITL: 17 takeoff + 57 ingress + 407 sweep +
+  4x80 serves + 57 egress + 35 land = 893, rounded up), cross-checked against
+  the 536 s SITL run. The KMITL gate now needs 1110 s of 1200 and still fits,
+  and the last egg's slack over the 300 s floor went **21 s -> 179 s**.
+- **F-09 the gz camera was still at yaw 0 — FOUND BY THAT TEST, FIXED.**
+  2026-08-23 set `mount_yaw_deg: 180` in both configs (correct for the real
+  aircraft) while `sitl/models/eft_x6100/model.sdf` still mounted the SITL
+  camera at yaw 0, so every SITL projection came out point-mirrored. The first
+  0.30 run delivered **0 of 4 with all six pads decoded and every id correct**,
+  positions 3.7-20.2 m off, the aircraft flying to empty grass at each pad —
+  the G7-attempt-1 signature, reproduced somewhere for the first time. The
+  camera pose is now `0 0 0.10 0 1.5708 3.14159`. ⚠ This retires a standing
+  warning in this file: SITL and `CameraModel` **no longer share** the mounting
+  assumption, so a future mount error shows up in sim instead of at the field.
 - **F-03 KMITL asks the decoder for a SMALLER marker than the flight that already
   failed.** KMUTNB sweeps at 8 m = 42 px = 7.1 px/module and decoded 2 of 6.
   KMITL must sweep at 12 m = 28 px = **4.7 px/module**. Flying lower does not
@@ -79,21 +99,19 @@ egg.
   5.6 px/module. The bench decodes to 14 m statically, so this is the in-flight
   BLUR problem and nothing else — `tools/hover_decode.py` is the instrument for
   closing it.
-- **F-04 the scoring table repeats PER SORTIE (open question for the briefing).**
-  Rules p.12, "Repeating Delivery": *"Each flight sortie will be scored using all
-  the criteria above. The given points for each sortie will be accumulated."* So
-  takeoff, transit in, transit out, landing and condition score EVERY flight —
-  and `eggs_aboard=4` collects them once. Two 2-egg flights ≈ 1056 s + resupply,
-  which fits, and doubles those categories. NOT a recommendation: the per-category
-  points are unpublished so the trade cannot be computed, and two flights mean two
-  landings. **Ask the committee on 28 Aug**, then decide — it is one integer.
-- **F-05 the rules forbid powering telemetry in the standby area** (p.13:
-  "Activating radio control equipment and other telemetry is strictly prohibited
-  while in the standby area"). The CM4 boots its own WiFi AP and the console
-  ssh-starts the beacon the moment it is reachable, so plugging the pack in at
-  standby already violates this on a literal reading. Procedural, not code: do not
-  connect the pack until the launch point, and confirm the interpretation at the
-  briefing.
+- **F-04 CLOSED by the operator 2026-08-24 — sortie count is NOT scored.**
+  The judges care about three things only: **is the egg delivered accurately, is
+  it delivered inside the time window, and is the operation safe** (and what the
+  safety provisions actually are). One flight or two changes nothing on the
+  scoresheet, so `eggs_aboard=4` stands and the "Repeating Delivery" line is not
+  a reason to split the mission. Recorded here because the rules text alone
+  reads the other way.
+- **F-05 standby-area telemetry — ACCEPTED 2026-08-24, procedural.** Rules p.13
+  forbids "activating radio control equipment and other telemetry while in the
+  standby area", and the CM4 raises its own WiFi AP at boot with the console
+  ssh-starting the beacon as soon as it answers. **Do not connect the pack until
+  the launch point**, and keep the console shut while waiting. Operator agreed
+  independently. Confirm the interpretation at the 28-Aug briefing.
 - **F-06 the RC-loss drill and ELRS "No Pulses" are still not done.** 2026-08-23
   closed the DIAGNOSIS (a held kill switch, not the link) — the net itself has
   never been tested.
@@ -264,8 +282,12 @@ single sortie" is history, not current design.)
   ⚠ `overlap_frac` deliberately STAYS at the belt-and-braces **0.44**
   (operator, 2026-08-23): the measurement licenses dropping back to 0.30 and
   buying ~158 s at KMITL, but that spends coverage margin while the in-flight
-  decode problem is still open. SITL cannot catch any of this: the gz camera shares the mounting
-  assumption AND renders with no exposure time, so smear does not exist in sim.
+  decode problem is still open. ⚠ SITL used to be blind to all of this because the gz camera shared the
+  mounting assumption — **no longer**: `sitl/models/eft_x6100/model.sdf` was
+  rotated to `0 0 0.10 0 1.5708 3.14159` on 2026-08-24 so sim carries the same
+  180 the airframe does, and a mount error now fails in SITL. (SITL still
+  renders with no exposure time, so smear does not exist in sim — the blur
+  problem stays a field-only question.)
   SITL ground truth (`/tmp/aavc_targets.json`, now with `marker_id`) is used
   ONLY for the post-flight audit + `tools/verify_flight.py`, **never planning**.
 - **Single long-running orchestrator across the window** (operator 2026-07-03):

@@ -152,8 +152,23 @@
       <!-- MODEL-frame z = base-frame −0.25 PLUS the merged base's +0.35 root
            pose (frame bug found by the sibling session 2026-08-14: authored
            as −0.25 this lens actually sat 0.60 below the CG — parked it was
-           7 cm underground, and every pad fix carried a ~9 % AGL error). -->
-      <pose>0 0 0.10 0 1.5708 0</pose>
+           7 cm underground, and every pad fix carried a ~9 % AGL error).
+
+           YAW 3.14159 (2026-08-24), not 0: the REAL camera is bolted UPSIDE
+           DOWN — measured 180 deg on the airframe 2026-08-23, four placements
+           — so image row 0 looks at the TAIL. This model used to sit at yaw 0
+           and CLAUDE.md's standing warning was that "SITL cannot catch a mount
+           error, because the gz camera and CameraModel share the assumption".
+           They no longer share it: the config now carries the measured 180 and
+           this pose matches it, so sim reproduces the real optical frame and a
+           future mount error shows up HERE instead of at the field.
+           Measured cost of the mismatch, the run that found it: every pad
+           decoded (ids 6/6 correct — decode never touches the projection) yet
+           the reported positions were 3.7-20.2 m off, the aircraft flew to
+           empty grass at every pad, and 0 of 4 eggs were delivered. That is
+           exactly the G7-attempt-1 signature, reproduced in sim for the first
+           time. -->
+      <pose>0 0 0.10 0 1.5708 3.14159</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
         <mass>0.050</mass>

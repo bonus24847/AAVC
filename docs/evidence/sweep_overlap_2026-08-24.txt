@@ -1,0 +1,61 @@
+overlap_frac 0.30 vs 0.44 — SITL head to head at KMITL OPTICS
+=============================================================
+2026-08-24. Run because the operator held overlap at 0.44 out of doubt that the
+camera would find the pads at the real field, and asked for the question to be
+settled in Gazebo with numbers before anything changed.
+
+SETUP
+  world      kmutnb_skyfield (there is no KMITL SITL world)
+  envelope   AAVC_PROFILE=competition — transit 20 m, ceiling 20, floor 10
+  sweep      12.0 m, so the 400 mm marker is 28.2 px — the KMITL condition,
+             NOT the practice field's easier 8 m / 42 px
+  pads       6, seed 1301, identical layout in both runs
+  assigned   ids 6,3,5,1
+  camera     mount_yaw 180 in config AND in the gz model (see below)
+  only difference between the two runs: search.overlap_frac
+
+RESULT
+                        overlap 0.30      overlap 0.44
+  sweep legs                     5               6
+  pads found                   6/6             6/6
+  ids correct                  6/6             6/6
+  eggs delivered               4/4             4/4
+  release error        0.09-0.22 m     0.15-0.20 m
+  transit in order             6/6             6/6
+  landed from L&R            2.0 m           2.3 m
+  mission time                536 s           647 s
+  verify_flight        13 ok / 1       13 ok / 1
+                       (the 1 is a sampling artifact: a transit segment shorter
+                        than the 1 Hz TELEM cadence, "100% of samples in the
+                        corridor" on the same line)
+
+  0.30 is 111 s faster on this field with identical coverage and identical
+  delivery success. On the KMITL polygon (226 x 73 m) the computed saving is
+  158 s: 5 legs / 407 s against 7 legs / 565 s.
+
+WHY 0.44 WAS THERE, AND WHY IT NO LONGER NEEDS TO BE
+  0.44 insured against an UNMEASURED camera mount. If the wide (1280 px) image
+  axis did not lie across track, the real swath was the 720 px axis and 0.30
+  left a 2.5 m gap per strip — a 1 m pad hides in that with 1.5 m to spare.
+  The mount was MEASURED on 2026-08-23 (180 deg, four placements round the
+  airframe) and search_pattern.py now derives a nose-first heading, so the wide
+  axis lies across track by construction. The failure 0.44 protected against
+  cannot occur.
+
+  Separately measured the same day: the detector reads a 28 px marker at EVERY
+  across-track offset out to 8.5 m of the 9.08 m half-swath (94 %). The wider
+  0.30 spacing puts a worst-case pad 6.35 m off track, well inside that. So
+  spacing does not fail by pushing pads somewhere the detector cannot read.
+
+A BUG THE TEST FOUND (fixed before the numbers above were taken)
+  The first 0.30 run delivered 0 of 4 with all six pads decoded and every id
+  correct — positions 3.7 to 20.2 m off, the aircraft flying to empty grass at
+  each pad. Cause: 2026-08-23 set mount_yaw_deg 180 in both configs (correct
+  for the real aircraft) while the gz camera model was still at yaw 0, so SITL
+  projections came out point-mirrored. sitl/models/eft_x6100/model.sdf camera
+  pose is now `0 0 0.10 0 1.5708 3.14159` and sim matches the airframe.
+  Worth keeping: this is the first time the G7-attempt-1 signature — decodes
+  fine, never re-acquires — has been reproduced anywhere, and it took a mount
+  error to do it. CLAUDE.md's standing warning that "SITL cannot catch a mount
+  error" is now out of date: the model and the config no longer share the
+  assumption.

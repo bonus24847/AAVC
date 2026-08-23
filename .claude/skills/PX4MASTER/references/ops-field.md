@@ -222,6 +222,48 @@ what a bench frame from 0.75 m reads as, and the tool correctly calls it HIGH.
 
 ⚠ The tool itself has been run end-to-end on real frames but NEVER in flight.
 
+## 2026-08-24 — overlap 0.30 tested and adopted; SITL stopped lying about the camera
+
+The operator held `overlap_frac` at 0.44 out of doubt the camera would find the
+pads at the real field, and asked for the question settled in Gazebo, with
+numbers, before anything changed. Flown head to head at KMITL OPTICS
+(AAVC_PROFILE=competition, 12 m sweep so the marker is 28.2 px — not the
+practice field's easier 8 m / 42 px), same pad seed 1301, only overlap differing:
+
+| | 0.30 | 0.44 |
+|---|---|---|
+| legs | 5 | 6 |
+| pads found / ids correct | 6/6 · 6/6 | 6/6 · 6/6 |
+| eggs delivered | 4/4 | 4/4 |
+| release error | 0.09-0.22 m | 0.15-0.20 m |
+| mission time | **536 s** | 647 s |
+
+Identical coverage and delivery, 111 s faster here and a computed 158 s at
+KMITL. Also measured separately: the detector reads a 28 px marker at EVERY
+across-track offset out to 94% of the half-swath, so wider spacing never puts a
+pad where the decode fails. Both configs are now 0.30, and `sortie_cost_s` was
+rebuilt with it (KMITL 420 -> 900, practice 240 -> 690) — the last egg's slack
+over the 300 s delivery floor goes from **21 s to 179 s**.
+Evidence: `docs/evidence/sweep_overlap_2026-08-24.txt` + both audit trails.
+
+⚠ **The test found a bug first.** The opening 0.30 run delivered 0 of 4 while
+decoding all six pads with every id correct — positions 3.7-20.2 m out, the
+aircraft flying to empty grass at each one. 2026-08-23 had set
+`mount_yaw_deg: 180` in both configs (right for the airframe) while the gz
+camera model still sat at yaw 0, so SITL projections came out point-mirrored.
+`sitl/models/eft_x6100/model.sdf` is now `0 0 0.10 0 1.5708 3.14159`.
+Two things worth carrying:
+  * that is the G7-attempt-1 signature — decodes fine, never re-acquires —
+    reproduced somewhere for the first time, which is a usable regression fixture;
+  * **the old rule "SITL cannot catch a mount error" is retired.** The model and
+    `CameraModel` no longer share the assumption, so the next mount error fails
+    in sim rather than at the field. Re-check the model pose after any camera
+    change, exactly as you re-run `tools/measure_mount_yaw.py` on the airframe.
+
+⚠ Bench discipline the run re-taught: killing an orchestrator mid-flight leaves
+the SITL aircraft airborne, and the next launch dies at
+`unmet critical checks: on_ground`. Restart the stack, do not retry.
+
 ## 2026-08-23 review — the KMITL time budget (numbers to fly by)
 
 Full-system review, 5 days out. Everything geometric checked out against the
