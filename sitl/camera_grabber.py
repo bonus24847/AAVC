@@ -308,6 +308,66 @@ def _write_bytes(payload: bytes, out_path: Path) -> None:
     tmp.replace(out_path)
 
 
+def _should_reopen(*, now: float, last_ok: float, next_reopen_at: float,
+                   after_s: float) -> bool:
+    """Is it time to throw the camera handle away and open a fresh one?
+
+    Three conditions, and the third is the one that matters under a camera that
+    stays gone: the frame file has been quiet for longer than ``after_s``, the
+    feature is enabled at all, and the backoff from the previous failed attempt
+    has expired — otherwise a camera that is unplugged turns into a re-open
+    storm at the loop rate.
+    """
+    return (after_s > 0.0
+            and (now - last_ok) > after_s
+            and now >= next_reopen_at)
+
+
+def _open_nadir(args: argparse.Namespace, passthrough: bool):
+    """Open the nadir camera and hand back a backend ready to grab.
+
+    Raises ``RuntimeError`` for every way the camera can be unusable — will not
+    open, will not decode, or delivers a size other than the configured one.
+    That last case is a refusal on purpose: the projection derives fx AND the
+    principal point from the configured size, so a silently different frame
+    would scale and shift every pixel->lat/lon answer.
+
+    Factored out of ``main`` 2026-08-23 so the run loop can call it AGAIN. A UVC
+    camera that browns out re-enumerates under a new device node — measured on
+    the CM4 the same day, ``usb 1-1.1: USB disconnect`` moving the OV9281 from
+    video0 to video1 — and the already-open descriptor stays dead for good. The
+    process kept running, the frame file simply stopped changing, and nothing
+    said so for 14 minutes. Re-opening the ``by-id`` path picks up whatever node
+    the camera came back on.
+    """
+    if passthrough:
+        cam = MjpegPassthroughBackend(args.nadir_device, args.width,
+                                      args.height, fps=args.fps)
+        got = cam.verify_resolution()
+        if got is None:
+            cam.close()
+            raise RuntimeError("MJPEG passthrough produced no decodable frame "
+                               "— rerun with CAM_PASSTHROUGH=0")
+        if got != (args.width, args.height):
+            cam.close()
+            raise RuntimeError(
+                f"camera delivered {got[0]}x{got[1]}, not "
+                f"{args.width}x{args.height}. Passthrough cannot resize, and "
+                "the projection derives fx AND the principal point from the "
+                "configured size — flying this would scale and shift every "
+                "pixel->lat/lon silently. Fix the config/camera, or use "
+                "CAM_PASSTHROUGH=0 to fall back to the resizing path.")
+        print(f"[grabber] passthrough resolution verified {got[0]}x{got[1]}")
+    else:
+        cam = _make_backend(args.backend, args.nadir_device, args.width,
+                            args.height, fps=args.fps, fourcc=args.fourcc)
+    if args.backend == "v4l2":
+        # A re-enumerated node comes back on the driver's defaults, so the
+        # exposure has to be re-forced every time — not just at startup.
+        _force_short_exposure(args.nadir_device, args.exposure_100us, args.gain)
+    return cam
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--backend", choices=("v4l2", "picamera2"), required=True)
@@ -354,6 +414,11 @@ def main() -> int:
                     help="v4l2 only: fixed sensor gain (OV9281: 0-128, no auto-gain "
                          "— pair with --exposure-100us if frames come out dark). "
                          "-1 = leave unchanged")
+    ap.add_argument("--reopen-after-s", type=float, default=3.0,
+                    help="reopen the camera when this many seconds pass with no "
+                         "frame written (a browned-out UVC camera re-enumerates "
+                         "under a new device node and the open descriptor stays "
+                         "dead). 0 disables")
     args = ap.parse_args()
 
     # NADIR is the sole control-authority camera — fail hard if it won't open.
@@ -361,29 +426,10 @@ def main() -> int:
     if passthrough and args.swap_rb:
         raise SystemExit("[grabber] --mjpeg-passthrough writes the camera's own "
                          "JPEG; there are no pixels to --swap-rb. Pick one.")
-    if passthrough:
-        nadir = MjpegPassthroughBackend(args.nadir_device, args.width,
-                                        args.height, fps=args.fps)
-        got = nadir.verify_resolution()
-        if got is None:
-            nadir.close()
-            raise SystemExit("[grabber] MJPEG passthrough produced no decodable "
-                             "frame — rerun with CAM_PASSTHROUGH=0")
-        if got != (args.width, args.height):
-            nadir.close()
-            raise SystemExit(
-                f"[grabber] camera delivered {got[0]}x{got[1]}, not "
-                f"{args.width}x{args.height}. Passthrough cannot resize, and "
-                "the projection derives fx AND the principal point from the "
-                "configured size — flying this would scale and shift every "
-                "pixel->lat/lon silently. Fix the config/camera, or use "
-                "CAM_PASSTHROUGH=0 to fall back to the resizing path.")
-        print(f"[grabber] passthrough resolution verified {got[0]}x{got[1]}")
-    else:
-        nadir = _make_backend(args.backend, args.nadir_device, args.width,
-                              args.height, fps=args.fps, fourcc=args.fourcc)
-    if args.backend == "v4l2":
-        _force_short_exposure(args.nadir_device, args.exposure_100us, args.gain)
+    try:
+        nadir = _open_nadir(args, passthrough)
+    except RuntimeError as exc:
+        raise SystemExit(f"[grabber] {exc}") from exc
     mirror = not args.no_mirror
     print(f"[grabber] nadir {args.backend}"
           + (" MJPEG-passthrough" if passthrough else "")
@@ -398,33 +444,81 @@ def main() -> int:
     def _emit(frame: np.ndarray) -> np.ndarray:
         return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR) if args.swap_rb else frame
 
-    n_ok = n_fail = 0
+    n_ok = n_fail = n_reopen = 0
     last_log = 0.0
+    # Frame-liveness watchdog. Keyed on the last frame actually WRITTEN, not on
+    # a failure count: the symptom is the frame file going quiet, and it must be
+    # caught whether the backend says so (grab returns None) or just stops
+    # producing. A read() that blocks forever is NOT covered — that needs a
+    # second thread, and it is not the failure this aircraft has had.
+    last_ok = time.monotonic()
+    next_reopen_at = 0.0
+    reopen_backoff_s = 1.0
     try:
         while not stop["flag"]:
             t0 = time.monotonic()
             if passthrough:
                 payload = nadir.grab_bytes()
+                wrote = payload is not None
                 if payload is not None:
                     _write_bytes(payload, args.nadir_out)
                     if mirror:
                         _write_bytes(payload, args.frame_out)
-                    n_ok += 1
-                else:
-                    n_fail += 1
             else:
                 frame = nadir.grab()
+                wrote = frame is not None
                 if frame is not None:
                     frame = _emit(frame)
                     _write_frame(frame, args.nadir_out, args.jpeg_quality)
                     if mirror:
                         _write_frame(frame, args.frame_out, args.jpeg_quality)
-                    n_ok += 1
-                else:
-                    n_fail += 1
+            n_ok, n_fail = (n_ok + 1, n_fail) if wrote else (n_ok, n_fail + 1)
             now = time.monotonic()
+            if wrote:
+                last_ok = now
+                reopen_backoff_s = 1.0
+                next_reopen_at = 0.0
+            elif _should_reopen(now=now, last_ok=last_ok,
+                                next_reopen_at=next_reopen_at,
+                                after_s=args.reopen_after_s):
+                print(f"[grabber] no frame for {now - last_ok:.1f}s — reopening "
+                      f"{args.nadir_device}", flush=True)
+                # Release FIRST: a camera that came back on a new node can be
+                # blocked by the stale handle, and on failure the released
+                # backend keeps returning None, which is the honest state — a
+                # frame file that stops ageing is what cm4/status_beacon.py
+                # turns into `AAVC cam=DEAD <n>s stale` over the radio. Exiting
+                # instead would remove the only process still trying, and
+                # nothing restarts it in flight.
+                try:
+                    nadir.close()
+                except Exception as exc:                     # noqa: BLE001
+                    print(f"[grabber] close before reopen failed: {exc}",
+                          flush=True)
+                try:
+                    nadir = _open_nadir(args, passthrough)
+                except Exception as exc:                     # noqa: BLE001
+                    # Re-read the clock: opening is not instant (verify_
+                    # resolution grabs a frame, and _force_short_exposure shells
+                    # out to v4l2-ctl with a 5 s timeout twice). Reusing the
+                    # pre-attempt `now` would date both the backoff and the
+                    # quiet-since mark, and a SLOW open would then look like a
+                    # long silence and re-open again immediately — the storm
+                    # the backoff exists to prevent.
+                    after = time.monotonic()
+                    next_reopen_at = after + reopen_backoff_s
+                    reopen_backoff_s = min(reopen_backoff_s * 2.0, 15.0)
+                    print(f"[grabber] reopen failed ({exc}) — retrying in "
+                          f"{next_reopen_at - after:.0f}s", flush=True)
+                else:
+                    n_reopen += 1
+                    last_ok = time.monotonic()
+                    reopen_backoff_s = 1.0
+                    next_reopen_at = 0.0
+                    print(f"[grabber] reopened (#{n_reopen})", flush=True)
             if now - last_log > 2.0:
-                print(f"[grabber] nadir ok={n_ok} fail={n_fail}")
+                print(f"[grabber] nadir ok={n_ok} fail={n_fail} "
+                      f"reopen={n_reopen}")
                 last_log = now
             dt = args.interval_s - (time.monotonic() - t0)
             if dt > 0:

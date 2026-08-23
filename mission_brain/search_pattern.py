@@ -206,6 +206,17 @@ def build_search_pattern(
     # Wide axis across track <=> nose along the legs, offset by however the
     # camera is bolted (CameraModel.mount_yaw_rad; 0 = image-up at the nose).
     sweep_yaw = (leg_bearing - math.degrees(camera.mount_yaw_rad)) % 360.0
+    # TWO headings put the wide axis across track. They are 180 deg apart, and
+    # the footprint is a rectangle, so the ground covered is identical either
+    # way — take the one that flies the leg NOSE-FIRST. Without this the 180 deg
+    # mount measured on the aircraft 2026-08-23 (the camera is bolted upside
+    # down) would send it down every sweep leg backwards: legal, identically
+    # covered, and unlike every validated run — not a thing for a safety pilot
+    # to meet for the first time in the air. At a 90 deg mount there is no
+    # nose-first option (both perpendiculars sit 90 deg off the leg) and this
+    # is correctly a no-op.
+    if abs(((sweep_yaw - leg_bearing + 180.0) % 360.0) - 180.0) > 90.0:
+        sweep_yaw = (sweep_yaw + 180.0) % 360.0
 
     return SearchPlanSpec(
         waypoints=waypoints,

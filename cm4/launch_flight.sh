@@ -26,6 +26,9 @@
 #   CAM_GAIN=64                optional fixed gain 0-128 with CAM_EXPOSURE (OV9281 has no auto-gain)
 #   CAM_INTERVAL=0.04          seconds between frame writes (0.04 = 25 Hz with passthrough)
 #   CAM_PASSTHROUGH=0          disable MJPEG passthrough (fall back to YUYV + re-encode)
+#   CAM_REOPEN_S=3             reopen the camera after N s with no frame written
+#                              (a browned-out UVC camera comes back on a new
+#                              /dev/videoN and the open handle stays dead); 0 = off
 #   CAM_MIRROR=1               also write /tmp/aavc_frame.jpg for the WEB dashboard (costs a
 #                              second encode ~12 ms/frame as JPEG; off by default)
 #   CONFIG=sitl/aavc_config.yaml   (default: this repo's .aavc_site, else KMUTNB)
@@ -182,6 +185,9 @@ if [ "${NO_CAMERA:-0}" != "1" ]; then
         CAM_INTERVAL="${CAM_INTERVAL:-0.04}"     # 25 Hz (see run_mission.sh)
     fi
     GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--interval-s ${CAM_INTERVAL:-0.1}"
+    # Self-heal a USB camera that browns out and re-enumerates under a new
+    # device node (2026-08-23) — see sitl/run_mission.sh. CAM_REOPEN_S=0 = off.
+    GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--reopen-after-s ${CAM_REOPEN_S:-3}"
     [ "${CAM_MIRROR:-0}" = "0" ] && GRAB_ARGS="$GRAB_ARGS --no-mirror"
     echo "[flight] camera grabber: backend=$BACKEND args='$GRAB_ARGS'"
     keep_alive "camera-grabber" make camera-real BACKEND="$BACKEND" GRAB_ARGS="$GRAB_ARGS"

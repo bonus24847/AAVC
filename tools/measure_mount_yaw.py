@@ -12,8 +12,13 @@ pixel->lat/lon answer simply comes out rotated by it about the aircraft. At the
 12 m sweep a frame-edge pad sits ~9 m out, so 90 deg of unrecorded mount
 rotation reports that pad ~13 m from where it is: the aircraft flies to empty
 grass, never re-acquires, and the tracker's cluster never confirms. It also
-sets the heading the sweep holds (``search_pattern.sweep_yaw_deg`` = leg
-bearing - this), i.e. whether the WIDE image axis lands across track.
+sets the heading the sweep holds (``search_pattern.sweep_yaw_deg``, derived
+as leg bearing - this and then flipped 180 if that would fly the leg
+backwards), i.e. whether the WIDE image axis lands across track.
+
+MEASURED on this airframe 2026-08-23: **180** — the camera is bolted upside
+down. Re-run this after ANY camera re-mount; the four bench placements that
+pin the current number are kept in ``tests/test_measure_mount_yaw.py``.
 
 ⚠ SITL cannot check it. The gz camera's pose is roll 0 yaw 0 — the very
 assumption ``CameraModel`` makes — so sim agrees with the code no matter what
@@ -33,14 +38,22 @@ FIELD PROCEDURE (5 minutes, motors off, props on or off — nothing spins)
     ideal (this tool finds it for you); a roll of tape, a phone, or a coin on
     white paper works with ``--pixel``.
  4. Run this tool. It prints the angle, snaps it to the nearest 90 deg, and
-    gives you the exact config line.
+    gives you the exact config line. It REFUSES a frame file older than 10 s
+    (``--max-age-s``): a grabber can keep running on a dead camera descriptor
+    and the stale picture would measure a confident wrong angle.
+ 5. Do it a second time with the object somewhere else — the right wing, say,
+    with ``--object-bearing-deg 90``. One placement cannot tell a correct
+    reading from a formula that is wrong everywhere except where you looked;
+    that is exactly how a sign error in THIS function survived until
+    2026-08-23.
 
 WHY IT ASKS FOR "TOWARD THE NOSE": that direction is the one you can place by
 eye without a compass, and it is the only one the answer depends on. If it is
 easier to put the object somewhere else, measure that direction relative to the
 nose (clockwise seen from above) and pass ``--object-bearing-deg``.
 
-Exit: 0 measured · 2 no usable frame · 3 nothing found in the frame.
+Exit: 0 measured · 2 no usable frame (missing, unreadable, or STALE)
+      · 3 nothing found in the frame.
 """
 
 from __future__ import annotations
@@ -48,6 +61,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -57,9 +71,31 @@ import cv2  # noqa: E402
 from vision.detectors.aruco import find_landing_pads  # noqa: E402
 
 DEFAULT_FRAME = Path("/tmp/aavc_nadir.jpg")
+# A frame file older than this is not a picture of the aircraft as it is posed
+# now. It matters here more than almost anywhere: this tool's answer gets typed
+# into a config and shapes every pad fix afterwards, and a stale frame yields a
+# confident WRONG angle with no other symptom. It has already happened — on
+# 2026-08-23 the OV9281 browned out and re-enumerated (video0 -> video1) while
+# the grabber kept running on the dead descriptor, and three "no marker found"
+# results in a row were really one 14-minute-old picture of the floor. Fail
+# closed, like tools/verify_flight.py: refuse the frame rather than measure it.
+_MAX_FRAME_AGE_S = 10.0
 # Below this the object is too near the centre for the angle to mean anything:
 # at 60 px a 5 px centroid wobble is already 5 deg.
 _MIN_OFFSET_PX = 60.0
+
+
+def _frame_age_s(path: Path, *, now: float | None = None) -> float | None:
+    """Seconds since the frame file was last written, or None if absent.
+
+    Wall clock on purpose: the question is "is the grabber still feeding this
+    file", which is about the host process, not the aircraft's flight clock.
+    """
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    return max(0.0, (time.time() if now is None else now) - mtime)
 
 
 def mount_yaw_deg(u: float, v: float, w: int, h: int,
@@ -136,7 +172,23 @@ def main() -> int:
                     help="write a copy with a labelled 100 px ruler (+ the "
                          "object and angle when found) — use it to read the "
                          "pixel off by eye when there is no marker to detect")
+    ap.add_argument("--max-age-s", type=float, default=_MAX_FRAME_AGE_S,
+                    help=f"refuse a frame file older than this many seconds "
+                         f"(default {_MAX_FRAME_AGE_S:g}; 0 disables — only for "
+                         "measuring from a saved frame)")
     args = ap.parse_args()
+
+    age = _frame_age_s(args.frame)
+    if age is None:
+        print(f"ไม่พบไฟล์เฟรม: {args.frame}")
+        return 2
+    if args.max_age_s > 0 and age > args.max_age_s:
+        print(f"เฟรมเก่า {age:.0f} วินาที (เกิน {args.max_age_s:g}) — "
+              f"{args.frame} ไม่ได้ถูกเขียนใหม่")
+        print("  กล้องน่าจะหลุด/ค้าง: grabber ยังรันอยู่ได้ทั้งที่เฟรมไม่ขยับ")
+        print("  เช็ค: pgrep -af 'camera_grabber.p[y]' และ dmesg | tail")
+        print("  ถ้าจงใจวัดจากภาพที่เซฟไว้ ให้ใส่ --max-age-s 0")
+        return 2
 
     img = cv2.imread(str(args.frame))
     if img is None:

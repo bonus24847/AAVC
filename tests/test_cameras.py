@@ -257,3 +257,177 @@ def test_the_frame_contract_paths_are_jpeg() -> None:
         if hasattr(g, "_build_parser") else {}
     if ap_defaults:
         assert str(ap_defaults["nadir_out"]) == str(DEFAULT_NADIR_FRAME)
+
+
+# ── 1d: the camera that goes away and comes back (2026-08-23) ────────────────
+# A UVC brown-out re-enumerates the OV9281 under a NEW device node (`usb 1-1.1:
+# USB disconnect` → video0 becomes video1, measured on the CM4). The open
+# descriptor stays dead for good, the grabber process keeps running, and the
+# frame file simply stops changing — for 14 minutes, in the incident. The
+# beacon says `cam=DEAD` over the radio; nothing used to fix it.
+
+
+def test_should_reopen_needs_quiet_enabled_and_past_the_backoff() -> None:
+    g = _load_grabber()
+    k = dict(now=100.0, last_ok=90.0, next_reopen_at=0.0, after_s=3.0)
+    assert g._should_reopen(**k)                       # 10 s of quiet
+    assert not g._should_reopen(**{**k, "after_s": 0.0})       # disabled
+    assert not g._should_reopen(**{**k, "last_ok": 99.0})      # only 1 s quiet
+    assert not g._should_reopen(**{**k, "next_reopen_at": 105.0})  # backoff
+    # exactly at the threshold is not yet stale — strictly greater
+    assert not g._should_reopen(**{**k, "last_ok": 97.0})
+
+
+def test_open_nadir_refuses_a_camera_that_changed_resolution(monkeypatch) -> None:
+    """The projection derives fx AND the principal point from the configured
+    size, so a camera that comes back at a different resolution must NOT be
+    flown — silently scaling and shifting every pixel->lat/lon."""
+    import argparse
+
+    g = _load_grabber()
+    closed: list[bool] = []
+
+    class _Cam:
+        def __init__(self, *a, **k) -> None:
+            pass
+
+        def verify_resolution(self):
+            return (640, 480)
+
+        def close(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr(g, "MjpegPassthroughBackend", _Cam)
+    args = argparse.Namespace(nadir_device="/dev/video0", width=1280,
+                              height=720, fps=30, fourcc=None, backend="v4l2",
+                              exposure_100us=20, gain=-1)
+    try:
+        g._open_nadir(args, True)
+    except RuntimeError as exc:
+        assert "640x480" in str(exc)
+    else:                                              # pragma: no cover
+        raise AssertionError("a resolution change must not be accepted")
+    assert closed, "the rejected handle must be released"
+
+
+def test_the_grabber_reopens_a_camera_that_stopped_delivering(
+        monkeypatch, tmp_path) -> None:
+    """End to end through main(): the camera delivers, then goes quiet, and the
+    loop must build a SECOND backend rather than sitting on the dead one. The
+    fake stops the run once that has happened."""
+    import sys
+
+    g = _load_grabber()
+    opened: list[object] = []
+    jpeg = cv2.imencode(".jpg", np.zeros((720, 1280, 3), np.uint8))[1].tobytes()
+
+    class _Cam:
+        def __init__(self, *a, **k) -> None:
+            self.n = 0
+            self.first = not opened
+            opened.append(self)
+
+        def verify_resolution(self):
+            return (1280, 720)
+
+        def grab_bytes(self):
+            self.n += 1
+            if not self.first:
+                # The re-opened camera works again — and having proved that,
+                # end the run so the test does not spin.
+                raise SystemExit(0)
+            return jpeg if self.n <= 2 else None       # then the camera goes
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(g, "MjpegPassthroughBackend", _Cam)
+    monkeypatch.setattr(g, "_force_short_exposure", lambda *a, **k: None)
+    out = tmp_path / "nadir.jpg"
+    monkeypatch.setattr(sys, "argv", [
+        "camera_grabber", "--backend", "v4l2", "--mjpeg-passthrough",
+        "--nadir-device", "/dev/v4l/by-id/cam-video-index0",
+        "--nadir-out", str(out), "--no-mirror",
+        "--interval-s", "0", "--reopen-after-s", "0.01"])
+
+    try:
+        g.main()
+    except SystemExit as exc:
+        assert exc.code == 0
+    assert len(opened) == 2, (
+        f"the dead camera should have been reopened once, opened={len(opened)}")
+    assert out.exists(), "the frames written before the failure must survive"
+
+
+def test_reopen_is_off_when_asked(monkeypatch) -> None:
+    """`--reopen-after-s 0` must leave the old behaviour exactly as it was."""
+    g = _load_grabber()
+    assert not g._should_reopen(now=1e6, last_ok=0.0, next_reopen_at=0.0,
+                                after_s=0.0)
+
+
+def test_a_slow_reopen_does_not_trigger_another_one_immediately(
+        monkeypatch, tmp_path) -> None:
+    """Opening is not instant — verify_resolution grabs a frame and
+    _force_short_exposure shells out to v4l2-ctl with a 5 s timeout, twice. If
+    the loop marks "last frame seen" with the clock reading from BEFORE the
+    attempt, a slow open reads back as a long silence and re-opens again on the
+    very next iteration: a tight loop of opens on a camera that is merely slow.
+
+    Driven on a fake clock so it is a property, not a race.
+    """
+    import sys
+
+    g = _load_grabber()
+    clock = {"t": 0.0}
+    opened: list[object] = []
+    jpeg = cv2.imencode(".jpg", np.zeros((720, 1280, 3), np.uint8))[1].tobytes()
+
+    class _Clock:
+        @staticmethod
+        def monotonic() -> float:
+            return clock["t"]
+
+        @staticmethod
+        def sleep(_s: float) -> None:
+            pass
+
+    class _Cam:
+        def __init__(self, *a, **k) -> None:
+            self.grabs = 0
+            self.first = not opened
+            if not self.first:
+                clock["t"] += 10.0        # a SLOW open
+            opened.append(self)
+            if len(opened) == 3:
+                raise SystemExit(0)       # third open = the storm; stop here
+
+        def verify_resolution(self):
+            return (1280, 720)
+
+        def grab_bytes(self):
+            self.grabs += 1
+            clock["t"] += 0.1
+            return jpeg if (self.first and self.grabs == 1) else None
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(g, "time", _Clock)
+    monkeypatch.setattr(g, "MjpegPassthroughBackend", _Cam)
+    monkeypatch.setattr(g, "_force_short_exposure", lambda *a, **k: None)
+    monkeypatch.setattr(sys, "argv", [
+        "camera_grabber", "--backend", "v4l2", "--mjpeg-passthrough",
+        "--nadir-device", "/dev/v4l/by-id/cam-video-index0",
+        "--nadir-out", str(tmp_path / "n.jpg"), "--no-mirror",
+        "--interval-s", "0", "--reopen-after-s", "1.0"])
+
+    try:
+        g.main()
+    except SystemExit:
+        pass
+    assert len(opened) == 3
+    served = opened[1].grabs
+    assert served >= 5, (
+        "the second camera was replaced after only "
+        f"{served} grab(s) — the 10 s spent OPENING it was counted as silence")
