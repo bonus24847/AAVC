@@ -156,6 +156,24 @@ Bench session with the CM4 + FC live. Three findings, in the order they bit.
   restart it, and a frame file that stops ageing is already the honest signal.
   Manual fallback if it ever needs one: kill by PID from
   `pgrep -f 'camera_grabber.p[y]'` and let `start_infra.sh` restart it.
+  **VERIFIED LIVE on the aircraft the same day**, without unplugging anything
+  (`sudo` on the CM4 needs a password, so the USB `authorized` toggle was out):
+  a second grabber was pointed at a symlink, started on a node that opens and
+  delivers nothing (`/dev/video14`), and the symlink was then repointed at the
+  camera's `by-id` path. The log shows the whole cycle — `no frame for 3.0s —
+  reopening` → 37 re-opens while the camera stayed dead → `reopen failed …
+  retrying in 15s` as the backoff capped → `reopened (#38)` → the frame file
+  appearing and then ageing normally. Saved as
+  `docs/evidence/camera_selfheal_2026-08-23.log`.
+  ⚠ **It re-enumerated AGAIN, unprompted, during that very test** — `by-id`
+  moved from video1 back to video0 at 14:16 with nobody touching the aircraft.
+  Twice in one afternoon: treat this as a frequent event, not an anomaly, and
+  never hard-code a `/dev/videoN` anywhere. Every consumer must go through
+  `/dev/v4l/by-id/…-video-index0`.
+  ⚠ Two limits of the fix, both known: a `read()` that BLOCKS forever is not
+  covered (that needs a second thread), and on the dead node each failing read
+  took ~10 s to return, so the watchdog fires a few seconds later than
+  `--reopen-after-s` suggests.
   ⚠ Reading the frame file WITHOUT checking its age is how this fooled a whole
   measurement session: three "no marker found" results in a row were a
   14-minute-old picture of the floor. Check mtime before trusting any frame —
