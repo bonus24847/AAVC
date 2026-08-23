@@ -298,14 +298,22 @@ cameras:
     depression_deg: 90.0  # optical axis below horizontal; 90 = straight down
     # Rotation of the camera about its optical axis vs the airframe: 0 = image
     # "up" points at the NOSE, image-right at the right wing; + = clockwise
-    # seen from above. ⚠ NOT MEASURED — 0 is the assumption, not a reading.
+    # seen from above. MEASURED 2026-08-23 on the aircraft (KMUTNB bench):
+    # 180 — the camera is bolted UPSIDE DOWN, so the image's top row looks at
+    # the TAIL, not the nose. Four independent placements of a floor object
+    # (nose / right / tail / left, aircraft raised ~0.75 m and level) each
+    # solved it alone: 180.3, 187.4, 183.4, 186.1 (mean 184.3). Snapped to the
+    # bolted 180; the ~4 deg residual is placing-by-eye error, worth 0.63 m at
+    # the 12 m sweep. The old 0.0 was an ASSUMPTION and it was wrong by ~175
+    # deg in EVERY direction, so every pixel->lat/lon fix came out
+    # point-mirrored about the aircraft — which is exactly what a sweep that
+    # sees pads and never re-acquires them looks like.
     # It moves two things: the pixel->lat/lon bearing (a 90 deg error reports a
     # frame-edge pad ~13 m from where it is, at the 12 m sweep) and the heading
     # the sweep holds (search_pattern.sweep_yaw_deg = leg bearing - this).
-    # MEASURE: marker 1 m in FRONT of the nose, one nadir frame, see which
-    # image axis it moved along and which way. SITL cannot catch an error here
-    # — the gz camera shares the assumption.
-    mount_yaw_deg: 0.0
+    # SITL cannot catch an error here — the gz camera shares the assumption.
+    # RE-MEASURE with tools/measure_mount_yaw.py after any camera re-mount.
+    mount_yaw_deg: 180.0
 
 # Vision worker + terminal-align frame handling.
 vision:

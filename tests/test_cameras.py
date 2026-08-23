@@ -76,11 +76,13 @@ def test_config_nadir_matches_ov9281_profile() -> None:
     (50 mm marker at 0.495 m → 85.5 px → fx 847; replaces the 99.7 unmeasured
     placeholder) — and no second camera block (the oblique cue was retired).
 
-    ``mount_yaw_deg`` joined the block 2026-08-22: the rotation of the camera
-    about its optical axis relative to the airframe. It is locked at 0.0 here
-    because 0.0 is an ASSUMPTION nobody has measured, and the day someone reads
-    it off the aircraft this test should fail and be updated with the reading —
-    a silent edit is how a mounting fact becomes folklore. It moves the
+    ``mount_yaw_deg`` joined the block 2026-08-22 locked at 0.0 — an ASSUMPTION
+    nobody had measured — with a note that the day someone read it off the
+    aircraft this test should fail and be updated with the reading. That day was
+    2026-08-23: it measured **180**, the camera is bolted upside down, and the
+    assumption had been wrong by ~175 deg in every direction. The evidence (four
+    placements round the airframe) lives in
+    ``tests/test_measure_mount_yaw.py::_BENCH_2026_08_23``. It moves the
     pixel->lat/lon bearing and the heading the sweep holds; SITL cannot check
     it, because the gz camera shares the same assumption.
     """
@@ -91,7 +93,7 @@ def test_config_nadir_matches_ov9281_profile() -> None:
     assert set(cams) == {"nadir"}
     assert cams["nadir"] == {
         "fov_deg": 74.2, "width_px": 1280, "height_px": 720,
-        "depression_deg": 90.0, "mount_yaw_deg": 0.0,
+        "depression_deg": 90.0, "mount_yaw_deg": 180.0,
     }
 
 
