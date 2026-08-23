@@ -137,11 +137,29 @@ single sortie" is history, not current design.)
   defines 5; it is in `preflight_params.py::PINNED` for exactly that reason).
   The heading is DERIVED: `leg_bearing − cameras.nadir.mount_yaw_deg`, which
   puts the camera's WIDE (1280 px) axis across track — the footprint
-  `swath_m` assumes. ⚠ `mount_yaw_deg` is **0.0 = UNMEASURED**; until it is
-  read off the aircraft, `overlap_frac` is **0.44** (spacing ≤ the NARROW
-  swath) so coverage survives any mount/heading combination. SITL cannot catch
-  either error: the gz camera shares the mounting assumption AND renders with
-  no exposure time, so smear does not exist in sim.
+  `swath_m` assumes. ✅ **`mount_yaw_deg` MEASURED 2026-08-23 = 180** — the
+  camera is bolted **UPSIDE DOWN**, image row 0 looks at the TAIL. It had
+  shipped as `0.0`, an ASSUMPTION, and that was wrong by **~175° in EVERY
+  direction**: every pixel→lat/lon fix came out point-mirrored about the
+  aircraft, which is precisely the shape of a sweep that SEES pads and never
+  re-acquires them (G7 #1: 2 of 6 decoded). Four placements of one floor object
+  round the raised, levelled airframe (nose / right / tail / left) each solved
+  it alone — 180.3 / 187.4 / 183.4 / 186.1, mean 184.3, snapped to the bolted
+  180; the four pixels are kept as data in
+  `tests/test_measure_mount_yaw.py::_BENCH_2026_08_23`. Found on the way, same
+  day: `tools/measure_mount_yaw.py` computed `psi = ang − bearing` where
+  `projection.py` wants `psi = ang + bearing` — invisible at the documented
+  nose (`bearing=0`) placement and wrong by `2·bearing` anywhere else, so ONLY
+  a confirmation placement off the nose could expose it (the right-wing frame
+  read 7° where the aircraft's own projection says 187°). ⚠ Two consequences
+  are OPEN, both operator calls: (1) with ψ=180 the derived heading is
+  `leg_bearing − 180`, so the sweep is now flown **TAIL-FIRST** — coverage is
+  identical (the other perpendicular, `leg_bearing`, is equally valid) but the
+  flight looks different from every validated run; (2) `overlap_frac` is still
+  the belt-and-braces **0.44** — the measurement licenses dropping back to
+  0.30, but that spends coverage margin while the in-flight decode problem is
+  still open. SITL cannot catch any of this: the gz camera shares the mounting
+  assumption AND renders with no exposure time, so smear does not exist in sim.
   SITL ground truth (`/tmp/aavc_targets.json`, now with `marker_id`) is used
   ONLY for the post-flight audit + `tools/verify_flight.py`, **never planning**.
 - **Single long-running orchestrator across the window** (operator 2026-07-03):

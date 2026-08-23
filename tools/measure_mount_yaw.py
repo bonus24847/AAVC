@@ -66,17 +66,29 @@ def mount_yaw_deg(u: float, v: float, w: int, h: int,
                   object_bearing_deg: float = 0.0) -> float:
     """Mount rotation from where a known-direction object lands in the frame.
 
-    The projection maps image-right to +rx and image-UP to +ry, and at mount 0
-    those are the aircraft's right wing and nose. So an object lying at true
-    body bearing ``b`` appears at image angle ``b + psi``, and
+    ``vision/projection.py`` maps image-right to +rx and image-UP to +ry, then
+    un-rotates the pair by psi before reading body forward/right off it. Write
+    ``theta`` for the object's CLOCKWISE angle from image-up,
 
-        psi = atan2(cx - u, cy - v) - b
+        theta = atan2(u - cx, cy - v)
 
-    reads it back. (``cy - v`` because image rows grow DOWNWARD — that flip is
-    the single place this measurement usually goes wrong, which is why this
-    function exists instead of a note in a runbook.)"""
+    and that un-rotation makes the body bearing come out as ``b = theta + psi``,
+    so the mount is read back as ``psi = b - theta``. Since this function's
+    ``ang`` is ``-theta`` (it takes ``cx - u``, not ``u - cx``), that is
+
+        psi = ang + b
+
+    — a PLUS. It was a minus until 2026-08-23, which is invisible at the
+    documented ``b = 0`` (nose) placement and wrong by ``2b`` anywhere else: the
+    confirmation placement out at the right wing read 7 deg where the aircraft's
+    own projection says 187. Four placements now pin it (see
+    ``tests/test_measure_mount_yaw.py``).
+
+    (``cy - v`` because image rows grow DOWNWARD — that flip is the other place
+    this measurement usually goes wrong, which is why this function exists
+    instead of a note in a runbook.)"""
     ang = math.degrees(math.atan2(w / 2.0 - u, h / 2.0 - v))
-    return (ang - object_bearing_deg) % 360.0
+    return (ang + object_bearing_deg) % 360.0
 
 
 def _annotate(img, out: Path, *, u: float | None = None,

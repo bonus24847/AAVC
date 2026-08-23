@@ -70,21 +70,77 @@ def test_the_measured_yaw_makes_the_projection_point_at_the_nose(pixel, heading)
         f"came out {rel:.2f} deg off the nose")
 
 
-def test_an_object_placed_off_the_nose_is_accounted_for():
+@pytest.mark.parametrize("bearing", [0.0, 90.0, 180.0, 270.0, 37.0, -125.0])
+@pytest.mark.parametrize("pixel", [(160, 360), (640, 120), (900, 200), (410, 545)])
+def test_an_object_placed_off_the_nose_is_accounted_for(pixel, bearing):
     """Placing the object dead ahead is the easy instruction, not the only one:
-    state where it really is and the reading still comes out the same."""
-    u, v = 160, 360                      # object appears LEFT of centre
-    straight_ahead = mount_yaw_deg(u, v, _W, _H)
-    assert abs(straight_ahead - 90.0) < 1e-9
-    # Same frame, but the object was actually 90 deg to the RIGHT of the nose:
-    # the mount must then read 90 less.
-    assert abs(mount_yaw_deg(u, v, _W, _H, object_bearing_deg=90.0)) < 1e-9
-    # …and 90 to the LEFT reads 90 more.
-    assert abs(mount_yaw_deg(u, v, _W, _H, object_bearing_deg=-90.0) - 180.0) < 1e-9
+    state where it really is and the reading still comes out the same.
+
+    This closes the loop through the projection rather than re-checking the
+    tool's own arithmetic, which is how the sign slip below survived: the old
+    version asserted ``psi = ang - b`` against nothing but itself, and
+    ``ang - b`` happens to equal ``ang + b`` at exactly the two bearings it
+    tested against (0 and 180). At the right wing it was wrong by 180 deg.
+    """
+    u, v = pixel
+    psi = mount_yaw_deg(u, v, _W, _H, object_bearing_deg=bearing)
+    cam = CameraModel(name="nadir", width_px=_W, height_px=_H,
+                      mount_yaw_rad=math.radians(psi))
+    fix = project_pixel((u, v), _LAT, _LON, _ALT, 0.0, cam)
+    assert fix is not None
+    rel = _bearing_from_drone(fix, 0.0)
+    off = min((rel - bearing) % 360.0, (bearing - rel) % 360.0)
+    assert off < 0.05, (
+        f"object at pixel {pixel} declared {bearing} deg off the nose implies "
+        f"mount {psi:.1f}; the projection then puts it {rel:.1f} deg off")
 
 
-def test_the_shipped_default_is_the_unrotated_mount():
-    """0.0 in the config means "image-up is the nose" — the assumption the
-    whole flight core has been making. Pinned so the day it is MEASURED the
-    change is deliberate."""
+# The real bench measurement, 2026-08-23 at KMUTNB: the aircraft raised ~0.75 m
+# on a crate, level, camera looking down at the floor, and ONE object walked
+# clockwise round it — nose, right wing, tail, left wing — one nadir frame each.
+# These are the pixels those four frames put it at. They are kept as data (not a
+# comment) because they are the only evidence the shipped 180.0 rests on, and
+# because four independent placements agreeing is what makes it evidence rather
+# than a reading: the sign bug above shows a single nose-only placement cannot
+# tell 180 from a formula that is wrong everywhere else.
+_BENCH_2026_08_23 = [
+    ((641, 530),   0.0, 180.3),   # marker sheet straight out from the NOSE
+    ((295, 405),  90.0, 187.4),   # filament spool at the RIGHT wing
+    ((622,  58), 180.0, 183.4),   # …at the TAIL
+    ((970, 325), 270.0, 186.1),   # …at the LEFT wing
+]
+
+
+@pytest.mark.parametrize("pixel, bearing, expect", _BENCH_2026_08_23)
+def test_the_bench_measurement_reads_the_mount_as_bolted(pixel, bearing, expect):
+    """Each placement alone must land within a few degrees of 180, and all four
+    must snap to the same bolted angle. Placing an object by eye is worth a few
+    degrees, so the tolerance is 8 — but a SIGN error is worth 180, which is the
+    failure this pins."""
+    u, v = pixel
+    psi = mount_yaw_deg(u, v, _W, _H, object_bearing_deg=bearing)
+    assert abs(psi - expect) < 0.15, f"{pixel} @ {bearing} deg -> {psi:.1f}"
+    assert abs(psi - 180.0) < 8.0, "every placement must agree the mount is 180"
+
+
+def test_the_bench_measurement_is_what_the_config_ships():
+    """The four placements average to the number in both field configs. A camera
+    re-mount must break this test, not slide through as folklore."""
+    import yaml
+
+    mean = sum(psi for _, _, psi in _BENCH_2026_08_23) / len(_BENCH_2026_08_23)
+    assert abs(mean - 184.3) < 0.1
+    snapped = round(mean / 90.0) * 90.0
+    assert snapped == 180.0
+    root = Path(__file__).resolve().parents[1] / "sitl"
+    for name in ("aavc_config.yaml", "kmitl_config.yaml"):
+        cams = yaml.safe_load((root / name).read_text())["cameras"]
+        assert cams["nadir"]["mount_yaw_deg"] == snapped, name
+
+
+def test_the_formula_reads_an_object_above_centre_as_the_unrotated_mount():
+    """An object that appears ABOVE the frame centre while sitting straight out
+    from the nose means image-up IS the nose, i.e. mount 0. That is the
+    arithmetic, not the aircraft: this airframe measured 180 (the camera is
+    bolted upside down) — see ``test_the_bench_measurement_reads_the_mount``."""
     assert abs(mount_yaw_deg(_W / 2.0, 100.0, _W, _H)) < 1e-9

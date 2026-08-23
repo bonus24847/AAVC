@@ -94,6 +94,66 @@ other repo's operator decides.
   after any core change and commit the target too; the drift this closed had
   left the comp repo without a type audit at all.
 
+## 2026-08-23 — the camera was bolted upside down, and nobody had looked
+
+Bench session with the CM4 + FC live. Three findings, in the order they bit.
+
+- **`mount_yaw_deg` was an ASSUMPTION (0.0) and the truth is 180.** Symptom:
+  the sweep sees pads and never re-acquires them (G7 #1 decoded 2 of 6).
+  Mechanism: `vision/projection.py` un-rotates each ray by this angle before
+  reading body forward/right, so a 180 error point-mirrors EVERY pad fix about
+  the aircraft — at the 12 m sweep a frame-edge pad ~9 m out is reported ~18 m
+  from where it is, the aircraft flies to empty grass, and the tracker's
+  cluster never confirms. Nothing else misbehaves, which is why it survived.
+  Fix: measured on the airframe (`tools/measure_mount_yaw.py`), aircraft raised
+  ~0.75 m on a crate and levelled, camera looking down at the floor, ONE object
+  walked clockwise round it — nose / right / tail / left, one nadir frame each.
+  The four frames solved 180.3 / 187.4 / 183.4 / 186.1 (mean 184.3), so the
+  bolted angle is 180 and the old 0.0 was wrong by ~175 in EVERY direction.
+  Caught by: `tests/test_measure_mount_yaw.py::_BENCH_2026_08_23` keeps the
+  four pixels as data and `test_the_bench_measurement_is_what_the_config_ships`
+  fails if either field config drifts off the measurement.
+  ⚠ **Re-measure after ANY camera re-mount** — SITL cannot check it, because
+  the gz camera is posed with the same assumption the code makes.
+
+- **`measure_mount_yaw.py` had a sign error that only an off-nose placement
+  could expose.** It computed `psi = ang - bearing`; `projection.py` wants
+  `psi = ang + bearing`. At the documented `bearing = 0` (object at the nose)
+  the two are identical — and at 180 they agree too — so the tool was correct
+  at exactly the placements its own runbook and its own tests used. The
+  right-wing confirmation frame read **7 deg** where the aircraft's projection
+  says **187**. Fix: the plus, plus tests that close the loop THROUGH
+  `project_pixel` at bearings 0/90/180/270/37/-125 instead of re-checking the
+  tool's arithmetic against itself. Lesson worth keeping: a self-consistent
+  test of one formula proves nothing about the convention it must match — the
+  round trip is the test.
+
+- **The USB camera re-enumerates and the grabber keeps running on a dead fd.**
+  Symptom: `/tmp/aavc_nadir.jpg` stops changing (same mtime, same md5) while
+  `pgrep camera_grabber` still shows the process. `dmesg`: `usb 1-1.1: USB
+  disconnect, device number 3` then a re-enumerate as device 4, moving the
+  camera **video0 -> video1**. The `by-id` path in `run_mission.sh` fixes the
+  STARTING case only; a mid-run disconnect leaves the already-open descriptor
+  dead. Trigger here was moving the aircraft by hand — which means a bump in
+  flight can kill the camera for the rest of a sortie with the aircraft still
+  flying. Detection EXISTS and works: `cm4/status_beacon.py` sends
+  `AAVC cam=DEAD <n>s stale` once the frame is >6 s old, over the radio.
+  Workaround today: restart the grabber (kill by PID from
+  `pgrep -f 'camera_grabber.p[y]'`). **Not yet fixed in code** — a self-healing
+  re-open is an open item below.
+  ⚠ Reading the frame file WITHOUT checking its age is how this fooled a whole
+  measurement session: three "no marker found" results in a row were a
+  14-minute-old picture of the floor. Check mtime before trusting any frame.
+
+- **`pgrep -f` bites from the other side too.** `run_mission.sh` reported
+  "mavlink-router already up" when no router existed, because the ssh command
+  line that launched it contained the literal string `mavlink-routerd` (in an
+  unrelated `pgrep` at the end of the same line) and `ensure_infra`'s own
+  `pgrep -f 'mavlink-route[r]d'` matched THAT shell. The bracket idiom protects
+  the pattern from itself, not from other processes quoting it. If staging ever
+  fails with `unmet critical checks: link` while the log says the router is up,
+  suspect this first.
+
 ## Open items / follow-ups (updated 2026-08-22 — post-review)
 - [x] 🟠 **The failures that HIDE — 14 fixed 2026-08-22** (practice ac4a155 /
       comp 8dc3d27 / console ca7ab79). One family, found by the full-system
