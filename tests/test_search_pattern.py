@@ -188,17 +188,61 @@ def test_sweep_holds_a_heading_that_puts_the_wide_axis_across_the_legs() -> None
 
 def test_a_rotated_camera_mount_turns_the_held_heading_with_it() -> None:
     """The heading is derived, not assumed: bolt the camera 90 deg round and
-    the aircraft must fly the legs sideways to keep the same ground footprint."""
+    the aircraft must fly the legs sideways to keep the same ground footprint.
+
+    A 180 deg mount is the exception, and deliberately so: `leg_bearing - 180`
+    and `leg_bearing` BOTH lay the wide axis across track (the footprint is a
+    rectangle), so the plan takes the nose-first one and the held heading comes
+    back to the leg bearing itself. See
+    ``test_the_held_heading_prefers_flying_the_leg_nose_first``.
+    """
     area = [(13.731239, 100.787824), (13.731359, 100.789916),
             (13.730703, 100.789776), (13.730723, 100.787840)]
     home = Coordinate(lat=13.730322, lon=100.787446)
-    for mount, want in ((90.0, 357.0), (180.0, 267.0), (270.0, 177.0)):
+    for mount, want in ((90.0, 357.0), (180.0, 87.0), (270.0, 177.0)):
         cam = CameraModel(name="nadir", mount_yaw_rad=math.radians(mount))
         spec = build_search_pattern(area, home, sweep_alt_m=12.0,
                                     overlap_frac=0.44, margin_m=5.0,
                                     speed_mps=3.0, camera=cam, ceiling_m=20.0,
                                     axis_deg=87.0)
         assert abs(spec.sweep_yaw_deg - want) < 1e-6, f"mount {mount}"
+
+
+def _wrap180(deg: float) -> float:
+    return ((deg + 180.0) % 360.0) - 180.0
+
+
+def test_the_held_heading_prefers_flying_the_leg_nose_first() -> None:
+    """Two headings put the wide axis across track and they are 180 deg apart.
+    Whichever mount the camera is bolted at, the plan must pick the one that
+    flies the leg forwards — and must still put the wide axis across track,
+    which is the whole reason the heading is derived at all.
+
+    The 180 deg mount MEASURED on this aircraft is what makes this matter: the
+    bare formula would fly every sweep leg backwards. A 90 deg mount has no
+    nose-first option (both perpendiculars are 90 deg off the leg), so the
+    guarantee there is only "no worse than 90".
+    """
+    area = [(13.731239, 100.787824), (13.731359, 100.789916),
+            (13.730703, 100.789776), (13.730723, 100.787840)]
+    home = Coordinate(lat=13.730322, lon=100.787446)
+    for mount in range(0, 360, 10):
+        cam = CameraModel(name="nadir", mount_yaw_rad=math.radians(mount))
+        spec = build_search_pattern(area, home, sweep_alt_m=12.0,
+                                    overlap_frac=0.44, margin_m=5.0,
+                                    speed_mps=3.0, camera=cam, ceiling_m=20.0,
+                                    axis_deg=87.0)
+        off_leg = abs(_wrap180(spec.sweep_yaw_deg - spec.leg_bearing_deg))
+        assert off_leg <= 90.0 + 1e-6, (
+            f"mount {mount}: heading {spec.sweep_yaw_deg:.0f} flies the "
+            f"{spec.leg_bearing_deg:.0f} deg leg {off_leg:.0f} deg off — "
+            "backwards when it did not have to be")
+        # …and the flip must not have cost the coverage it exists to protect:
+        # the camera's WIDE image axis lies at body bearing 90 + mount, so in
+        # the world it points at heading + 90 + mount, and that must be square
+        # across the leg — swath_m assumes exactly this.
+        wide_axis = spec.sweep_yaw_deg + 90.0 + mount
+        assert abs(abs(_wrap180(wide_axis - spec.leg_bearing_deg)) - 90.0) < 1e-6
 
 
 def test_an_enu_aligned_polygon_still_names_its_leg_bearing() -> None:

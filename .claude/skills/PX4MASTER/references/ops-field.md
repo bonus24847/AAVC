@@ -115,6 +115,13 @@ Bench session with the CM4 + FC live. Three findings, in the order they bit.
   fails if either field config drifts off the measurement.
   ⚠ **Re-measure after ANY camera re-mount** — SITL cannot check it, because
   the gz camera is posed with the same assumption the code makes.
+  Side effect, handled: the sweep heading is derived as
+  `leg_bearing - mount_yaw`, so 180 alone would have flown every sweep leg
+  BACKWARDS. `search_pattern.py` now takes whichever of the two valid
+  perpendiculars flies the leg nose-first (the footprint is a rectangle, so
+  coverage is identical). `overlap_frac` deliberately stays at **0.44**
+  (operator call): the measurement licenses 0.30 and ~158 s back at KMITL, but
+  not while the in-flight decode problem is open.
 
 - **`measure_mount_yaw.py` had a sign error that only an off-nose placement
   could expose.** It computed `psi = ang - bearing`; `projection.py` wants
@@ -138,12 +145,23 @@ Bench session with the CM4 + FC live. Three findings, in the order they bit.
   flight can kill the camera for the rest of a sortie with the aircraft still
   flying. Detection EXISTS and works: `cm4/status_beacon.py` sends
   `AAVC cam=DEAD <n>s stale` once the frame is >6 s old, over the radio.
-  Workaround today: restart the grabber (kill by PID from
-  `pgrep -f 'camera_grabber.p[y]'`). **Not yet fixed in code** — a self-healing
-  re-open is an open item below.
+  ✅ **FIXED the same day**: `sitl/camera_grabber.py` now runs a frame-liveness
+  watchdog — no frame WRITTEN for `--reopen-after-s` (default 3 s) and it
+  releases the handle and re-opens the `by-id` path, which resolves to whatever
+  node the camera came back on, re-forcing the exposure (a re-enumerated node
+  returns to the driver's defaults). Failed re-opens back off 1→15 s instead of
+  storming, and a camera that comes back at a DIFFERENT resolution is refused,
+  not flown — the projection derives fx and the principal point from the
+  configured size. The process never exits over this: in flight nothing would
+  restart it, and a frame file that stops ageing is already the honest signal.
+  Manual fallback if it ever needs one: kill by PID from
+  `pgrep -f 'camera_grabber.p[y]'` and let `start_infra.sh` restart it.
   ⚠ Reading the frame file WITHOUT checking its age is how this fooled a whole
   measurement session: three "no marker found" results in a row were a
-  14-minute-old picture of the floor. Check mtime before trusting any frame.
+  14-minute-old picture of the floor. Check mtime before trusting any frame —
+  `tools/measure_mount_yaw.py` now REFUSES a frame older than 10 s
+  (`--max-age-s 0` to measure from an archived one on purpose), and the beacon
+  was saying `cam=DEAD` over the radio the whole time nobody was looking.
 
 - **`pgrep -f` bites from the other side too.** `run_mission.sh` reported
   "mavlink-router already up" when no router existed, because the ssh command

@@ -135,9 +135,12 @@ single sortie" is history, not current design.)
   `MPC_YAW_MODE` (`FlightTaskAuto.cpp:490-501`) — so the fix holds even if
   `MPC_YAW_MODE=5` never lands (its PX4 metadata says `@max 4` while the enum
   defines 5; it is in `preflight_params.py::PINNED` for exactly that reason).
-  The heading is DERIVED: `leg_bearing − cameras.nadir.mount_yaw_deg`, which
-  puts the camera's WIDE (1280 px) axis across track — the footprint
-  `swath_m` assumes. ✅ **`mount_yaw_deg` MEASURED 2026-08-23 = 180** — the
+  The heading is DERIVED: `leg_bearing − cameras.nadir.mount_yaw_deg`, then
+  flipped 180° if that would fly the leg BACKWARDS — both headings put the
+  camera's WIDE (1280 px) axis across track (the footprint is a rectangle, so
+  `swath_m` is identical either way) and the plan takes the nose-first one.
+  Without that flip the measured 180° mount would send the aircraft down every
+  sweep leg in reverse. ✅ **`mount_yaw_deg` MEASURED 2026-08-23 = 180** — the
   camera is bolted **UPSIDE DOWN**, image row 0 looks at the TAIL. It had
   shipped as `0.0`, an ASSUMPTION, and that was wrong by **~175° in EVERY
   direction**: every pixel→lat/lon fix came out point-mirrored about the
@@ -151,14 +154,12 @@ single sortie" is history, not current design.)
   `projection.py` wants `psi = ang + bearing` — invisible at the documented
   nose (`bearing=0`) placement and wrong by `2·bearing` anywhere else, so ONLY
   a confirmation placement off the nose could expose it (the right-wing frame
-  read 7° where the aircraft's own projection says 187°). ⚠ Two consequences
-  are OPEN, both operator calls: (1) with ψ=180 the derived heading is
-  `leg_bearing − 180`, so the sweep is now flown **TAIL-FIRST** — coverage is
-  identical (the other perpendicular, `leg_bearing`, is equally valid) but the
-  flight looks different from every validated run; (2) `overlap_frac` is still
-  the belt-and-braces **0.44** — the measurement licenses dropping back to
-  0.30, but that spends coverage margin while the in-flight decode problem is
-  still open. SITL cannot catch any of this: the gz camera shares the mounting
+  read 7° where the aircraft's own projection says 187°). ✅ The tail-first side effect is CLOSED
+  (`search_pattern.py` now takes the nose-first perpendicular, above).
+  ⚠ `overlap_frac` deliberately STAYS at the belt-and-braces **0.44**
+  (operator, 2026-08-23): the measurement licenses dropping back to 0.30 and
+  buying ~158 s at KMITL, but that spends coverage margin while the in-flight
+  decode problem is still open. SITL cannot catch any of this: the gz camera shares the mounting
   assumption AND renders with no exposure time, so smear does not exist in sim.
   SITL ground truth (`/tmp/aavc_targets.json`, now with `marker_id`) is used
   ONLY for the post-flight audit + `tools/verify_flight.py`, **never planning**.

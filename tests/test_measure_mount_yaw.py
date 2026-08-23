@@ -142,5 +142,91 @@ def test_the_formula_reads_an_object_above_centre_as_the_unrotated_mount():
     """An object that appears ABOVE the frame centre while sitting straight out
     from the nose means image-up IS the nose, i.e. mount 0. That is the
     arithmetic, not the aircraft: this airframe measured 180 (the camera is
-    bolted upside down) — see ``test_the_bench_measurement_reads_the_mount``."""
+    bolted upside down) — see ``test_the_bench_measurement_reads_the_mount_as_bolted``."""
     assert abs(mount_yaw_deg(_W / 2.0, 100.0, _W, _H)) < 1e-9
+
+
+# ── the frame must be a picture of NOW ───────────────────────────────────────
+# This tool reads one file and its answer gets typed into a config that shapes
+# every pad fix afterwards. On 2026-08-23 the OV9281 browned out and
+# re-enumerated while the grabber kept running on the dead descriptor: three
+# "no marker found" results in a row were one 14-minute-old picture of the
+# floor, and a stale frame with an object in it would have produced a
+# confident WRONG angle with no symptom at all. Fail closed.
+
+
+def _stale_frame(tmp_path, age_s: float):
+    import os
+    import time
+
+    import cv2
+    import numpy as np
+
+    frame = tmp_path / "nadir.jpg"
+    cv2.imwrite(str(frame), np.zeros((720, 1280, 3), np.uint8))
+    when = time.time() - age_s
+    os.utime(frame, (when, when))
+    return frame
+
+
+def test_frame_age_reads_the_file_clock_and_says_None_when_absent(tmp_path):
+    import measure_mount_yaw as tool
+
+    assert tool._frame_age_s(tmp_path / "nope.jpg") is None
+    frame = _stale_frame(tmp_path, 900.0)
+    age = tool._frame_age_s(frame)
+    assert age is not None and 890.0 < age < 910.0
+    # never negative, even if the file claims the future (clock skew on the CM4,
+    # which boots with no RTC and no NTP)
+    fresh = _stale_frame(tmp_path, -50.0)
+    assert tool._frame_age_s(fresh) == 0.0
+
+
+def test_a_stale_frame_is_refused_instead_of_measured(tmp_path, monkeypatch,
+                                                      capsys):
+    import sys as _sys
+
+    import measure_mount_yaw as tool
+
+    frame = _stale_frame(tmp_path, 900.0)
+    monkeypatch.setattr(_sys, "argv", ["measure_mount_yaw", "--frame",
+                                       str(frame), "--pixel", "300,200"])
+    assert tool.main() == 2, "a 15-minute-old frame must not be measured"
+    out = capsys.readouterr().out
+    assert "900" in out, out
+
+
+def test_a_saved_frame_can_still_be_measured_on_purpose(tmp_path, monkeypatch):
+    """`--max-age-s 0` is the deliberate escape: measuring from an archived
+    frame is legitimate, guessing from a stale live one is not."""
+    import sys as _sys
+
+    import measure_mount_yaw as tool
+
+    frame = _stale_frame(tmp_path, 900.0)
+    monkeypatch.setattr(_sys, "argv", ["measure_mount_yaw", "--frame",
+                                       str(frame), "--pixel", "300,200",
+                                       "--max-age-s", "0"])
+    assert tool.main() == 0
+
+
+def test_a_fresh_frame_passes_the_gate(tmp_path, monkeypatch):
+    import sys as _sys
+
+    import measure_mount_yaw as tool
+
+    frame = _stale_frame(tmp_path, 0.0)
+    monkeypatch.setattr(_sys, "argv", ["measure_mount_yaw", "--frame",
+                                       str(frame), "--pixel", "300,200"])
+    assert tool.main() == 0
+
+
+def test_a_missing_frame_is_reported_as_no_usable_frame(tmp_path, monkeypatch):
+    import sys as _sys
+
+    import measure_mount_yaw as tool
+
+    monkeypatch.setattr(_sys, "argv", ["measure_mount_yaw", "--frame",
+                                       str(tmp_path / "nope.jpg"),
+                                       "--pixel", "300,200"])
+    assert tool.main() == 2

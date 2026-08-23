@@ -125,6 +125,11 @@ EOF
                                          # the CM4, so frames cost no SD wear
             fi
             GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--interval-s ${CAM_INTERVAL:-0.1}"
+            # กล้อง USB หลุดแล้วขึ้นใหม่คนละ node ได้ (2026-08-23: usb 1-1.1
+            # disconnect ย้าย video0 -> video1) โดย grabber ยังรันบน fd ที่ตาย
+            # แล้วเงียบ ๆ — ตัว watchdog ในกrabber จะเปิด by-id ใหม่เมื่อไม่มี
+            # เฟรมถูกเขียนนานเกินค่านี้. CAM_REOPEN_S=0 = ปิด (พฤติกรรมเดิม)
+            GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--reopen-after-s ${CAM_REOPEN_S:-3}"
             [ "${CAM_MIRROR:-0}" = "0" ] && GRAB_ARGS="$GRAB_ARGS --no-mirror"
             echo "[run_mission] starting camera grabber (BACKEND=${BACKEND:-v4l2}${GRAB_ARGS:+ $GRAB_ARGS})"
             setsid make -C "$REPO_ROOT" camera-real BACKEND="${BACKEND:-v4l2}" \
