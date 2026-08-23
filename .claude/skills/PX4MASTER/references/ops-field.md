@@ -190,6 +190,38 @@ Bench session with the CM4 + FC live. Three findings, in the order they bit.
   fails with `unmet critical checks: link` while the log says the router is up,
   suspect this first.
 
+## Hover decode test — the procedure (built 2026-08-23, NOT YET FLOWN)
+
+The open question is narrow: the camera is sharp on the bench (Laplacian
+680-780, decoding the 38 cm marker 1.9-14 m) and scored 41-76 in flight with
+0 of 402 frames decoding. Three fixes have landed since — held sweep heading,
+forced 2 ms exposure, 20 Hz frames — and none has been tested in the air.
+
+1. Put the printed marker on the ground. Start the normal stack
+   (`cm4/start_infra.sh`), then beside it:
+   `.venv/bin/python tools/hover_decode.py`
+2. Hand-fly a hover over the marker and HOLD each height ~20 s, stepping
+   3 → 5 → 8 → 12 m. Twenty seconds is a few hundred frames, enough for the
+   rolling verdict to mean something.
+3. Read the console while flying — the beacon carries `AAVC cam=<WORD>
+   dec=n/N sh=x` over the radio and the console spells it out:
+   GOOD (remember this height) · WEAK (come down a bit) · BLUR (lower/slower;
+   if it is still blurred while stationary the mount is the problem) ·
+   HIGH (not blur — too high, or the pad is not under the camera) ·
+   DARK (2 ms exposure with no auto-gain — raise `CAM_GAIN`).
+4. After landing, `/tmp/aavc_hover_decode.jsonl` has every frame with its AGL:
+   that gives decode rate PER HEIGHT, which is the number that decides the
+   sweep altitude.
+
+⚠ Expected marker sizes at fx 847: 400 mm is 42 px at 8 m, 28 px at 12 m,
+21 px at 16 m — the detector's design range. Do NOT run this test with the
+marker filling the frame: at ~33 px per module the default
+`adaptiveThreshWinSize` (max 23) cannot threshold inside a module and the
+decode fails for a reason that has nothing to do with flight. That is exactly
+what a bench frame from 0.75 m reads as, and the tool correctly calls it HIGH.
+
+⚠ The tool itself has been run end-to-end on real frames but NEVER in flight.
+
 ## Open items / follow-ups (updated 2026-08-22 — post-review)
 - [x] 🟠 **The failures that HIDE — 14 fixed 2026-08-22** (practice ac4a155 /
       comp 8dc3d27 / console ca7ab79). One family, found by the full-system

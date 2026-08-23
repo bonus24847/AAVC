@@ -524,6 +524,11 @@ make test           # pytest
 make lint           # ruff + mypy
 # post-flight drone-response check (operator requirement):
 #   .venv/bin/python tools/verify_flight.py runs/<mission_id>/audit.jsonl --truth …
+# hand-flown hover decode test — does the camera READ in the air? (run on the
+# CM4 beside the grabber; the beacon turns its verdict into one radio line and
+# the console spells that out in Thai):
+#   .venv/bin/python tools/hover_decode.py            # -> /tmp/aavc_decode.json
+#   .venv/bin/python tools/hover_decode.py --no-mavlink   # bench, no vehicle
 # is the RC link down, or is PX4 refusing an RC it can hear? (a switch in the
 # wrong position clears the RC health bit that every indicator reads):
 #   .venv/bin/python tools/rc_check.py --endpoint udpout:127.0.0.1:14550

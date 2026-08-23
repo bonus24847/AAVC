@@ -322,3 +322,65 @@ def test_a_dead_link_gives_up_the_tick_instead_of_hammering(monkeypatch) -> None
 
     assert beacon.send_lines(_Dead(), [(6, "a"), (6, "b")],
                              dry_run=False, pace_s=0.0) == 0
+
+
+# ── the decode verdict line (2026-08-23) ─────────────────────────────────────
+# `cam=OK` says the grabber is writing; it does not say the pictures are
+# usable. G7 attempt 1 ran a healthy camera for a whole sortie and decoded 0 of
+# 402 frames, and nothing on the radio said so.
+
+
+def _decode(**kw):
+    base = {"verdict": "GOOD", "frames": 200, "decodes": 180, "sharpness": 640}
+    base.update(kw)
+    return base
+
+
+def test_the_decode_verdict_leads_with_the_word() -> None:
+    """The operator reads the WORD. The numbers behind it need two reference
+    values held in your head (bench 680-780, failed flight 41-76); the word
+    needs none, and each failing word points at a different fix."""
+    lines = beacon.compose_lines(None, 0.5, None, _decode(verdict="BLUR", decodes=0,
+                                                   sharpness=48))
+    hit = [t for _, t in lines if t.startswith("AAVC cam=BLUR")]
+    assert hit == ["AAVC cam=BLUR dec=0/200 sh=48"]
+
+
+def test_a_failing_verdict_is_sent_at_warning_severity() -> None:
+    """GOOD/WEAK are information; BLUR/HIGH/DARK are the operator's cue to
+    change something mid-hover, and the console colours by severity."""
+    for word in ("BLUR", "HIGH", "DARK"):
+        sev = [s for s, t in beacon.compose_lines(None, 0.5, None, _decode(verdict=word))
+               if t.startswith("AAVC cam=")][-1]
+        assert sev == _SEV_WARN, word
+    for word in ("GOOD", "WEAK"):
+        sev = [s for s, t in beacon.compose_lines(None, 0.5, None, _decode(verdict=word))
+               if t.startswith("AAVC cam=")][-1]
+        assert sev == _SEV_INFO, word
+
+
+def test_no_decode_summary_means_no_line() -> None:
+    """The normal flight case: the hover tool is not running. Silence, not a
+    placeholder — the radio budget belongs to the lines that always matter."""
+    for absent in (None, {}, {"verdict": ""}):
+        lines = beacon.compose_lines(None, 0.5, None, absent)
+        assert not [t for _, t in lines if t.startswith("AAVC cam=") and
+                    "dec=" in t]
+
+
+def test_the_verdict_line_fits_the_radio() -> None:
+    """STATUSTEXT is 50 bytes and this beacon encodes ASCII. Worst case is the
+    longest word with a full window."""
+    lines = beacon.compose_lines(None, 0.5, None,
+                          _decode(verdict="NOFRAMES", frames=9999,
+                                  decodes=9999, sharpness=9999))
+    for _, text in lines:
+        assert len(text.encode("ascii", "replace")) <= 50, text
+
+
+def test_the_camera_liveness_line_still_comes_first() -> None:
+    """The new line ADDS to cam=OK/DEAD, it does not replace it: a dead camera
+    and an unreadable one are different problems and both must be sayable."""
+    lines = [t for _, t in beacon.compose_lines(None, 90.0, None, _decode())]
+    assert any(t.startswith("AAVC cam=DEAD") for t in lines)
+    assert any(t.startswith("AAVC cam=GOOD") for t in lines)
