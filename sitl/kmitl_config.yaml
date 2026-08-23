@@ -150,16 +150,22 @@ search:
   #   19.0 m -> 4 legs, 327 s sweep,  761 s mission,  9.09 Ah  (marker 17.8 px,
   #                                    on the detector's validated 18 px floor)
   # 12 m keeps the 400 mm marker at 28 px and leaves ~360 mAh of headroom.
-  sweep_alt_m: 12.0        # was 8.0 (KMUTNB-sized); see above. Original note:
-                           # RAISED AGAIN 4.5 -> 8.0 on 2026-08-18 with the
-                           # ceiling now 10 m (operator): the measured 74.2°
-                           # lens at 4.x m needed 20-26 legs and drained the
-                           # 7500 pack before the eggs (0/4 then 2/4 in SITL).
-                           # At 8 m the swath is 12.1 m -> ~9 legs; the 400 mm
-                           # marker is ~42 px, comfortably above the detector's
-                           # validated 18 px floor; 2 m stays under the 10 m
-                           # ceiling for the per-arm wander. Legal band
-                           # [search_floor_m 2.5, ceiling 10].
+  sweep_alt_m: 12.0        # was 8.0 (a KMUTNB-sized number); see the table
+                           # above for why 12 was chosen HERE.
+                           # ⚠ The paragraph that used to sit here was the
+                           # PRACTICE field's reasoning, left in this file:
+                           # it talked about a 10 m ceiling and a "legal band
+                           # [search_floor_m 2.5, ceiling 10]". At KMITL the
+                           # band is [10, 20] — the rules' search floor is
+                           # 10 m AGL and the ceiling is 20 — so that text
+                           # described a field this config does not fly and
+                           # would have justified an ILLEGAL sweep altitude to
+                           # anyone reading it at 7 a.m. on the day. Deleted
+                           # rather than corrected: the numbers it argued from
+                           # belong to the other config. (Same class as the
+                           # 2026-08-22 site.center incident — practice-field
+                           # text inside the competition file.)
+                           # LEGAL BAND HERE: sweep >= 10 m (rules), <= 20 m.
   # ⚠ 0.30 -> 0.44 on 2026-08-22. 0.30 spaced the legs at 70% of the WIDE
   # (1280 px) image axis, which is only the cross-track footprint if that axis
   # actually lies across the legs — an assumption search_pattern.py's own
@@ -168,10 +174,19 @@ search:
   # pointing when it armed. Wrong way round the real swath is the 720 px axis
   # (0.5625x), leaving a 2.5 m gap per strip at 12 m — a 1 m pad fits inside it
   # with 1.5 m to spare. 0.44 makes spacing <= the NARROW swath, so coverage is
-  # complete at ANY mount/heading combination. Cost: +1 leg here, and it is
-  # belt-and-braces on top of the sweep_yaw_deg fix (mission now holds a
-  # heading that puts the wide axis across track) — drop it back to 0.30 once
-  # CameraModel.mount_yaw_rad has been MEASURED and the heading is trusted.
+  # complete at ANY mount/heading combination. Cost here is +2 LEGS, not the
+  # "+1" this comment used to claim: 5 -> 7 legs, 407 -> 565 s of sweep.
+  # ⚠⚠ THE TRIGGER THIS COMMENT SET HAS FIRED. It said "drop it back to 0.30
+  # once CameraModel.mount_yaw_rad has been MEASURED and the heading is
+  # trusted" — measured 2026-08-23 (180, four placements) and the heading is
+  # now derived nose-first in search_pattern.py, so the wide axis IS across
+  # track by construction, which is the only thing 0.44 was insuring against.
+  # Keeping 0.44 costs 158 s of a 1200 s window, and the KMITL budget cannot
+  # afford it: a full-sweep 4-egg sortie is ~1051 s, which leaves the LAST
+  # delivery's gate (can_start_delivery, 300 s floor) just 21 s of slack. At
+  # 0.30 the same sortie is ~893 s and that slack is 179 s.
+  # LEFT AT 0.44 PENDING THE OPERATOR because it changes flight geometry —
+  # see the 2026-08-23 review section in CLAUDE.md.
   overlap_frac: 0.44       # spacing = swath*(1-overlap); see above
   margin_m: 5.0            # search-area inset (pads sit >=4 m inside; GPS is coarse)
                            # RAISED 4.0 -> 5.0 on 2026-08-16, executing the
