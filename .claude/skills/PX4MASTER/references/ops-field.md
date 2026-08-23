@@ -222,6 +222,40 @@ what a bench frame from 0.75 m reads as, and the tool correctly calls it HIGH.
 
 ⚠ The tool itself has been run end-to-end on real frames but NEVER in flight.
 
+## 2026-08-23 review — the KMITL time budget (numbers to fly by)
+
+Full-system review, 5 days out. Everything geometric checked out against the
+rules PDF; what does not fit is TIME, and only at KMITL. Full write-up in
+CLAUDE.md §0b — these are the field-usable numbers.
+
+| | overlap 0.44 (ships) | overlap 0.30 |
+|---|---|---|
+| sweep of the 226 x 73 m polygon at 12 m | 7 legs, **565 s** | 5 legs, **407 s** |
+| whole 4-egg sortie, measured parts | **1051 s** of 1200 | **893 s** |
+| slack when egg 4's gate runs (refuses below 300 s) | **21 s** | 179 s |
+
+Parts: takeoff 17 (G4' measured) · ingress 171 m @3 m/s = 57 · sweep · 4 x
+serve_cost_s 80 = 320 · egress 57 · land 35 (G4' measured).
+
+⚠ `time_policy.sortie_cost_s` in `kmitl_config.yaml` says **420 s** for that
+same sortie. It is wrong twice over — the comment's arithmetic predates the
+0.30 -> 0.44 change, and it sizes ONE serve while the flight carries four. The
+GO gate therefore approves a full-sweep flight believing it needs 630 s when it
+needs 1261. Harmless on flight 1 (the window is full); it is the RECOVERY
+flight it would wave through and then RTH mid-sweep.
+
+⚠ Marker size is the other KMITL surprise: the sweep must run at 12 m, where the
+400 mm marker is **28 px = 4.7 px per module**. The flight that decoded 2 of 6
+was at 8 m = 42 px = 7.1 px/module. The rules floor the search at 10 m AGL, so
+there is no altitude that gets the marker back to what already failed — the
+decode has to be fixed, not flown around.
+
+⚠ Rules p.13 forbids "activating radio control equipment and other telemetry
+while in the standby area". The CM4 raises its own WiFi AP at boot and the
+console ssh-starts the beacon as soon as it answers, so connecting the pack in
+standby already trips a literal reading. Keep the pack out until the launch
+point; confirm the interpretation at the 28-Aug briefing.
+
 ## Open items / follow-ups (updated 2026-08-22 — post-review)
 - [x] 🟠 **The failures that HIDE — 14 fixed 2026-08-22** (practice ac4a155 /
       comp 8dc3d27 / console ca7ab79). One family, found by the full-system

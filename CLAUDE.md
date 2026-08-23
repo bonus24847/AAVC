@@ -7,6 +7,111 @@ anything not yet copied here, but do **not** pull its heavy stack back in.
 
 ---
 
+## 0. THE DATE (rules V1.3 pp. 9-10 — read it off the PDF, not off memory)
+
+**The competition is 28-30 August 2026 at IAAI KMITL (Terminal 1).**
+
+| Date | What happens |
+|---|---|
+| **Fri 28 Aug** | 08:00-09:00 registration · 09:00 briefing · **safety inspection** · **13:00-18:00 flight trial** (15 min slots, first-come-first-served, repeat if time allows) · 18:30 opening dinner |
+| **Sat 29 Aug** | **Scored flight day 1** — assemble at Terminal 1 before 07:30 |
+| **Sun 30 Aug** | **Scored flight day 2** · 18:30 awards + closing |
+
+Three things follow from this and they shape every plan in this file:
+
+1. **28 Aug is not a practice day, it is the LAST day to fix anything.** The
+   aircraft has to arrive already flight-ready; the trial slots are for
+   learning the real field, not for debugging.
+2. **A failed safety inspection eats our own flying time** — the committee
+   feeds back issues and the fix has to be re-checked *during* the trial
+   window.
+3. There are **two more scored components besides flying**: the safety
+   inspection and a **15-minute presentation + 5-minute Q&A** on 28 Aug (slots
+   announced on arrival). The technical-report score also feeds the overall
+   score and already decided our time slot.
+
+This section exists because the date was in the PDF in this repo's root and
+nowhere in this file, so a session that needed it could not find it.
+
+---
+
+## 0b. Full-system review, 2026-08-23 — the KMITL window does not fit
+
+Reviewed end to end against the rules PDF: board params, both mission repos,
+the path manager, the CM4 device code, and both GCS field maps. The system is
+not broken — geometry matches the PDF exactly, the two repos have not drifted,
+energy has 3x margin, 718 tests green. **What is wrong is TIME**, and only at
+KMITL: the competition field is twice the practice field and several numbers in
+`kmitl_config.yaml` were still calibrated on the small one.
+
+**The number that matters is 21 seconds.** A full-sweep four-egg KMITL sortie,
+built from measured parts (G4' takeoff/landing, real transit distances, the
+sweep from `search_pattern.py` on the shipped config):
+
+| part | 0.44 (ships) | 0.30 |
+|---|---|---|
+| takeoff / ingress 171 m / **sweep** / 4 serves / egress / land | 17 / 57 / **565** / 320 / 57 / 35 | 17 / 57 / **407** / 320 / 57 / 35 |
+| **total of the 1200 s window** | **1051 s** | **893 s** |
+| remaining when egg 4's gate runs (`can_start_delivery` refuses below 300) | **321 → 21 s of slack** | 479 → 179 s |
+
+Both deliver 4/4 when nothing goes wrong. The difference is what one bad gust,
+one re-align or one decode visit costs: at 0.44 anything 22 s over plan drops an
+egg.
+
+- **F-01 `overlap_frac` — the config's own trigger has fired (OPEN, operator).**
+  Its comment said "drop it back to 0.30 once `mount_yaw_rad` has been MEASURED
+  and the heading is trusted". Measured 2026-08-23 (180, four placements) and
+  `search_pattern.py` now derives a nose-first heading, so the wide axis is
+  across track BY CONSTRUCTION — the only thing 0.44 insured against. Returning
+  to 0.30 is the value every passing G4 run flew, not a new bet. Worth 158 s.
+  Left at 0.44 pending the operator: it changes flight geometry.
+- **F-02 `time_policy.sortie_cost_s` = 420 is wrong; the real figure is ~1051.**
+  Two compounding errors: the comment's arithmetic predates the 0.30→0.44 change
+  (+158 s) and it sizes ONE serve while `eggs_aboard=4` flies four (+240 s). The
+  GO gate therefore believes a full-sweep sortie needs 630 s when it needs 1261 —
+  more than the whole window. Flight 1 is unaffected (the window is full), but a
+  recovery flight would be approved and then RTH'd mid-sweep. Fix AFTER F-01 —
+  the correct value depends on the overlap.
+- **F-03 KMITL asks the decoder for a SMALLER marker than the flight that already
+  failed.** KMUTNB sweeps at 8 m = 42 px = 7.1 px/module and decoded 2 of 6.
+  KMITL must sweep at 12 m = 28 px = **4.7 px/module**. Flying lower does not
+  rescue it: the rules floor the search at 10 m AGL, which is still only
+  5.6 px/module. The bench decodes to 14 m statically, so this is the in-flight
+  BLUR problem and nothing else — `tools/hover_decode.py` is the instrument for
+  closing it.
+- **F-04 the scoring table repeats PER SORTIE (open question for the briefing).**
+  Rules p.12, "Repeating Delivery": *"Each flight sortie will be scored using all
+  the criteria above. The given points for each sortie will be accumulated."* So
+  takeoff, transit in, transit out, landing and condition score EVERY flight —
+  and `eggs_aboard=4` collects them once. Two 2-egg flights ≈ 1056 s + resupply,
+  which fits, and doubles those categories. NOT a recommendation: the per-category
+  points are unpublished so the trade cannot be computed, and two flights mean two
+  landings. **Ask the committee on 28 Aug**, then decide — it is one integer.
+- **F-05 the rules forbid powering telemetry in the standby area** (p.13:
+  "Activating radio control equipment and other telemetry is strictly prohibited
+  while in the standby area"). The CM4 boots its own WiFi AP and the console
+  ssh-starts the beacon the moment it is reachable, so plugging the pack in at
+  standby already violates this on a literal reading. Procedural, not code: do not
+  connect the pack until the launch point, and confirm the interpretation at the
+  briefing.
+- **F-06 the RC-loss drill and ELRS "No Pulses" are still not done.** 2026-08-23
+  closed the DIAGNOSIS (a held kill switch, not the link) — the net itself has
+  never been tested.
+- **F-07/F-08 stale text, FIXED 2026-08-23.** PX4MASTER's summary claimed the comp
+  config "deliberately keeps `EKF2_HGT_REF=1`" — both configs ship 0, and 1 is the
+  setting that RTH'd a flight on 2026-08-20. And `kmitl_config.yaml` carried the
+  PRACTICE field's altitude reasoning ("ceiling now 10 m", "legal band
+  [search_floor_m 2.5, ceiling 10]"); at KMITL the band is [10, 20]. Same class as
+  the 2026-08-22 `site.center` incident: practice-field text inside the
+  competition file, every number plausible, describing another field.
+
+Verified CORRECT and needing nothing: transit P1-P3, controlled airspace and
+search area all match the PDF coordinate-for-coordinate; the GCS competition map
+matches the flight config; the two repos' flight cores are identical; KMITL needs
+4275 mAh of 12750 usable.
+
+---
+
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 
 An autonomous **PX4 hexacopter** (EFT X6100 frame; Pixhawk 6X + Raspberry Pi CM4

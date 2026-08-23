@@ -15,8 +15,10 @@ CM4 companion (WiFi AP `AAVC-DRONE` @10.42.0.1 — the AP FLIES WITH THE
 AIRCRAFT) · NOMAD radio = the flight telemetry link · PM02D powers the
 FC/avionics ONLY → voltage-only battery gauge (`BAT1_CAPACITY=-1`, never
 positive) · 17000 mAh semi-solid pack (endpoints 4.18/3.77) · baro height
-reference at the practice site (`EKF2_HGT_REF=0`; the KMITL comp config
-deliberately keeps 1) · TFmini lidar aids below 7 m.
+reference at BOTH fields (`EKF2_HGT_REF=0` — the comp config followed the
+practice one on 2026-08-23; this line used to say the comp config "deliberately
+keeps 1", which was stale and pointed at the exact setting that RTH'd a flight
+on 2026-08-20) · TFmini lidar aids below 7 m.
 
 ## Read the right reference
 
