@@ -98,13 +98,24 @@ EOF
                 cam_dev=$(ls /dev/v4l/by-id/*-video-index0 2>/dev/null | head -1)
                 [ -n "$cam_dev" ] && GRAB_ARGS="--nadir-device $cam_dev"
             fi
-            # บังคับ exposure สั้นบนกล้องจริงเป็นค่าเริ่มต้น (G7 2026-08-21:
-            # เฟรมบิน blur ~10x เพราะ auto_exposure ค้าง 16.6 ms) — ensure_infra
-            # รันเฉพาะฝั่ง REAL อยู่แล้ว SITL/gz ไม่โดน. หน่วยคือ 100 µs ของ UVC
-            # (20 = 2 ms); CAM_EXPOSURE=0 = กลับไป auto; CAM_GAIN (0-128)
-            # ชดเชยความสว่าง — OV9281 ไม่มี auto-gain
-            CAM_EXPOSURE="${CAM_EXPOSURE:-20}"
-            if [ "$CAM_EXPOSURE" != "0" ] && [ "${BACKEND:-v4l2}" = "v4l2" ]; then
+            # ⚠ ย้อนกลับเป็น AUTO เมื่อ 2026-08-24 — คอมเมนต์เดิมตรงนี้บอกว่า
+            # "auto ค้าง 16.6 ms เลยเบลอ" ซึ่ง**ผิด**: วัดกลางแจ้งบนเครื่องจริง
+            # auto เลือก 1 ms สั้นกว่า 2 ms ที่ไปบังคับด้วยซ้ำ ตัวที่ทำให้ decode
+            # ไม่ได้คือการบังคับเอง (สว่าง ~190 ขอบขาวของ marker กลืนพื้นหลัง)
+            # AUTO by default (0) — measured 2026-08-24. The forced 2 ms this
+            # used to default to was added on a premise that turned out to be
+            # false: auto picks 1 ms outdoors, SHORTER than the 2 ms forced on
+            # it, and the forcing left frames at ~190 mean where the marker's
+            # white quiet zone blows out and ArUco loses its edge. On auto a
+            # marker carried at running speed across 8-10 m decoded 145/222
+            # frames. Set CAM_EXPOSURE=<n*100us> only to pin it deliberately.
+            CAM_EXPOSURE="${CAM_EXPOSURE:-0}"
+            # Pass the value ALWAYS (0 included): 0 is no longer "don't touch",
+            # it is "restore auto exposure + the default gain", which is what
+            # undoes a bench sweep or a previous forced run. Silently inheriting
+            # manual exposure from whoever ran last is exactly how the decode
+            # broke between 2026-08-21 and 2026-08-24.
+            if [ "${BACKEND:-v4l2}" = "v4l2" ]; then
                 GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--exposure-100us $CAM_EXPOSURE"
                 [ -n "${CAM_GAIN:-}" ] && GRAB_ARGS="$GRAB_ARGS --gain $CAM_GAIN"
             fi

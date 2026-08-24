@@ -48,7 +48,8 @@ CONNECT="${CONNECT:-udpin://0.0.0.0:14540}"
 ROUTERD="${ROUTERD:-mavlink-routerd}"
 BACKEND="${BACKEND:-v4l2}"
 GRAB_ARGS="${GRAB_ARGS:-}"
-CAM_EXPOSURE="${CAM_EXPOSURE:-20}"
+# AUTO by default (0) — see sitl/run_mission.sh for the 2026-08-24 measurement
+CAM_EXPOSURE="${CAM_EXPOSURE:-0}"
 # ── SITE: which field this flight is for ──────────────────────────────────
 # Same precedence as sitl/run_mission.sh: an explicit env wins, then this
 # repo's own .aavc_site marker, then the KMUTNB fallback. This launcher had

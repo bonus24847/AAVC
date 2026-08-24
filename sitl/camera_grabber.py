@@ -48,6 +48,13 @@ DEFAULT_INTERVAL_S = 0.1   # 10 Hz file writes = the sensor's own rate at
 # pipeline consumes every frame written — a moderate rate keeps USB + CPU sane
 # while the global shutter still freezes motion per frame. Bench-tune at G5.
 DEFAULT_FPS = 50.0
+# UVC menu value for "Aperture Priority" — the camera picks the exposure time.
+# Measured on the OV9281 outdoors 2026-08-24: it selects 1 ms, and a moving
+# marker decodes 65 % of frames at the competition's own pixel size.
+_AUTO_EXPOSURE_MODE = 3
+# The module's own factory gain, restored alongside auto so a bench sweep that
+# left gain at 4 or 128 cannot follow the aircraft into a flight.
+_DEFAULT_GAIN = 64
 
 
 def _to_bgr(frame: np.ndarray) -> np.ndarray:
@@ -225,25 +232,48 @@ def _make_backend(name: str, device: str, width: int, height: int,
 
 
 def _force_short_exposure(device: str, n_100us: int, gain: int) -> None:
-    """Force a fixed short exposure (and optionally a fixed gain) on the V4L2
-    nadir camera via ``v4l2-ctl`` — the in-flight-blur lever (G7 2026-08-21:
-    flight frames scored Laplacian 41-76 vs 680-780 static while the OV9281
-    sat in auto_exposure=3 "Aperture Priority" at 16.6 ms; a translating,
-    hard-mounted camera needs ~1-3 ms). Subprocess over CAP_PROP
-    deliberately: the UVC control names are explicit, they apply to the node
-    even while cv2 holds it open, and the readback shows what the driver kept.
+    """Set the V4L2 nadir camera's exposure — or hand it back to AUTO.
 
-    FAIL-SOFT by design: a missing binary/control logs and continues — this
-    must never join the nadir open's fail-hard class (auto exposure beats no
-    mission). ``device`` may be a bare index ("0"): v4l2-ctl needs a path, so
-    it is rewritten to /dev/video<N>. ``n_100us`` is the UVC
-    exposure_time_absolute unit (100 µs): 20 = 2 ms; 0 = leave auto exposure
-    alone. ``gain`` < 0 = leave the sensor gain alone (this module has NO
-    auto-gain, so a short exposure darkens frames with no automatic
-    compensation — raise the gain if the bench A/B comes out too dark)."""
+    ⚠ THE PREMISE THIS WAS WRITTEN ON WAS WRONG, measured 2026-08-24. It was
+    added on 2026-08-21 to force ~2 ms because flight frames scored Laplacian
+    41-76 against 680-780 static, and auto_exposure=3 was blamed for sitting at
+    16.6 ms. Read back OUTDOORS on the aircraft, auto picks **1 ms** — SHORTER
+    than the 2 ms that was forced on it. Auto was never the blur.
+
+    Forcing 2 ms is what broke the decode. Bench A/B at 8-10 m, same scene,
+    same marker (the KMITL pixel size, 29-32 px):
+
+        auto (1 ms)        brightness 124   sharpness  929   DECODED
+        forced 2 ms g64    brightness 190   sharpness  934   no decode
+        forced 2 ms g16    brightness 114   sharpness  377   no decode
+
+    Sharpness was never the problem — EXPOSURE was. At 2 ms with this gain the
+    frame lands at ~190 mean and the marker's white quiet zone blows out into
+    the background, so the black/white boundary ArUco needs is gone. On auto,
+    a marker CARRIED AT RUNNING SPEED across 8-10 m decoded 145 of 222 frames
+    (65 %) at brightness 112-125.
+
+    So ``n_100us <= 0`` now RESTORES auto exposure rather than merely declining
+    to touch it. "Leave it alone" was a trap: a previous run that forced manual
+    left the camera stuck in manual with a stale exposure, and nothing said so.
+    Restoring the gain default with it keeps a bench sweep from leaking into a
+    flight.
+
+    Subprocess over CAP_PROP deliberately: the UVC control names are explicit,
+    they apply to the node even while cv2 holds it open, and the readback shows
+    what the driver kept. FAIL-SOFT by design: a missing binary/control logs and
+    continues — this must never join the nadir open's fail-hard class. ``device``
+    may be a bare index ("0"); v4l2-ctl needs a path, so it is rewritten to
+    /dev/video<N>. ``gain`` < 0 leaves the sensor gain alone EXCEPT in the
+    restore-auto case, where the default is put back."""
     controls: list[str] = []
     if n_100us > 0:
         controls += ["auto_exposure=1", f"exposure_time_absolute={int(n_100us)}"]
+    else:
+        # Hand the camera back to auto, and undo any gain a bench sweep left.
+        controls.append(f"auto_exposure={_AUTO_EXPOSURE_MODE}")
+        if gain < 0:
+            controls.append(f"gain={_DEFAULT_GAIN}")
     if gain >= 0:
         controls.append(f"gain={int(gain)}")
     if not controls:

@@ -102,22 +102,28 @@ trust a home-MSL cache taken while the frame was still moving.
 
 ## Before the next scored flight (unverified-risk shortlist)
 
-1. **IN-FLIGHT IMAGE BLUR (re-scoped 2026-08-21, still #1)**: the static
-   camera is PROVEN GOOD — bench walk test with the real 38 cm marker
-   decoded continuously 1.9→14 m and intermittently to ~20 m with NO lens
-   adjustment (walk_test_decode_2026-08-21.log). Yet 402 in-FLIGHT frames
-   decoded zero — so the blur is dynamic: prime suspects are the measured
-   ~60 Hz per-rev vibration on the hard-mounted camera and exposure during
-   translation. Gate before the next scored flight: HOVER over the printed
-   marker and confirm live decode DURING flight. Mitigations: prop balance,
-   camera-mount stiffness, forced short exposure if needed.
-   Full data: docs/evidence/ulog_review_2026-08-21.md (finding 1 + addendum).
-2. RC-loss drill + ELRS failsafe mode = **No Pulses**. The 🔴 "RC did not
-   re-acquire after a TX power-cycle" finding that used to block this is
-   CLOSED (2026-08-23): the kill switch was engaged, which clears PX4's RC
-   health bit while the link is perfect, and every indicator we own reads that
-   bit. `tools/rc_check.py` now tells the two apart. The DRILL itself is still
-   outstanding — do not read the closure as RC being signed off.
+1. ✅ **IN-FLIGHT DECODE: CLOSED 2026-08-24 — and the cause was our own fix.**
+   The 2026-08-21 "blur" fix forced `CAM_EXPOSURE=20` (2 ms) on the theory that
+   auto exposure sat at 16.6 ms. Read back on the aircraft outdoors, **auto
+   picks 1 ms**; the forcing is what broke the decode, by pushing frames to
+   ~190 mean where the marker's white quiet zone blows out. On auto a marker
+   carried at running speed across 8-10 m decoded **65% then 56%** of frames at
+   **25-35 px** — the sweep's own marker size. Default is now `CAM_EXPOSURE=0`,
+   and 0 RESTORES auto instead of silently inheriting a stale manual value.
+   Details: ops-field.md 2026-08-24. ⚠ Still to prove IN FLIGHT — the bench
+   numbers are strong but the sortie that confirms them has not been flown.
+2. **RC failsafe: the LINK half is verified, the RE-ACQUIRE half is not.**
+   ⚠ There is no "No Pulses" setting to find on this aircraft — the ELRS docs
+   are explicit that for **CRSF-serial** receivers (ours, feeding the 6X) no
+   failsafe option exists in the Lua script; failsafe is the flight controller's
+   job. The 2026-08-24 drill confirmed the behaviour directly: TX off → the FC
+   sees **zero** RC frames (`tools/rc_check.py` exit 2, `present=False`), which
+   is what `COM_RC_LOSS_T=0.5` + `NAV_RCL_ACT=2` need to fire.
+   🔴 **STILL OPEN:** turning the TX back on did NOT re-acquire on its own — it
+   took a manual re-bind through the RX's WebUI (binding phrase `aeroopix1`,
+   now pinned on BOTH TX and RX so neither side can generate a fresh one).
+   Re-test the power-cycle → auto-reconnect path; if it still needs a re-bind,
+   that is a field-day hazard with no in-air recovery.
 3. ESC low-voltage cutoff vs the semi-solid pack (motors can cut in the air
    with charge remaining; no current sensor will warn us).
    (FC microSD replacement: ✅ DONE 2026-08-21 — full-surface-verified

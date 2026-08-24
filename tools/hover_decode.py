@@ -112,6 +112,21 @@ def _median(values: list[float]) -> float:
 class _Altitude:
     """Vehicle AGL, sampled in the background so a frame can be stamped with it.
 
+    TWO sources, because one of them is not always there. ``GLOBAL_POSITION_INT``
+    carries ``relative_alt`` (height above home) and is the natural answer — but
+    PX4 only publishes it once the GLOBAL position estimate is valid, i.e. once
+    GPS has fixed. Measured on the bench 2026-08-24: the link was healthy and
+    busy (GPS_RAW_INT, ATTITUDE, LOCAL_POSITION_NED all streaming) with
+    **zero** GLOBAL_POSITION_INT, so every frame would have logged
+    ``agl_m: null`` and the hover test would have produced decode rates with no
+    altitude axis — which is the entire point of it.
+
+    ``LOCAL_POSITION_NED`` needs no GPS: its ``z`` is DOWN from the EKF's local
+    origin, so ``-z`` is height above wherever the estimator started, which for
+    a hover flown from the ground is the number we want. It is the fallback and
+    the source is recorded per frame so the analysis never has to guess which
+    one it got.
+
     Optional on purpose: the bench has no vehicle, and a hover log without
     altitude is still worth having. Failure here degrades the record, it never
     stops it.
@@ -119,6 +134,7 @@ class _Altitude:
 
     def __init__(self, endpoint: str) -> None:
         self._agl: float | None = None
+        self._src: str | None = None
         self._stop = False
         self._thread = threading.Thread(target=self._run, args=(endpoint,),
                                         daemon=True)
@@ -128,6 +144,11 @@ class _Altitude:
     def agl_m(self) -> float | None:
         return self._agl
 
+    @property
+    def source(self) -> str | None:
+        """Which message the current reading came from, or None."""
+        return self._src
+
     def stop(self) -> None:
         self._stop = True
 
@@ -135,19 +156,40 @@ class _Altitude:
         try:
             from pymavlink import mavutil
             link = mavutil.mavlink_connection(endpoint, source_system=204)
+            link.mav.heartbeat_send(6, 8, 0, 0, 0)   # so the router routes to us
         except Exception as exc:                     # noqa: BLE001
             print(f"[hover] no altitude source ({exc}) — frames log agl=null")
             return
+        last_beat = 0.0
+        announced = False
         while not self._stop:
             try:
                 # Guarded: pymavlink 2.4.49 throws on some PX4 1.17 instanced
                 # messages and drops whatever arrived with it.
-                msg = link.recv_match(type="GLOBAL_POSITION_INT",
-                                      blocking=True, timeout=2)
+                msg = link.recv_match(
+                    type=["GLOBAL_POSITION_INT", "LOCAL_POSITION_NED"],
+                    blocking=True, timeout=2)
             except Exception:                        # noqa: BLE001
                 continue
-            if msg is not None:
-                self._agl = msg.relative_alt / 1000.0
+            now = time.time()
+            if msg is None:
+                if now - last_beat > 1.0:            # keep the route alive
+                    try:
+                        link.mav.heartbeat_send(6, 8, 0, 0, 0)
+                        last_beat = now
+                    except Exception:                # noqa: BLE001
+                        pass
+                continue
+            kind = msg.get_type()
+            if kind == "GLOBAL_POSITION_INT":
+                self._agl, self._src = msg.relative_alt / 1000.0, "relative_alt"
+            elif self._src != "relative_alt":
+                # Only fall back while the better source has never appeared —
+                # once GPS fixes mid-flight, relative_alt takes over and keeps it.
+                self._agl, self._src = -msg.z, "local_ned"
+            if not announced and self._agl is not None:
+                announced = True
+                print(f"[hover] altitude from {self._src}", flush=True)
 
 
 def measure(frame_bgr) -> tuple[float, float, list[int], float]:
@@ -216,6 +258,7 @@ def main() -> int:
                 sink.write(json.dumps({
                     "t": round(time.time(), 3),
                     "agl_m": None if alt is None else alt.agl_m,
+                    "agl_src": None if alt is None else alt.source,
                     "sharpness": round(sharp, 1),
                     "brightness": round(bright, 1),
                     "ids": ids,
@@ -235,6 +278,7 @@ def main() -> int:
                     "sharpness": round(med_sharp),
                     "brightness": round(med_bright),
                     "agl_m": None if alt is None else alt.agl_m,
+                    "agl_src": None if alt is None else alt.source,
                     "t": round(time.time(), 1),
                 }
                 tmp = args.summary.with_suffix(".tmp")

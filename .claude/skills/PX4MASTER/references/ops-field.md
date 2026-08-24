@@ -222,6 +222,48 @@ what a bench frame from 0.75 m reads as, and the tool correctly calls it HIGH.
 
 ⚠ The tool itself has been run end-to-end on real frames but NEVER in flight.
 
+## 2026-08-24 — the in-flight decode failure was the fix we applied to it
+
+CLOSED, and the cause was our own 2026-08-21 "fix". Flight frames scored
+Laplacian 41-76 against 680-780 static, `auto_exposure=3` was blamed for
+sitting at 16.6 ms, and `CAM_EXPOSURE=20` (2 ms) was made the REAL-launcher
+default. Read back on the aircraft OUTDOORS, **auto selects 1 ms** — shorter
+than what was forced on it. The premise was wrong; auto was never the blur.
+
+Bench A/B, same scene, same marker at the competition's own pixel size:
+
+| setting | brightness | sharpness | decode |
+|---|---|---|---|
+| **auto (1 ms)** | **124** | 929 | **YES** |
+| forced 2 ms, gain 64 | 190 | 934 | no |
+| forced 2 ms, gain 16 | 114 | 377 | no |
+
+Sharpness was never the problem — EXPOSURE was. At ~190 mean the marker's white
+quiet zone blows out into the background and the black/white edge ArUco needs is
+gone. On auto, a marker carried at RUNNING speed across 8-10 m decoded
+**145/222 (65%)** and **125/224 (56%)** on repeat, at **25-35 px** — the sweep's
+own marker size, at roughly twice the sweep's angular rate. Frame rate measured
+25.0 fps written (sensor offers 120), so rate was never the issue either.
+
+**The trap that made it last three days:** `CAM_EXPOSURE=0` used to mean "leave
+the camera alone", not "restore auto". A run that forced manual left the camera
+in manual, and every later run inherited the stale exposure while the launchers
+all believed they were on auto. `0` now actively writes `auto_exposure=3` and
+the default gain. Verified by deliberately leaving the camera in manual
+(gain 4, 2 ms), restarting the stack, and watching it come back as
+`auto_exposure: 3, gain: 64`.
+
+⚠ Lesson worth more than the fix: the 2 ms default was chosen from a NUMBER
+NOBODY READ BACK. One `v4l2-ctl -C exposure_time_absolute` outdoors would have
+shown auto at 1 ms and the whole detour would not have happened. Read the
+setting the hardware actually holds before "correcting" it.
+
+⚠ NOT a fault, corrected 2026-08-24: a TFmini reading of **2 cm** on the parked
+aircraft is ACCURATE (operator) — the lens sits ~3.5 cm up and the sensor reads
+true below its 40 cm rated minimum. An earlier note here called sub-minimum
+parked readings garbage; treat a low parked reading as a real measurement, not
+evidence of a fault.
+
 ## 2026-08-24 — overlap 0.30 tested and adopted; SITL stopped lying about the camera
 
 The operator held `overlap_frac` at 0.44 out of doubt the camera would find the

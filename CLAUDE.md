@@ -560,6 +560,25 @@ dev = pytest, ruff, mypy.
   core** (121 fps available) with 33 KB frames. Decode survival was tested
   across JPEG q95→q60 at 17-42 px markers (the 8-16 m band): all decode, and
   the camera sits at ~q80-85. `CAM_PASSTHROUGH=0` reverts to YUYV + re-encode.
+  ⚠ **EXPOSURE IS AUTO, and the forced 2 ms that used to be the default was the
+  whole in-flight decode failure** (measured on the aircraft 2026-08-24). It was
+  added 2026-08-21 on the theory that `auto_exposure=3` sat at 16.6 ms and
+  smeared the frames. Read back OUTDOORS, **auto picks 1 ms — SHORTER than the
+  2 ms forced on it**, so auto was never the blur. Forcing 2 ms is what broke
+  the decode: same scene, same marker at the KMITL pixel size (29-32 px),
+  auto → brightness 124 / sharpness 929 / **DECODES**, forced 2 ms →
+  brightness 190 / sharpness 934 / **nothing**. Sharpness was never the problem;
+  at ~190 mean the marker's white quiet zone blows out and the black/white edge
+  ArUco needs is gone. On auto, a marker carried at RUNNING speed across 8-10 m
+  decoded **145/222 then 125/224 frames (65% / 56%)** at 25-35 px — the sweep's
+  own pixel size, at twice the sweep's angular rate. `CAM_EXPOSURE` therefore
+  defaults to **0 = auto**; a positive value pins a manual exposure in 100 µs
+  units. ⚠ `0` now actively RESTORES `auto_exposure=3` + the default gain: it
+  used to mean "don't touch", which let a previous forced run leave the camera
+  in manual with a stale exposure and nothing said so — that is exactly how the
+  decode stayed broken from 2026-08-21 to 2026-08-24 while every launcher
+  believed it was on auto. Frame rate is unaffected and was never the issue:
+  measured 25.0 fps written, the sensor offering 120.
 - **Dashboard DetectedObjectEvent** fields (unchanged set): `t_monotonic, label,
   clothing_color, member_count, pose, confidence, lat, lon,
   is_designated_match`. Values now: `label="aruco pad <id>"|"landing pad"`,
