@@ -597,3 +597,70 @@ def test_a_fence_that_reads_back_as_another_field_is_refused_every_attempt():
     gf = _FakeGeofence("other-field")
     with pytest.raises(RuntimeError, match="not verified after 3 attempts"):
         asyncio.run(_commander_with_geofence(gf).upload_geofence(_AIRSPACE))
+
+
+# ── takeoff climb gate vs PX4's own acceptance radius (2026-08-24) ───────────
+# PX4 leaves AUTO_TAKEOFF as soon as it is within NAV_MC_ALT_RAD of the target,
+# so the aircraft levels off at target - NAV_MC_ALT_RAD and that is the highest
+# altitude this gate will ever observe. The old tolerance was a percentage with
+# no relationship to that radius: 0.15*6.5 = 0.975 against PX4's 0.8 left a
+# 17 cm margin nobody had chosen, and two real flights landed on either side of
+# it — 5.72 m passed, 5.43 m failed and aborted the whole mission at takeoff.
+
+
+def _tol(target: float) -> float:
+    from mavlink_adapter.commands import DroneCommander
+    return DroneCommander._altitude_tolerance_m(None, target)   # type: ignore[arg-type]
+
+
+def test_the_climb_gate_always_clears_px4s_own_acceptance_radius() -> None:
+    """The gate must be reachable. A tolerance under NAV_MC_ALT_RAD can never
+    pass, because PX4 stops climbing exactly there."""
+    from mavlink_adapter.commands import DEFAULT_PX4_TUNING
+    radius = DEFAULT_PX4_TUNING["NAV_MC_ALT_RAD"]
+    for target in (3.0, 5.0, 6.5, 9.0, 12.0, 20.0):
+        levels_off_at = target - radius
+        passes_at = target - _tol(target)
+        assert passes_at < levels_off_at, (
+            f"target {target}: gate wants {passes_at:.2f} m but PX4 stops at "
+            f"{levels_off_at:.2f} m — unreachable")
+
+
+def test_the_margin_is_the_same_at_every_climb_altitude() -> None:
+    """The old percentage gave 17 cm of margin at 6.5 m and 20 cm at 20 m —
+    both accidents of arithmetic. Derived from the radius it is one number, so
+    a profile change cannot quietly shrink it."""
+    from mavlink_adapter.commands import _ALT_ACCEPT_MARGIN_M, DEFAULT_PX4_TUNING
+    radius = DEFAULT_PX4_TUNING["NAV_MC_ALT_RAD"]
+    margins = {round((t - radius) - (t - _tol(t)), 6) for t in (3.0, 6.5, 9.0, 20.0)}
+    assert margins == {_ALT_ACCEPT_MARGIN_M}, margins
+
+
+def test_the_two_real_flights_would_both_have_passed() -> None:
+    """The measured levelling altitudes, 2026-08-24 ULogs 07_22_22 and
+    07_44_22, commanded 6.5 m. Under the old rule 5.43 m failed."""
+    gate = 6.5 - _tol(6.5)
+    for measured in (5.72, 5.61, 5.43):
+        assert measured >= gate, f"{measured} m would still fail (gate {gate:.2f})"
+
+
+def test_the_gate_still_rejects_a_takeoff_that_never_climbed() -> None:
+    """Loosening it must not turn the check into a rubber stamp — it exists to
+    catch a thrust-loss / EKF-drift takeoff that barely left the ground."""
+    gate = 6.5 - _tol(6.5)
+    for stuck in (0.0, 1.0, 2.5, 4.0):
+        assert stuck < gate, f"{stuck} m must NOT count as a 6.5 m climb"
+
+
+def test_the_vertical_radius_is_pinned_in_both_field_configs() -> None:
+    """It was unpinned until 2026-08-24, so a PX4 default change would have
+    moved the takeoff gate underneath us with nothing to notice it."""
+    from pathlib import Path
+
+    import yaml
+
+    from mavlink_adapter.commands import DEFAULT_PX4_TUNING
+    root = Path(__file__).resolve().parents[1] / "sitl"
+    for name in ("aavc_config.yaml", "kmitl_config.yaml"):
+        tune = yaml.safe_load((root / name).read_text())["px4_tuning"]
+        assert tune.get("NAV_MC_ALT_RAD") == DEFAULT_PX4_TUNING["NAV_MC_ALT_RAD"], name
