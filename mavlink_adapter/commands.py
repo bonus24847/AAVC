@@ -116,6 +116,15 @@ class ConnectionConfig:
 # ~2 kg quad; the egg/ceiling/scoring pins below are deliberately unchanged.
 # MUST stay byte-identical to sitl/aavc_config.yaml px4_tuning — enforced by
 # tests/test_px4_tuning_parity.py.
+# How much MORE than PX4's own vertical acceptance radius the takeoff gate
+# waits for. PX4 levels off AT the radius, so this is the whole working margin
+# between "PX4 finished the climb" and "we call the climb finished". 0.4 m
+# absorbs the settle wobble measured across real flights (5.61-5.72 m against a
+# 5.70 m ideal) without ever dipping under the radius itself.
+_ALT_ACCEPT_MARGIN_M = 0.4
+# A floor for tiny climb targets, so the gate stays meaningful on a low profile.
+_ALT_TOLERANCE_FLOOR_M = 0.4
+
 DEFAULT_PX4_TUNING: dict[str, float] = {
     "MPC_TILTMAX_AIR": 30.0,    # anti-flip: cap auto tilt (deg); PX4 default 45
     "MPC_MAN_TILT_MAX": 30.0,   # anti-flip: cap manual tilt (deg)
@@ -155,6 +164,17 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
                                 # legs are 10-20 m apart; 2 m would cut visible
                                 # corners at the SCORED transit coordinates.
                                 # mission.py _ARRIVAL_RADIUS_M = this + 1.
+    # The VERTICAL twin of NAV_ACC_RAD, and it was never pinned until
+    # 2026-08-24 — which is how it went three days without anyone noticing it
+    # decides where takeoff ends. PX4 leaves AUTO_TAKEOFF as soon as it is
+    # within this of the target, so the aircraft levels off at
+    # MIS_TAKEOFF_ALT - NAV_MC_ALT_RAD and never climbs the last stretch.
+    # Measured on two flights: commanded 6.5, LOITER at 5.72 and 5.61 — 6.5-0.8
+    # to the centimetre. `_wait_until_altitude_reached` now derives its
+    # tolerance from THIS value instead of a percentage that merely happened to
+    # exceed it (see _ALT_ACCEPT_MARGIN_M).
+    "NAV_MC_ALT_RAD": 0.8,      # PX4 default; pinned so the takeoff gate's
+                                # tolerance cannot silently go under it.
     # ── XY position/velocity loop: wind-rejection tune for the land-ON precision
     # (G6 touchdown scatter). MUST mirror sitl/aavc_config.yaml px4_tuning — the
     # config overrides this dict, but a config-absent run falls back HERE, and
@@ -1294,6 +1314,35 @@ class DroneCommander:
 
     # ----- internal helpers -----
 
+    def _altitude_tolerance_m(self, target_m: float) -> float:
+        """How far under ``target_m`` still counts as "climbed".
+
+        It has to clear PX4's OWN acceptance radius, because PX4 stops climbing
+        there: AUTO_TAKEOFF ends as soon as the vehicle is within
+        ``NAV_MC_ALT_RAD`` of the target, so the aircraft levels off at
+        ``target - NAV_MC_ALT_RAD`` and that is the highest reading this wait
+        will ever see. A tolerance smaller than that radius can NEVER pass.
+
+        It used to be ``min(1.0, max(0.4, 0.15 * target))`` — a percentage with
+        no relationship to the radius at all. At the 6.5 m climb-out that came
+        to 0.975 against PX4's 0.8, so the whole margin was **17 cm** of pure
+        coincidence, and it was not always enough: two real flights levelled at
+        5.72 m (passed) and 5.43 m (failed by 10 cm, and a failure here aborts
+        the entire mission at takeoff — `arm_and_takeoff` raises and the
+        orchestrator goes to its emergency-RTH boundary). Deriving it from the
+        radius makes the margin a decision instead of an accident, and keeps it
+        the same size whatever the profile's climb altitude is: the horizontal
+        twin has always been written this way (`mission.py::_ARRIVAL_RADIUS_M`
+        = ``NAV_ACC_RAD + 1``).
+
+        Still a real check, not a rubber stamp: at the 6.5 m climb-out it
+        accepts 5.3 m and rejects anything lower, so the thrust-loss / EKF-drift
+        takeoff this guard exists to catch — one that barely leaves the ground —
+        still fails it.
+        """
+        radius = float(DEFAULT_PX4_TUNING.get("NAV_MC_ALT_RAD", 0.8))
+        return max(radius + _ALT_ACCEPT_MARGIN_M, _ALT_TOLERANCE_FLOOR_M)
+
     async def _wait_until_altitude_reached(
         self, target_m: float, tolerance_m: float | None = None,
         timeout_s: float = 60.0,
@@ -1322,7 +1371,7 @@ class DroneCommander:
         drop, this wait never returned). wait_for fires on the wall clock
         regardless, so a stalled stream now surfaces as a clean failure."""
         if tolerance_m is None:
-            tolerance_m = min(1.0, max(0.4, 0.15 * abs(target_m)))
+            tolerance_m = self._altitude_tolerance_m(target_m)
         last_alt = float("nan")
 
         async def _watch() -> bool:

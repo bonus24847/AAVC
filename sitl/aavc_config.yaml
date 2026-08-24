@@ -504,6 +504,13 @@ px4_tuning:
                             # paired with the accel cap above for the
                             # accuracy-over-speed profile.
   NAV_ACC_RAD: 1.0          # waypoint acceptance radius (m) — KMUTNB: 2 -> 1.
+  # The VERTICAL twin, pinned 2026-08-24 after it turned out to decide where
+  # takeoff ends. PX4 leaves AUTO_TAKEOFF once it is within this of the target,
+  # so the aircraft levels off at MIS_TAKEOFF_ALT - NAV_MC_ALT_RAD: commanded
+  # 6.5, two real flights held at 5.72 and 5.61. It was never pinned before, so
+  # a PX4 default change would have moved the takeoff gate underneath us.
+  # mavlink_adapter/commands.py derives the climb-gate tolerance from this.
+  NAV_MC_ALT_RAD: 0.8       # vertical acceptance radius (m); PX4 default
                             # Transit legs are only 10-20 m apart here; a 2 m
                             # radius would cut visible corners at P1/P2/P3 (the
                             # judges score each transit coordinate passed).
