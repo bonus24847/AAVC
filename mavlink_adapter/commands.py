@@ -213,7 +213,14 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     # ceiling (warn 10.5 / RTH 12). Purely additive to the polygon fence
     # (unlike GF_MAX_HOR_DIST, which masked it and was removed); breach
     # response is the same pinned GF_ACTION=3 (Return).
-    "GF_MAX_VER_DIST": 20.0,    # metres above home; PX4 default disabled
+    # RAISED 20 -> 22 on 2026-08-24 (operator). GF_ACTION=3 makes this a
+    # RETURN, so it is the LAST net — but at 20 it fired BEFORE the companion
+    # watchdog it backs up (transit commanded 19.5 · companion warns 20.5 ·
+    # companion RTHs 21.5 · FC fence 20.0 went first). At KMITL that left
+    # 0.5 m over the commanded transit, against a recorded 19.75 m and a
+    # transient near 20.5 m. 22 restores the order. The rules' 20 m ceiling
+    # is still enforced — by the companion, which can land gracefully.
+    "GF_MAX_VER_DIST": 22.0,    # metres above home; PX4 default disabled
     # Downward rangefinder (Benewake TFmini-S) aids height through the delivery
     # descent and touchdown; 1 is already the 6X default but pin it so a param
     # reset cannot silently drop height aiding. The serial port assignment
@@ -301,7 +308,7 @@ _FENCE_UPLOAD_BACKOFF_S = 1.0
 
 _ENVELOPE_PINS = (
     "RTL_RETURN_ALT",     # default 60 m vs the 20 m ceiling — busts it on any RTL
-    "GF_MAX_VER_DIST",    # the FC's 20 m altitude fence (rules) — default disabled
+    "GF_MAX_VER_DIST",    # the FC's altitude fence (22 m backstop) — default disabled
     "MPC_Z_V_AUTO_DN",    # default 1.5 m/s vs 0.4 validated onto the pad
     "COM_DISARM_LAND",    # default 2 s auto-disarms ON the pad mid-sortie
     # The ceiling under which the rangefinder is allowed to join the height

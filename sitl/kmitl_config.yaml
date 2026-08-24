@@ -619,7 +619,18 @@ px4_tuning:
   # FC-level ALTITUDE fence at the competition rules' 20 m (operator
   # 2026-08-18) — the outer net above the watchdog's 10 m ceiling (warn 10.5 /
   # RTH 12). Additive to the polygon fence; same GF_ACTION=3 (Return).
-  GF_MAX_VER_DIST: 20.0     # metres above home; PX4 default disabled
+  # RAISED 20 -> 22 on 2026-08-24 (operator). This is the FC's OWN vertical
+  # fence and GF_ACTION=3 makes it RETURN, so it is the LAST net — but at 20 it
+  # fired BEFORE the companion watchdog it is supposed to back up:
+  #     transit commanded 19.5 · companion warns 20.5 · companion RTHs 21.5
+  #     FC fence 20.0  <- first to trigger, and the least graceful
+  # At KMITL that left 0.5 m between the commanded transit and an FC-side RTL,
+  # while this airframe has recorded 19.75 m against a 19.5 m command and a
+  # transient near 20.5 m during egress — through the fence. 22 puts it 0.5 m
+  # ABOVE the companion RTH, restoring the intended order. The rules' 20 m
+  # ceiling is still enforced, by the companion (warn 20.5 / RTH 21.5), which is
+  # the layer that can land gracefully.
+  GF_MAX_VER_DIST: 22.0     # FC vertical fence (m) — backstop ABOVE the companion
   # ── DOWNWARD RANGEFINDER (Benewake TFmini-S, 0.1-12 m) ──
   # The no-RTK GPS wanders ~0.5-1.5 m vertically; the rangefinder pins AGL for
   # the delivery descent and the on-pad touchdown. EKF2_RNG_CTRL is already 1 by
