@@ -56,3 +56,39 @@ FOUND ALONGSIDE, NOT FIXED (operator decision, touches a failsafe)
   8.5 m transit, which is why this has never fired. Recorded maxima on this
   airframe: 19.75 m against a 19.5 m command, and a documented transient poke
   to ~20.5 m during egress — which is through the fence.
+
+────────────────────────────────────────────────────────────────────────────
+FOUND BY AUDITING ALL 10 ULOGS ON THE CARD — home altitude will not hold still
+────────────────────────────────────────────────────────────────────────────
+`relative_alt` (= current altitude - home altitude) is what the ceiling
+watchdog, the takeoff gate, the TELEM audit and the transit checks all read.
+It is only as steady as home_position.alt, and that value MOVES during flight:
+
+  file                       times published   range              spread
+  2026-08-21/07_54_40.ulg          6           24.05 .. 27.84     3.79 m
+  2026-08-24/07_16_33.ulg          4            1.98 ..  4.61     2.63 m
+  2026-08-24/07_17_28.ulg          7           -2.26 ..  3.18     5.44 m
+  2026-08-24/07_22_22.ulg          3           10.94 .. 11.96     1.02 m
+  2026-08-24/07_44_22.ulg          4           17.61 .. 18.78     1.17 m
+  (ground-only logs)               1           —                  0.00 m
+
+The spread tracks how badly each flight went:
+
+  07_17_28  spread 5.44 m  -> companion read 12.0 m and RTH'd for a ceiling
+                             breach; the ULog says the aircraft never exceeded
+                             9.99 m above its first home. The 2.01 m error is
+                             the home reference moving underneath it.
+  07_22_22  spread 1.02 m  -> the takeoff gate missed by 10 cm
+  07_44_22  spread 1.17 m  -> the good flight: transit 3/3, no altitude event
+
+So "wait for alt-watch STABLE before arming" is necessary but NOT sufficient:
+home is re-published DURING the flight, after the check has passed. PX4
+re-publishes home when the EKF's global reference shifts, and EKF2_GPS_CTRL=7
+keeps GPS altitude in the fusion even though EKF2_HGT_REF=0 makes baro the
+datum — so GPS altitude noise still moves the number every consumer trusts.
+
+NOT CHANGED — this touches the estimator and is the operator's call. The
+targeted option is EKF2_GPS_CTRL 7 -> 5 (clear bit 1, "GPS altitude"), leaving
+lon/lat and 3D velocity fused and letting baro alone carry height. That should
+stop home altitude chasing GPS. It needs a flight to confirm, not just a
+parameter write.
