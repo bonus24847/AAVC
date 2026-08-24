@@ -188,16 +188,65 @@ def test_force_short_exposure_is_fail_soft(monkeypatch) -> None:
     g._force_short_exposure("/dev/video0", 20, -1)          # must not raise
 
 
-def test_force_short_exposure_zero_is_a_noop(monkeypatch) -> None:
-    """--exposure-100us 0 with gain -1 (the default, and the SITL/laptop
-    path) = leave the driver's auto exposure alone — no subprocess at all."""
+def test_force_short_exposure_zero_RESTORES_auto(monkeypatch) -> None:
+    """--exposure-100us 0 must hand the camera back to AUTO, not merely decline
+    to touch it.
+
+    It used to be a no-op, and that was a trap with real cost. A run that forced
+    manual exposure left the camera in manual, and the next run — asking for
+    "auto" by passing 0 — silently inherited the stale manual value. That is how
+    the decode stayed broken from 2026-08-21 to 2026-08-24: the forced 2 ms sat
+    on the camera across restarts while every launcher believed it was on auto.
+    The gain default goes back with it so a bench sweep that left gain at 4 or
+    128 cannot follow the aircraft into a flight.
+    """
     g = _load_grabber()
+    calls: list[list[str]] = []
 
-    def _boom(cmd, **kw):
-        raise AssertionError("subprocess must not run for the no-op defaults")
+    class _Done:
+        stdout = ""
+        stderr = ""
 
-    monkeypatch.setattr(g.subprocess, "run", _boom)
+    monkeypatch.setattr(g.subprocess, "run",
+                        lambda cmd, **kw: (calls.append(list(cmd)), _Done())[1])
     g._force_short_exposure("/dev/video0", 0, -1)
+
+    assert calls, "0 must still talk to the camera — that is the whole fix"
+    set_cmd = calls[0]
+    assert f"auto_exposure={g._AUTO_EXPOSURE_MODE}" in set_cmd, set_cmd
+    assert f"gain={g._DEFAULT_GAIN}" in set_cmd, set_cmd
+    # and it must NOT pin an exposure time while asking for auto
+    assert not any(c.startswith("exposure_time_absolute=") for c in set_cmd), set_cmd
+
+
+def test_an_explicit_gain_still_wins_when_restoring_auto(monkeypatch) -> None:
+    """Restoring auto puts the DEFAULT gain back, but an operator who passed
+    --gain explicitly asked for that number and must still get it."""
+    g = _load_grabber()
+    calls: list[list[str]] = []
+
+    class _Done:
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(g.subprocess, "run",
+                        lambda cmd, **kw: (calls.append(list(cmd)), _Done())[1])
+    g._force_short_exposure("/dev/video0", 0, 96)
+    set_cmd = calls[0]
+    assert f"auto_exposure={g._AUTO_EXPOSURE_MODE}" in set_cmd
+    assert "gain=96" in set_cmd, set_cmd
+
+
+def test_the_launchers_default_the_real_camera_to_auto() -> None:
+    """The premise the 2 ms default was built on was measured FALSE on
+    2026-08-24 (auto picks 1 ms outdoors — shorter than what was forced), and
+    the forcing is what broke the decode. Pin the default so it cannot drift
+    back without someone reading why."""
+    root = Path(__file__).resolve().parents[1]
+    for rel in ("sitl/run_mission.sh", "cm4/launch_flight.sh"):
+        txt = (root / rel).read_text()
+        assert 'CAM_EXPOSURE="${CAM_EXPOSURE:-0}"' in txt, rel
+        assert 'CAM_EXPOSURE="${CAM_EXPOSURE:-20}"' not in txt, rel
 
 
 # ── frame transport: the SUFFIX picks the codec (JPEG since 2026-08-21) ──────
