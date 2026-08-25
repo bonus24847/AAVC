@@ -195,11 +195,18 @@ fence-probe:
 alt-watch:
 	$(PY) tools/alt_watch.py --connect "$(CONNECT)"
 
+lidar-check:
+	$(PY) tools/lidar_check.py --connect "$(CONNECT)"
+
 # The laptop-side pre-staging aggregate: stops at the first failure, in the
-# order the field-day procedure runs them. ⚠ run BEFORE pressing GO — both
-# probes bind the orchestrator's udpin port and exit when done.
-field-check: preflight fence-probe alt-watch
-	@echo "✔ field-check: BOARD params + mission path + altitude frame all good — stage away"
+# order the field-day procedure runs them. ⚠ run BEFORE pressing GO — every
+# probe binds the orchestrator's udpin port and exits when done.
+# lidar-check runs LAST because it is the only one that proves hardware
+# rather than stored values: preflight ticks SENS_TFMINI_CFG green off a
+# param read, which stayed green through 5 of 11 flights flown with the
+# rangefinder dead (2026-08-25).
+field-check: preflight fence-probe alt-watch lidar-check
+	@echo "✔ field-check: BOARD params + mission path + altitude frame + rangefinder all good — stage away"
 
 # Post-flight verifier: make verify RUN=runs/<id>/audit.jsonl [TRUTH=/tmp/aavc_targets.json]
 verify:
