@@ -913,15 +913,45 @@ class Link:
         #      0.5 Hz — only 0.9 s under the chip's staleness limit, so any
         #      delivery hiccup (RTF dip, second GCS on the port) flapped the
         #      chip. This RAISES an existing stream, net +0.5 msg/s.
+        # ⚠ On the RADIO, asking for what we want is not enough — something has
+        # to give up its share first. Measured 2026-08-25 with the console on
+        # the NOMAD: 20 s carried 103 messages total, of which HIGHRES_IMU 23,
+        # ATTITUDE_QUATERNION 32 and LOCAL_POSITION_NED 10 — none of which this
+        # page reads — while SYS_STATUS, GPS_RAW_INT, BATTERY_STATUS,
+        # DISTANCE_SENSOR and RC_CHANNELS arrived ZERO times. Every sensor chip
+        # on the page comes off SYS_STATUS, so the operator saw a link badge
+        # reading "online" above a completely blank sensor strip. Turning the
+        # unread streams OFF first put all five back (277 messages in the same
+        # 20 s) and lit the chips.
+        #
+        # ONLY on the radio: a USB or CM4 link has bandwidth to spare, and the
+        # orchestrator's own consumers live on those links — silencing a stream
+        # there to fix a problem that does not exist there is how a GCS breaks
+        # a flight. PX4 applies SET_MESSAGE_INTERVAL per MAVLink instance, so
+        # this reaches TELEM1 and nothing else.
+        if self._link_kind() == "radio":
+            # NOT 32 (LOCAL_POSITION_NED): the map converts the mission's
+            # local-frame pad fixes to lat/lon with it. Everything below was
+            # checked against this file for a reader before being silenced.
+            for mid in (105, 31, 331, 85, 83, 36, 42, 4, 111, 141, 74, 230):
+                try:
+                    with self.send_lock:
+                        self.m.mav.command_long_send(
+                            1, 1, mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+                            0, mid, -1, 0, 0, 0, 0, 0)
+                    time.sleep(0.12)
+                except Exception:
+                    pass
         for mid, us in ((0, 1000000), (1, 1000000), (24, 1000000),
                         (33, 1000000), (65, 1000000), (245, 2000000),
-                        (30, 500000), (375, 1000000), (132, 1000000)):
+                        (30, 500000), (375, 1000000), (132, 1000000),
+                        (147, 2000000)):
             try:
                 with self.send_lock:
                     self.m.mav.command_long_send(
                         1, 1, mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
                         0, mid, us, 0, 0, 0, 0, 0)
-                time.sleep(0.05)   # space the 9 sends: a burst congests the narrow
+                time.sleep(0.12)   # space the sends: a burst congests the narrow
                                    # ELRS uplink and can stall the whole link
             except Exception:
                 pass
