@@ -11,7 +11,7 @@ reset — is equally correct, and the runtime gate (``main.py``:
 flight over a ``0`` that flies fine (the old exact-``-1`` compare did).
 """
 
-from tools.preflight_params import BOARD, _board_ok
+from tools.preflight_params import BOARD, _board_ok, _report
 
 
 def test_board_checks_the_17000_pack_endpoints() -> None:
@@ -121,3 +121,33 @@ def test_the_site_marker_names_the_config_this_repo_flies() -> None:
     assert p is not None and p.exists(), ".aavc_site names no readable config"
     want = (yaml.safe_load(p.read_text()) or {})["px4_tuning"]["EKF2_HGT_REF"]
     assert boot_latched_expected(p) == {"EKF2_HGT_REF": float(want)}
+
+
+def test_unread_params_are_not_reported_as_wrong() -> None:
+    """The false alarm of 2026-08-25, pinned.
+
+    Run over the ELRS radio, every param read timed out and the tool answered
+    "ต้องแก้ก่อน: PWM_MAIN_FUNC1, …" naming all twenty. The board was perfect —
+    the same tool over the CM4 router read 19/19 correct hours later. A value
+    that could not be READ demands a different link; a value that is WRONG
+    demands work on the board. Reporting them as one thing sends the crew to
+    the wrong place on the morning they can least afford it.
+    """
+    expected = {"PWM_MAIN_FUNC1": 101, "PWM_MAIN_FUNC2": 102, "SYS_AUTOSTART": 6001}
+    wrong, unread = _report("t", expected, {}, fatal=True)
+    assert wrong == []                        # nothing may be called wrong
+    assert unread == list(expected)           # everything is unread
+
+
+def test_a_wrong_value_still_counts_as_wrong_when_others_are_unread() -> None:
+    """Mixed case: a real mismatch must not be hidden by the link problem."""
+    expected = {"SYS_AUTOSTART": 6001, "CA_ROTOR_COUNT": 6, "SYS_HITL": 0}
+    wrong, unread = _report("t", expected, {"SYS_AUTOSTART": 4001.0}, fatal=True)
+    assert wrong == ["SYS_AUTOSTART"]         # the quad airframe, flagged
+    assert unread == ["CA_ROTOR_COUNT", "SYS_HITL"]
+
+
+def test_a_correct_value_is_neither_wrong_nor_unread() -> None:
+    wrong, unread = _report("t", {"CA_ROTOR_COUNT": 6}, {"CA_ROTOR_COUNT": 6.0},
+                            fatal=True)
+    assert wrong == [] and unread == []

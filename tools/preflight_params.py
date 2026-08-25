@@ -39,8 +39,18 @@ happen — only the value the board BOOTED with counts. It has already cost a
 flight (2026-08-20, GPS reference, 10.8 m of baro-vs-GPS divergence and a
 phantom ceiling breach that RTH'd a healthy flight).
 
-Exit code: 0 all BOARD params correct · 2 a BOARD mismatch (do not fly) ·
-3 no link.
+⚠ Run this over a WIDE link — the CM4 router or the FC's USB cable. The param
+protocol is one request/response per name, and the ELRS radio carries about
+440 B/s: over it every read times out and the tool used to answer
+"✘ อย่าเพิ่งบิน — ต้องแก้ก่อน: PWM_MAIN_FUNC1, …" naming all twenty. The board
+was perfect; the same run over the router read 19/19 correct four hours later.
+A false alarm of that shape on competition morning is worse than no check at
+all, so an unread param is now reported as UNREAD and never as wrong.
+
+Exit code: 0 all BOARD params correct · 2 a BOARD value is WRONG (do not fly) ·
+3 no link · 4 --strict and a PINNED value never landed · 5 could not READ some
+BOARD params over this link (unverified, so still do not fly — but the fix is a
+different link, not the board).
 """
 
 from __future__ import annotations
@@ -228,14 +238,23 @@ def _board_ok(name: str, have: float, want: float) -> bool:
 
 
 def _report(title: str, expected: dict[str, float], got: dict[str, float],
-            *, fatal: bool) -> list[str]:
+            *, fatal: bool) -> tuple[list[str], list[str]]:
+    """(wrong, unread) — kept apart on purpose.
+
+    They demand opposite actions: a WRONG value is fixed on the board, an UNREAD
+    one is re-checked over a link wide enough to carry the param protocol. Both
+    used to land in one list under "ต้องแก้ก่อน", which sent the crew looking
+    for a wiped motor map that was never wiped (2026-08-25, over the ELRS
+    radio).
+    """
     print(f"\n{title}")
     off: list[str] = []
+    unread: list[str] = []
     for name, want in expected.items():
         have = got.get(name)
         if have is None:
-            print(f"  ?  {name:18s} = (ไม่ตอบ)")
-            off.append(name)
+            print(f"  ?  {name:18s} = (ไม่ตอบ — อ่านไม่ได้ ไม่ใช่ค่าผิด)")
+            unread.append(name)
         elif _board_ok(name, have, float(want)):
             note = "  (เก็บค่าแล้ว — ต้องรีบูตถึงจะมีผลจริง)" \
                 if name in _STORED_NOT_PROVEN else ""
@@ -245,7 +264,7 @@ def _report(title: str, expected: dict[str, float], got: dict[str, float],
             print(f"  {'✘' if fatal else '·'}  {name:18s} = {have:g}"
                   f"  <- ควรเป็น {float(want):g}{note}")
             off.append(name)
-    return off
+    return off, unread
 
 
 async def _run(endpoint: str, *, strict: bool = False,
@@ -262,20 +281,40 @@ async def _run(endpoint: str, *, strict: bool = False,
     cfg_path = _active_config_path(config)
     latched = boot_latched_expected(cfg_path)
     got = await _read(commander, list(BOARD) + list(latched) + list(PINNED))
-    bad = _report("ต้องถูกบนบอร์ดเอง (ไม่มีใครแก้ให้):", BOARD, got, fatal=True)
+    bad, unread = _report("ต้องถูกบนบอร์ดเอง (ไม่มีใครแก้ให้):", BOARD, got,
+                          fatal=True)
     if latched:
-        bad += _report(
+        b2, u2 = _report(
             f"EKF ล็อกตอนบูต — push ตอนสตาร์ตไม่ทัน ({cfg_path.name}):",
             latched, got, fatal=True)
+        bad += b2
+        unread += u2
     elif cfg_path is not None:
         print(f"\n(ข้าม boot-latched: อ่าน {cfg_path} ไม่ได้)")
-    pinned_off = _report(
+    pinned_off, pinned_unread = _report(
         "mission เขียนให้ตอนสตาร์ต (ค่าโต๊ะ = ปกติ):", PINNED, got, fatal=strict)
 
     print()
+    # WRONG first: it is the only outcome that means the BOARD needs work.
     if bad:
-        print(f"✘ อย่าเพิ่งบิน — ต้องแก้ก่อน: {', '.join(bad)}")
+        print(f"✘ อย่าเพิ่งบิน — ค่าบนบอร์ดผิด: {', '.join(bad)}")
+        if unread:
+            print(f"   (และอ่านไม่ได้อีก {len(unread)} ตัว — ดูด้านล่าง)")
         return 2
+    if unread:
+        asked = len(BOARD) + len(latched)
+        print(f"✘ ตรวจไม่ครบ — อ่านไม่ได้ {len(unread)}/{asked} ตัว: "
+              f"{', '.join(unread)}")
+        if len(unread) >= max(3, asked // 2):
+            # Wholesale silence is the LINK, not the board. Say so, because the
+            # instinct on seeing twenty names is to go looking at the board.
+            print("   ทั้งชุดเงียบพร้อมกัน = ลิงก์แคบเกินไปสำหรับ param protocol "
+                  "(วิทยุ ELRS วัดได้ ~440 B/s) ไม่ใช่บอร์ดถูกล้าง")
+            print("   รันใหม่ผ่านลิงก์ที่กว้างกว่า:")
+            print("     CONNECT=\"serial:///dev/ttyACM0:115200\"   # สาย FC USB")
+            print("     CONNECT=\"udpin://0.0.0.0:14540\"          # บน CM4 ผ่าน router")
+        print("   ยังไม่ควรบิน: ค่าที่อ่านไม่ได้คือค่าที่ยังไม่ได้ตรวจ")
+        return 5
     if strict and pinned_off:
         # Post-staging mode: once orchestrator/main.py has pushed the pins,
         # a PINNED value still off means the push failed (the "applied 0/24"
@@ -284,6 +323,12 @@ async def _run(endpoint: str, *, strict: bool = False,
         print(f"✘ --strict: PINNED ยังไม่ลง — {', '.join(pinned_off)} "
               "(push จาก orchestrator ล้มเหลว?)")
         return 4
+    if strict and pinned_unread:
+        # Same rule as BOARD above: --strict exists to PROVE the push landed,
+        # and a value that would not read has not been proven either way.
+        print(f"✘ --strict: อ่าน PINNED ไม่ได้ {len(pinned_unread)} ตัว: "
+              f"{', '.join(pinned_unread)} — ยังพิสูจน์ไม่ได้ว่า push ลงจริง")
+        return 5
     print("✔ พารามิเตอร์ฝั่งบอร์ดครบถูกต้อง — บินได้")
     return 0
 
