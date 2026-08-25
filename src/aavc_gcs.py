@@ -812,6 +812,14 @@ class Link:
             "batt": {"volt": None, "pct": None},
             "rc": {"rssi": 0, "throttle": None, "roll": None, "pitch": None,
                    "yaw": None, "count": 0},
+            # WHY the link is down, for the status badge itself. The badge is
+            # what an operator actually looks at, and it rendered the bare
+            # string "no signal" — the one phrase that covers a dead cable, a
+            # wrong baud and a non-MAVLink stream, which have three different
+            # fixes. The diagnosis existed but only in the message feed, which
+            # shows one line and scrolls (2026-08-25: operator reported "still
+            # only says no signal" WITH the diagnosis running).
+            "link_hint": "", "link_hint_full": "",
             "health": {}, "present": {},
             "accel_off": {"x": None, "y": None, "z": None},
             "cal_active": False,
@@ -965,6 +973,19 @@ class Link:
                         last_wait_note = now
                         got = getattr(self.m.mav, "total_bytes_received", 0)
                         waited = int(now - waiting_since)
+                        with self.lock:
+                            if got:
+                                self.s["link_hint"] = f"ได้ {got} ไบต์ แต่ไม่ใช่ MAVLink"
+                                self.s["link_hint_full"] = (
+                                    f"{self.url} @{self.baud} เปิดได้ และอ่านมาแล้ว {got} "
+                                    f"ไบต์ แต่ decode เป็น MAVLink ไม่ได้ — baud หรือโหมด"
+                                    f"ของวิทยุไม่ตรง ({waited} วิ)")
+                            else:
+                                self.s["link_hint"] = "สายเงียบ 0 ไบต์"
+                                self.s["link_hint_full"] = (
+                                    f"{self.url} @{self.baud} เปิดได้ แต่อ่านมา 0 ไบต์ "
+                                    f"({waited} วิ) — ไม่มีอะไรส่งเข้ามาเลย ไม่ใช่เรื่อง "
+                                    f"baud. ตรวจด้วย tools/serial_sniff.py")
                         if got:
                             self._note(
                                 f"ยังไม่เจอ heartbeat ({waited} วิ) — "
@@ -981,6 +1002,8 @@ class Link:
                     continue          # no FMU yet — keep waiting, link stays down
                 waiting_since = time.time()
                 last_wait_note = 0.0
+                with self.lock:
+                    self.s["link_hint"] = self.s["link_hint_full"] = ""
                 self.m.target_system, self.m.target_component = 1, 1
                 self._request_streams()
                 last_req = time.time()
@@ -4073,8 +4096,14 @@ async function tick(){
   document.getElementById('link').innerHTML='<span class=dot style=background:#f85149></span>server หลุด';return}
  window.LAST=s;
  var L=document.getElementById('link');
- var _lt=s.demo?'DEMO — ข้อมูลตัวอย่าง':(s.link?'online':'no signal'),_lc=s.demo?'#a371f7':(s.link?'#3fb950':'#f85149');
+ /* The badge carries the REASON, not just the verdict: "no signal" alone sent
+    an operator hunting a cable that was fine (2026-08-25). Hover for the full
+    line — url, baud, byte count and how long we have waited. */
+ var _hint=s.link?'':(s.link_hint||'');
+ var _lt=s.demo?'DEMO — ข้อมูลตัวอย่าง':(s.link?'online':('no signal'+(_hint?' · '+_hint:'')));
+ var _lc=s.demo?'#a371f7':(s.link?'#3fb950':'#f85149');
  L.innerHTML='<span class=dot style=background:'+_lc+'></span>'+_lt;
+ L.title=s.link?'':(s.link_hint_full||'');
  var _db=document.getElementById('demobar');if(_db)_db.style.display=s.demo?'block':'none';
  document.getElementById('mode').textContent=s.mode||'–';
  document.getElementById('armstate').innerHTML=s.armed?'<span class=bad>ARMED</span>':'<span class=ok>DISARM</span>';
