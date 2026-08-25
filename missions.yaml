@@ -17,9 +17,14 @@ missions:
     real:
       repo: "/home/bonus-linux/Desktop/mission AAVC in kmutnb"
       dir: "mission"
-      entry: "REAL=1 ~/mission/sitl/run_mission.sh {ids}"
+      # ⚠ env ต้องระบุให้ครบตั้งแต่ 2026-08-25 — เดิมบรรทัดนี้ปล่อยว่างแล้วพึ่ง
+      # .aavc_site บนโดรน แต่ตอนนี้ค่าเริ่มต้นของโดรนถูกย้ายไป **สนามแข่ง KMITL**
+      # (operator: "ให้ default เป็นสนามแข่ง") เพราะการพิมพ์ run_mission.sh เอง
+      # มือเปล่าที่ KMITL แล้วได้เพดานสนามซ้อม 10 m คือการผิดกติกาแบบเงียบ ๆ
+      # ⇒ ไอคอนซ้อมจึงต้องส่งสนามซ้อมมาทับเอง ไม่ใช่ "ไม่ส่งอะไรแล้วหวังว่าจะถูก"
+      entry: "REAL=1 AAVC_PROFILE=kmutnb_skyfield AAVC_CONFIG=sitl/aavc_config.yaml ~/mission/sitl/run_mission.sh {ids}"
   aavc:
-    label: "AAVC สนามแข่ง KMITL (aavc-comp, เพดาน 20 m)"
+    label: "AAVC สนามแข่ง KMITL (เพดาน 20 m)"
     # REDIRECTED 2026-08-19 to the aavc-comp repo (a clone of the practice repo
     # reconfigured for KMITL via .aavc_site: AAVC_PROFILE=competition +
     # sitl/kmitl_config.yaml). The old mission_AAVC repo was retired the same day.
@@ -31,9 +36,44 @@ missions:
     mission_cmd: "'/home/bonus-linux/Desktop/aavc-comp/sitl/run_mission.sh' {ids}"
     mission_label: ""
     real:
-      repo: "/home/bonus-linux/Desktop/aavc-comp"
-      dir: "aavc-comp"           # โฟลเดอร์ปลายทางบน CM4 (~/aavc-comp)
-      # run_mission.sh (REAL=1) sources .aavc_site → competition + kmitl_config,
-      # and defaults RC_GO=1: the script only STAGES, the RC pilot arms + flips
-      # OFFBOARD. Same launcher as practice — only the repo/site differ.
-      entry: "REAL=1 ~/aavc-comp/sitl/run_mission.sh {ids}"
+      # ⚠ 2026-08-25: this block pointed at ~/aavc-comp on the CM4 and THERE IS NO
+      # SUCH DIRECTORY THERE — the drone carries ~/mission (this practice clone,
+      # deployed) and ~/mission_AAVC (retired). Both the 🚀 button and the
+      # console's auto-infra ssh'd into it and got rc=127 every time, so the
+      # competition field could not be flown from this icon at all. The failure
+      # also repeated into the console's 40-line message feed every 4 s until it
+      # had evicted every other line — which is how a dead radio link went 20
+      # minutes with "no signal" as the only thing on screen.
+      #
+      # Fixed by pointing at the repo that IS on the drone rather than deploying
+      # a second one, and that costs NOTHING: the two repos were verified
+      # byte-identical the same day across orchestrator/ mission_brain/
+      # mavlink_adapter/ vision/, sitl/run_mission.sh and cm4/start_infra.sh, and
+      # ~/mission on the drone already carries sitl/kmitl_config.yaml with the
+      # md5 the laptop has (1623e49a6466…). The ONLY file that differs between
+      # the repos is .aavc_site — and run_mission.sh reads it as
+      # "${AAVC_PROFILE:-…}", so the env below WINS over it. The competition
+      # envelope therefore travels on the command line, where it can be read,
+      # instead of in a marker file on the drone.
+      #
+      # It also has to be this way today: the CM4 is a WiFi AP with no uplink
+      # (pypi unreachable, tested), so `deploy.sh --install` cannot build a
+      # second venv on it, and the laptop's x86_64 .venv cannot be copied to
+      # aarch64 — which is exactly why deploy.sh excludes .venv/.
+      #
+      # Practice and competition differ ONLY by the env in `entry`, so BOTH
+      # icons now state theirs explicitly — neither depends on the drone's
+      # .aavc_site. That file decides one case only: someone ssh'ing in and
+      # typing run_mission.sh by hand. On 2026-08-25 the drone's default was
+      # moved to the COMPETITION field so that case fails SAFE at KMITL
+      # (ceiling 20 / transit 20, the rules envelope) instead of silently
+      # flying the practice 10 m / 9 m. deploy.sh gained --exclude '.aavc_site'
+      # the same day so a routine code deploy can never push the laptop's
+      # practice marker back over it.
+      # Check the line the script prints on every launch either way:
+      #     🌐 SITE: profile=competition  config=sitl/kmitl_config.yaml
+      repo: "/home/bonus-linux/Desktop/mission AAVC in kmutnb"
+      dir: "mission"             # โฟลเดอร์ที่มีอยู่จริงบน CM4 (~/mission)
+      # RC_GO=1 is run_mission.sh's own REAL default: this only STAGES; the RC
+      # pilot arms and flips OFFBOARD.
+      entry: "REAL=1 AAVC_PROFILE=competition AAVC_CONFIG=sitl/kmitl_config.yaml ~/mission/sitl/run_mission.sh {ids}"
