@@ -63,7 +63,7 @@ rsync -a "$SRC/sitl/aavc_config.yaml" "$SRC/sitl/kmitl_config.yaml" "$DST/sitl/"
 for f in preflight_params.py px4_type_audit.py param_audit.py verify_flight.py \
          fence_probe.py alt_watch.py replay_frames.py landing_trial.py \
          gen_pads.py gen_aruco_glyphs.py gen_grass.py measure_mount_yaw.py \
-         rc_check.py hover_decode.py; do
+         rc_check.py hover_decode.py serial_sniff.py gps_bench.py; do
     [ -f "$SRC/tools/$f" ] && rsync -a "$SRC/tools/$f" "$DST/tools/$f"
 done
 
