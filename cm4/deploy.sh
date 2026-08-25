@@ -116,6 +116,14 @@ rsync -az --delete --info=stats1 \
     -e "ssh ${SSH_ID[*]}" \
     --exclude '.git/' \
     --exclude '.venv/' \
+    `# The drone's SITE marker belongs to the DRONE, not to whichever laptop
+     # repo last ran a deploy. Without this exclude, rsync --delete pushes the
+     # practice repo's .aavc_site over the aircraft's and silently re-points the
+     # field: the same command that "just updates the code" would move the
+     # ceiling from 20 m to 10 m and transit from 20 m to 9 m at KMITL, with
+     # nothing on screen to say so. sync_core.sh already refuses to copy this
+     # file between the two laptop repos for exactly this reason (2026-08-25).` \
+    --exclude '.aavc_site' \
     --exclude 'runs/' \
     --exclude 'captures/' \
     --exclude '__pycache__/' \
