@@ -370,6 +370,19 @@ _CM4_OK = None
 # (operator 2026-08-19) so the camera sensor chip lights without staging a flight.
 _INFRA_STARTED = False
 _INFRA_INFLIGHT = False
+# Auto-infra retry pacing. The CM4 probe loop ticks every 4 s and used to fire
+# a FRESH ssh on every tick for as long as the start failed — which is forever
+# when the failure is permanent (a CM4 that simply does not have the repo dir
+# answers rc=127 every single time). That is ~15 ssh handshakes a minute over
+# the aircraft's own WiFi, and, worse, it filled all 40 message slots with one
+# repeated line so the console could tell the operator NOTHING else — which is
+# exactly how a dead radio link went 20 minutes without a single word on screen
+# (2026-08-25). Back off instead: the transient case (CM4 still booting) still
+# recovers within seconds, the permanent one settles at a slow poll.
+_INFRA_BACKOFF_MIN_S = 4.0
+_INFRA_BACKOFF_MAX_S = 300.0
+_INFRA_BACKOFF_S = _INFRA_BACKOFF_MIN_S
+_INFRA_RETRY_AT = 0.0
 # REAL console: the mission PLAN is the one readout the radio cannot carry — a
 # route is hundreds of bytes and a STATUSTEXT packet is 50. It is written on the
 # CM4 (captures/mission_status.json) and the laptop keeps no copy, so the map
@@ -445,6 +458,8 @@ def _maybe_start_infra(host):
     global _INFRA_STARTED, _INFRA_INFLIGHT
     if _INFRA_STARTED or _INFRA_INFLIGHT:
         return
+    if time.time() < _INFRA_RETRY_AT:
+        return                       # still inside the backoff window
     remote_dir = _mission_cmd_remote_dir(MISSION_CMD)
     if not host or not remote_dir:
         return
@@ -461,7 +476,7 @@ def _maybe_start_infra(host):
     argv += [target, f"{remote_dir}/cm4/start_infra.sh"]
 
     def _run():
-        global _INFRA_STARTED, _INFRA_INFLIGHT
+        global _INFRA_STARTED, _INFRA_INFLIGHT, _INFRA_BACKOFF_S, _INFRA_RETRY_AT
         try:
             r = subprocess.run(argv, capture_output=True, text=True, timeout=45)
             # ⚠ Latch ONLY on success (2026-08-22 review). This used to latch
@@ -469,17 +484,24 @@ def _maybe_start_infra(host):
             # already running") or any transient failure permanently disabled
             # auto-infra for the life of the console.
             _INFRA_STARTED = (r.returncode == 0)
-            if LINK is not None:
-                if r.returncode == 0:
+            if r.returncode == 0:
+                _INFRA_BACKOFF_S = _INFRA_BACKOFF_MIN_S
+                if LINK is not None:
                     LINK._note("[infra] CM4 กล้อง+beacon สตาร์ทแล้ว (auto) — chip กล้องจะเขียวใน 2-3 วิ")
-                else:
-                    tail = ((r.stderr or r.stdout or "").strip().splitlines() or [""])[-1]
-                    LINK._note(f"[infra] CM4 start_infra rc={r.returncode}: {tail[:80]}")
+            else:
+                tail = ((r.stderr or r.stdout or "").strip().splitlines() or [""])[-1]
+                _INFRA_BACKOFF_S = min(_INFRA_BACKOFF_S * 2, _INFRA_BACKOFF_MAX_S)
+                if LINK is not None:
+                    LINK._note(f"[infra] CM4 start_infra rc={r.returncode}: "
+                               f"{tail[:80]} — ลองใหม่อีกครั้งในอีก "
+                               f"{int(_INFRA_BACKOFF_S)} วิ")
         except Exception as e:
             # couldn't reach/run — leave the flag down so the next probe retries
+            _INFRA_BACKOFF_S = min(_INFRA_BACKOFF_S * 2, _INFRA_BACKOFF_MAX_S)
             if LINK is not None:
                 LINK._note(f"[infra] ssh CM4 infra ยังไม่ได้ ({type(e).__name__}) — จะลองใหม่")
         finally:
+            _INFRA_RETRY_AT = time.time() + _INFRA_BACKOFF_S
             _INFRA_INFLIGHT = False
 
     threading.Thread(target=_run, daemon=True, name="infra-start").start()
@@ -487,7 +509,12 @@ def _maybe_start_infra(host):
 
 def _reset_infra_latch():
     """Allow auto-infra to run again after the CM4 disappears and returns."""
-    global _INFRA_STARTED
+    global _INFRA_STARTED, _INFRA_BACKOFF_S, _INFRA_RETRY_AT
+    # A CM4 that went away and came BACK is a different situation from the one
+    # the backoff was counting down, so clear the pacing too: the battery-swap
+    # reboot case this latch exists for must still recover in one probe tick.
+    _INFRA_BACKOFF_S = _INFRA_BACKOFF_MIN_S
+    _INFRA_RETRY_AT = 0.0
     if _INFRA_STARTED:
         _INFRA_STARTED = False
         if LINK is not None:
@@ -916,10 +943,44 @@ class Link:
 
     def _reader(self):
         last_req = 0.0
+        waiting_since = time.time()
+        last_wait_note = 0.0
         while not self._stop:
             try:
                 if self.m.wait_heartbeat(timeout=10) is None:
+                    # "No signal" covers three faults with three different
+                    # fixes, and this branch used to `continue` in silence — so
+                    # the console said NOTHING while the NOMAD link was dead for
+                    # 20 minutes (2026-08-25). The byte count is what separates
+                    # them: a wrong baud or a non-MAVLink stream still DELIVERS
+                    # bytes; a dead cable delivers none. (The same measurement
+                    # by hand is `stat /dev/ttyUSB*` — the kernel bumps a tty's
+                    # atime only on a read that RETURNED bytes.)
+                    now = time.time()
+                    # Loud while the operator is still looking at the screen,
+                    # quiet afterwards: the feed is only 40 lines and this line
+                    # must not become the new thing that evicts everything else.
+                    every = 30 if now - waiting_since < 120 else 300
+                    if now - last_wait_note > every:
+                        last_wait_note = now
+                        got = getattr(self.m.mav, "total_bytes_received", 0)
+                        waited = int(now - waiting_since)
+                        if got:
+                            self._note(
+                                f"ยังไม่เจอ heartbeat ({waited} วิ) — "
+                                f"{self.url} @{self.baud} เปิดได้และอ่านมาแล้ว "
+                                f"{got} ไบต์ แต่ไม่ใช่ MAVLink: baud หรือโหมด"
+                                f"ของวิทยุไม่ตรง")
+                        else:
+                            self._note(
+                                f"ยังไม่เจอ heartbeat ({waited} วิ) — "
+                                f"{self.url} @{self.baud} เปิดได้ แต่อ่านมา "
+                                f"0 ไบต์: สายเงียบ (สาย/หัวต่อ USB หรือวิทยุ"
+                                f"ไม่ได้ส่ง) ไม่ใช่เรื่อง baud — ตรวจด้วย "
+                                f"tools/serial_sniff.py")
                     continue          # no FMU yet — keep waiting, link stays down
+                waiting_since = time.time()
+                last_wait_note = 0.0
                 self.m.target_system, self.m.target_component = 1, 1
                 self._request_streams()
                 last_req = time.time()
@@ -963,10 +1024,21 @@ class Link:
                 self._reconnect()
 
     def _note(self, txt):
+        # A repeat of the line already at the bottom becomes a counter instead
+        # of a new row. The feed is 40 lines deep, so ONE component retrying on
+        # a timer used to evict every other message inside three minutes and
+        # the operator lost the only place the console explains itself
+        # (2026-08-25: 40/40 slots were the same CM4 rc=127 line).
         with self.lock:
-            self.s["messages"].append(
-                {"t": time.strftime("%H:%M:%S"), "txt": txt})
-            del self.s["messages"][:-40]
+            msgs = self.s["messages"]
+            if msgs and msgs[-1].get("base") == txt:
+                msgs[-1]["n"] = msgs[-1].get("n", 1) + 1
+                msgs[-1]["t"] = time.strftime("%H:%M:%S")
+                msgs[-1]["txt"] = f"{txt} (x{msgs[-1]['n']})"
+                return
+            msgs.append({"t": time.strftime("%H:%M:%S"), "txt": txt,
+                         "base": txt, "n": 1})
+            del msgs[:-40]
 
     def _handle(self, msg, now):
         t = msg.get_type()
@@ -2151,8 +2223,21 @@ class Link:
                               "age": (round(time.time() - gp["t"], 1)
                                       if gp.get("t") else None)}
         # which pipe carries the telemetry this console is showing — drives
-        # the "วิทยุ" chip in the sensor strip (a serial --url = the NOMAD)
-        snap["link_kind"] = "radio" if str(self.url).startswith("/dev/") else "udp"
+        # the "วิทยุ" chip in the sensor strip.
+        # ⚠ This line used to read `"radio" if url.startswith("/dev/") else "udp"`,
+        # which QUIETLY OVERWROTE the correct value snapshot() had already taken
+        # from _link_kind() a few lines up — so EVERY serial link was labelled
+        # "radio". Consequences, all seen live 2026-08-25 while the NOMAD was
+        # dead and the console ran on the FC's USB cable: the วิทยุ chip went
+        # GREEN "OK" (the operator is told the radio works while it is not even
+        # connected — the exact confusion this console exists to prevent), and
+        # the polygon-fence Upload button stayed locked behind "ต่อ USB ก่อน"
+        # with the USB cable plugged in. _link_kind() already tells usb / cm4 /
+        # radio apart by device name; only the non-serial case needs naming here.
+        if str(self.url).startswith("/dev/"):
+            snap["link_kind"] = self._link_kind()
+        else:
+            snap["link_kind"] = "udp"
         # nadir camera feed age. In SITL the gz bridge writes this file HERE, so
         # its age IS the camera's health. On the real aircraft the file is written
         # on the CM4, and now that the WiFi puller is gone (2026-08-18, radio-pure
@@ -2161,9 +2246,16 @@ class Link:
         # Reporting its age paints the chip red with a number that LOOKS measured,
         # which is worse than admitting there is no local reading: radio mode
         # answers None, so the chip falls to a grey "n/a" unless the beacon spoke.
+        # The rule is "is this a REAL aircraft?", not "is this the radio?" — a
+        # console on the FC's USB cable or the CM4's TELEM2 is just as far from
+        # the camera as one on the NOMAD, and the local file is just as stale.
+        # (Before the link_kind fix above, every serial link said "radio", so
+        # this test happened to be right for the wrong reason.)
         try:
-            snap["cam_age"] = (None if snap["link_kind"] == "radio" else round(
-                time.time() - os.path.getmtime(_nadir_frame_path()), 1))
+            snap["cam_age"] = (None
+                               if str(self.url).startswith("/dev/")
+                               else round(time.time()
+                                          - os.path.getmtime(_nadir_frame_path()), 1))
         except OSError:
             snap["cam_age"] = None
         # Camera health over the RADIO (status_beacon): measured ON the CM4,
@@ -2310,7 +2402,17 @@ class Link:
         the narrow ELRS radio, so uploading a half-formed fence there is a footgun."""
         if self.demo:
             return "demo"
+        # Match the RESOLVED path as well as the given one. Every launcher here
+        # passes a /dev/serial/by-id/… symlink (it survives re-enumeration), and
+        # the FC's by-id name is "usb-Auterion_PX4_FMU_v6X.x_0-if00" — no
+        # "ttyACM" anywhere in it, so the FC-USB link fell through to "other".
+        # The radio's by-id name happens to carry "CP2102", which is why only
+        # this one branch was ever wrong and nobody noticed (2026-08-25).
         u = self.url or ""
+        try:
+            u = f"{u} {os.path.realpath(u)}"
+        except OSError:
+            pass
         if "ttyACM" in u:
             return "usb"                         # FMU FC-USB (direct, fast)
         if "serial0" in u or "ttyAMA" in u:
@@ -3234,7 +3336,12 @@ function renderSensors(s){
    else if(cr){cls='sbad';txt=(cr.state==='DEAD'?'ค้าง':'ไม่มีเฟรม')+' 📻';}
    else if(ca!=null&&ca<5){cls='sok';txt='OK';}else if(ca!=null){cls='sbad';txt='ค้าง '+Math.round(ca)+'s';}else{cls='sna';txt='n/a';}}
   else if(k==='radio'){
+   /* Only a console actually ON the radio may paint this chip. On any other
+      link it must say so by NAME: a grey "n/a (USB)" is the difference between
+      the operator knowing the radio is untested and believing it is fine. */
    if(s.link_kind==='radio'){if(s.link){cls='sok';txt='OK';}else{cls='sbad';txt='หลุด';}}
+   else if(s.link_kind==='usb'){cls='sna';txt='n/a (สาย FC USB)';}
+   else if(s.link_kind==='cm4'){cls='sna';txt='n/a (CM4)';}
    else{cls='sna';txt='n/a (UDP)';}}
   else if(k==='cm4'){
    if(s.cm4_ok===true){cls='sok';txt='OK';}else if(s.cm4_ok===false){cls='sbad';txt='หลุด';}else{cls='sna';txt='n/a (SIM)';}}
