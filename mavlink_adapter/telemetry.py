@@ -48,7 +48,21 @@ class CurrentTelemetry:
     lat: float = math.nan
     lon: float = math.nan
     alt_m: float = math.nan
+    # AGL = alt_m - home_alt_msl, with home LATCHED at arming (see
+    # TelemetrySubscriber._sub_home). NOT PX4's own relative_alt: PX4 1.17
+    # (upstream 6604c52c98, #25003) rewrites home.alt for 120 s after takeoff
+    # from a baro-vs-GPS comparison that assumes a GPS-referenced EKF; ours is
+    # baro-referenced (EKF2_HGT_REF=0), so the rewrite moves the number while
+    # the aircraft stays put — 2026-08-26: 8.5 m by lidar/EKF/setpoint, 11.7 m
+    # by relative_alt, and the ceiling watchdog flew it home. Every real
+    # flight since 2026-08-21 carried a shift of +0.9 to -4.65 m.
     relative_alt_m: float = math.nan
+    # PX4's live GLOBAL_POSITION_INT.relative_alt, kept raw for diagnostics —
+    # the gap between it and relative_alt_m IS the home rewrite.
+    px4_relative_alt_m: float = math.nan
+    # Home MSL altitude latched at the last arming (nan until a HOME_POSITION
+    # has been seen). goto() converts AGL->MSL with this same value.
+    home_alt_msl: float = math.nan
     ground_speed_mps: float = math.nan
     heading_deg: float = math.nan
     battery_percent: float = math.nan
@@ -115,12 +129,21 @@ class TelemetrySubscriber:
         # so a flight that spent its time re-establishing streams looks
         # different afterwards from one that did not.
         self.stream_failures = 0
+        # Home-altitude latch (CurrentTelemetry.home_alt_msl): the latest
+        # HOME_POSITION seen, and whether the aircraft has been airborne since
+        # the current arming — once it has, home updates are REFUSED until a
+        # disarm. A pad landing between deliveries (armed, ON_GROUND) keeps it
+        # frozen: PX4's 120 s correction window can still be open there.
+        self._home_seen_msl: float = math.nan
+        self._airborne_since_arm = False
+        self._home_gap_warned = False
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
         subs = {
             "connection": self._sub_connection,
             "position": self._sub_position,
+            "home": self._sub_home,
             "velocity": self._sub_velocity,
             "attitude": self._sub_attitude,
             "attitude_rates": self._sub_attitude_rates,
@@ -201,8 +224,55 @@ class TelemetrySubscriber:
             self.state.lat = pos.latitude_deg
             self.state.lon = pos.longitude_deg
             self.state.alt_m = pos.absolute_altitude_m
-            self.state.relative_alt_m = pos.relative_altitude_m
+            self.state.px4_relative_alt_m = pos.relative_altitude_m
+            home = self.state.home_alt_msl
+            if math.isnan(home):
+                # no HOME_POSITION yet (no fix / SITL warming up): PX4's own
+                # value is all there is — and on the ground it is right.
+                self.state.relative_alt_m = pos.relative_altitude_m
+            else:
+                self.state.relative_alt_m = pos.absolute_altitude_m - home
+                self._note_home_gap(pos.relative_altitude_m)
+            # PX4's relative alt is trustworthy at the instant of takeoff (the
+            # correction needs a takeoff plus > 1 m of divergence first), so
+            # it is a second, landed_state-independent way to know we are
+            # airborne and must freeze the latch.
+            if self.state.is_armed and pos.relative_altitude_m > 1.0:
+                self._airborne_since_arm = True
             self._touch("position")
+
+    async def _sub_home(self) -> None:
+        """Latch the home MSL altitude at arming; refuse airborne rewrites."""
+        async for home in self.system.telemetry.home():
+            self._home_seen_msl = float(home.absolute_altitude_m)
+            self._maybe_latch_home()
+            self._touch("home")
+
+    def _maybe_latch_home(self) -> None:
+        if math.isnan(self._home_seen_msl):
+            return
+        if self.state.is_armed and self._airborne_since_arm:
+            if abs(self._home_seen_msl - self.state.home_alt_msl) > 0.05:
+                logger.warning(
+                    f"[telemetry] PX4 rewrote home.alt in flight "
+                    f"{self.state.home_alt_msl:.2f} → {self._home_seen_msl:.2f} m "
+                    "— IGNORED, AGL stays on the home latched at arming")
+            return
+        if abs(self._home_seen_msl - self.state.home_alt_msl) > 0.05 or \
+                math.isnan(self.state.home_alt_msl):
+            logger.info(f"[telemetry] home MSL latched: {self._home_seen_msl:.2f} m")
+        self.state.home_alt_msl = self._home_seen_msl
+
+    def _note_home_gap(self, px4_relative_alt_m: float) -> None:
+        gap = abs(self.state.relative_alt_m - px4_relative_alt_m)
+        if gap > 1.0 and not self._home_gap_warned:
+            self._home_gap_warned = True
+            logger.warning(
+                f"[telemetry] AGL {self.state.relative_alt_m:.1f} m vs PX4 "
+                f"relative_alt {px4_relative_alt_m:.1f} m — home rewrite in "
+                "flight; flying on the latched home")
+        elif gap < 0.5:
+            self._home_gap_warned = False
 
     async def _sub_velocity(self) -> None:
         async for vel in self.system.telemetry.velocity_ned():
@@ -285,7 +355,13 @@ class TelemetrySubscriber:
 
     async def _sub_armed(self) -> None:
         async for armed in self.system.telemetry.armed():
+            if bool(armed) != self.state.is_armed:
+                # every arming edge (either direction) re-opens the latch —
+                # PX4 re-captures home at arm and at disarm and those are
+                # the captures we want; only in-flight rewrites are refused.
+                self._airborne_since_arm = False
             self.state.is_armed = armed
+            self._maybe_latch_home()
             self._touch("armed")
 
     async def _sub_flight_mode(self) -> None:
@@ -296,6 +372,8 @@ class TelemetrySubscriber:
     async def _sub_landed_state(self) -> None:
         async for ls in self.system.telemetry.landed_state():
             self.state.landed_state = ls.name
+            if self.state.is_armed and ls.name in ("TAKING_OFF", "IN_AIR", "LANDING"):
+                self._airborne_since_arm = True
             self._touch("landed_state")
 
     async def _sub_gps_info(self) -> None:

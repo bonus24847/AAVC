@@ -494,6 +494,33 @@ flight fw before G7.
 
 ## 8. Working Notes
 
+- **`relative_alt_m` is `alt_m − home LATCHED AT ARMING`, never PX4's own
+  `relative_alt` (2026-08-26, ULog `2026-08-26/08_21_26.ulg`).** PX4 1.17
+  (upstream `6604c52c98`, #25003, `HomePosition::update`) rewrites `home.alt`
+  for 120 s after takeoff whenever baro and the integrated GPS vertical
+  velocity agree with each other but disagree with GPS altitude by > 1 m. That
+  assumes a GPS-referenced EKF; ours is baro-referenced (`EKF2_HGT_REF=0`), so
+  the EKF's altitude does not follow the GPS drift and the shift moves
+  `gpos.alt − home.alt` — MAVSDK's `relative_altitude_m` — while the aircraft
+  stays put. On 2026-08-26 the aircraft held **8.5 m by lidar, EKF and
+  setpoint** while `relative_alt` walked 8.5 → 9.6 → **11.7 m**; the ceiling
+  watchdog (`safety.py`, correct on its input) RTH'd a practice-envelope sweep
+  at t=55 s. **Every real flight since 08-21 carried it**: +3.29 / −4.65 /
+  +0.91 / +1.17 / −3.18 m, both signs — a negative shift also makes the
+  touchdown fallback read "airborne" on the pad (egg kept), a positive one
+  lets `near_ground` pass 3 m up. The only PX4 switch is `COM_HOME_EN=0`
+  (no home at all) — not an option. Fix: `TelemetrySubscriber._sub_home`
+  latches `home_alt_msl` while disarmed / still on the ground after arming and
+  **refuses** home updates once airborne (landed_state leaves ON_GROUND *or*
+  PX4's relative alt passes 1 m, so a dead landed_state stream still freezes);
+  a pad landing mid-flight (armed, ON_GROUND) stays frozen. `px4_relative_alt_m`
+  keeps the raw value and a WARN logs the first > 1 m gap. `goto()` prefers the
+  same latch (`commander.home_alt_source`, wired in `main.py`) — its
+  connect-time cache was only refreshed when the COMMANDER armed, and the RC-GO
+  conops arms from the transmitter. ⚠ PX4's OWN home-relative nets
+  (`RTL_RETURN_ALT`, `GF_MAX_VER_DIST`) still ride the rewritten home: a +4.65 m
+  shift at KMITL puts a failsafe RTL at ~24.6 m real. Tests:
+  `tests/test_home_alt_latch.py`.
 - Tests import the **real** modules (`mission_brain.live_plan`,
   `vision.projection`, `vision.detectors.aruco`, `orchestrator.mission`) — no
   mocks of the unit under test. Keep `make test` green when touching those.
