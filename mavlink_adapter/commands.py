@@ -221,7 +221,13 @@ DEFAULT_PX4_TUNING: dict[str, float] = {
     # 0.5 m over the commanded transit, against a recorded 19.75 m and a
     # transient near 20.5 m. 22 restores the order. The rules' 20 m ceiling
     # is still enforced — by the companion, which can land gracefully.
-    "GF_MAX_VER_DIST": 22.0,    # metres above home; PX4 default disabled
+    # 22 -> 50 (2026-08-26): PX4 1.17 rewrites home.alt in flight (#25003,
+    # see CLAUDE.md §8) and this fence is measured from THAT home — it RTL'd
+    # a practice sweep at a true 8 m after home had been walked down 14 m
+    # (ULog 2026-08-26/09_24_10). On a reference that can move ±15 m the
+    # fence only catches a gross runaway; the real ceiling is the companion
+    # watchdog, which now reads AGL from the home latched at arming.
+    "GF_MAX_VER_DIST": 50.0,    # metres above home; PX4 default disabled
     # Downward rangefinder (Benewake TFmini-S) aids height through the delivery
     # descent and touchdown; 1 is already the 6X default but pin it so a param
     # reset cannot silently drop height aiding. The serial port assignment
@@ -309,7 +315,7 @@ _FENCE_UPLOAD_BACKOFF_S = 1.0
 
 _ENVELOPE_PINS = (
     "RTL_RETURN_ALT",     # default 60 m vs the 20 m ceiling — busts it on any RTL
-    "GF_MAX_VER_DIST",    # the FC's altitude fence (22 m backstop) — default disabled
+    "GF_MAX_VER_DIST",    # the FC's altitude fence (50 m gross-runaway net) — default disabled
     "MPC_Z_V_AUTO_DN",    # default 1.5 m/s vs 0.4 validated onto the pad
     "COM_DISARM_LAND",    # default 2 s auto-disarms ON the pad mid-sortie
     # The ceiling under which the rangefinder is allowed to join the height
@@ -377,6 +383,11 @@ class DroneCommander:
         # "already armed" and keeps the connect-time value. Wired by
         # orchestrator/main.py.
         self.home_alt_source: Callable[[], float] | None = None
+        # The AUTO mode this object last ASKED for ("LAND" / "RETURN_TO_LAUNCH"),
+        # cleared by every movement command. The safety watchdog reads it to
+        # tell the mission's own land/RTL from a PX4 failsafe that put the FC
+        # in the same mode by itself (2026-08-26, geofence RTL flown through).
+        self.expected_mode: str | None = None
         # Latched True by stand_down() when the pilot takes RC control; every
         # movement command then raises PilotInControlError instead of sending.
         self._pilot_in_control = False
@@ -524,6 +535,7 @@ class DroneCommander:
 
     async def arm_and_takeoff(self, altitude_m: float) -> None:
         self._guard_pilot("arm/takeoff")
+        self.expected_mode = None
         await self.system.action.set_takeoff_altitude(altitude_m)
         # Landing ON a pad keeps the vehicle ARMED (COM_DISARM_LAND=-1), so a
         # mid-sortie climb-out is takeoff-only — arm just once per sortie.
@@ -624,6 +636,7 @@ class DroneCommander:
         PX4 treats NaN yaw as "hold current heading".
         """
         self._guard_pilot("goto")
+        self.expected_mode = None
         home_alt = self._home_alt_msl
         if self.home_alt_source is not None:
             latched = self.home_alt_source()
@@ -1054,6 +1067,7 @@ class DroneCommander:
         ``disarm=True``: the terminal landing — wait for touchdown, disarm
         explicitly, and confirm."""
         self._guard_pilot("land")
+        self.expected_mode = "LAND"
         logger.info(f"[mavlink] landing (disarm={disarm})")
         await self.system.action.land()
         if not disarm:
@@ -1078,6 +1092,7 @@ class DroneCommander:
         the mission terminate only once the vehicle is actually down — callers
         must NOT append a separate LAND after rth()."""
         self._guard_pilot("return-to-launch")
+        self.expected_mode = "RETURN_TO_LAUNCH"
         logger.info("[mavlink] return-to-launch + land")
         try:
             await self.system.param.set_param_float("RTL_LAND_DELAY", 0.0)

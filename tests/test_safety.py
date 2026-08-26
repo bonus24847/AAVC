@@ -500,6 +500,10 @@ def test_offboard_and_auto_modes_are_not_a_takeover() -> None:
     async def _ticks() -> None:
         for mode in ("OFFBOARD", "MISSION", "HOLD", "RETURN_TO_LAUNCH", "LAND"):
             t.flight_mode = mode
+            # RTL/LAND are a takeover of a different kind when the FC enters
+            # them on its own (2026-08-26, FC_FAILSAFE) — here the mission
+            # asked for them, which the commander records.
+            cmd.expected_mode = mode if mode in ("RETURN_TO_LAUNCH", "LAND") else None
             await _check_and_settle(wd)
             await _check_and_settle(wd)
     asyncio.run(_ticks())
@@ -779,3 +783,93 @@ def test_identity_numbered_anomalies_are_still_recorded_separately() -> None:
     state.record_anomaly("release_failed_delivery_3")
     assert len([a for a in state.anomaly_log if "no_fly_zone_breach" in a]) == 2
     assert len([a for a in state.anomaly_log if "release_failed_delivery" in a]) == 2
+
+
+# ── FC-initiated failsafe (2026-08-26, ULog 09_24_10) ───────────────────────
+#
+# PX4's own geofence RTL'd the aircraft (its home-relative fence on a home
+# that PX4 had walked down 14 m in flight). The orchestrator never noticed:
+# it stayed in SEARCH, the progress guard abandoned the leg the RTL was
+# pulling the aircraft away from, and the NEXT sweep goto went out while the
+# RTL was 0.5 m from touchdown — PX4 obeyed, switched to HOLD and climbed
+# back out. The pilot had to LAND it by hand. AUTO modes are deliberately not
+# pilot modes, so this needs its own detector: RTL/LAND that neither the
+# mission nor the watchdog commanded means the FC owns the aircraft now.
+
+def test_fc_initiated_rtl_stands_the_mission_down() -> None:
+    t = _flying_telemetry()
+    t.flight_mode = "RETURN_TO_LAUNCH"
+    wd, state, cmd = _make_wd(t)
+    wd.pilot_takeover_threshold_s = 0.0
+    state.phase = MissionPhase.SEARCH
+
+    async def _two_ticks() -> None:
+        await _check_and_settle(wd)
+        await _check_and_settle(wd)
+    asyncio.run(_two_ticks())
+
+    assert state.terminal == TerminalState.FC_FAILSAFE
+    assert cmd.stood_down == 1
+    assert cmd.rth_calls == 0 and cmd.land_calls == 0   # never fight the FC
+    assert any("fc_failsafe_return_to_launch" in a for a in state.anomalies)
+
+
+def test_fc_failsafe_land_is_detected_too() -> None:
+    t = _flying_telemetry()
+    t.flight_mode = "LAND"
+    wd, state, cmd = _make_wd(t)
+    wd.pilot_takeover_threshold_s = 0.0
+    state.phase = MissionPhase.TRANSIT_EGRESS
+    asyncio.run(_check_and_settle(wd))
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.FC_FAILSAFE
+    assert cmd.stood_down == 1
+
+
+def test_the_missions_own_land_or_rtl_is_not_an_fc_failsafe() -> None:
+    """The commander records the mode IT asked for (land-on-pad in DROP, the
+    final LAND, a watchdog RTH); the same mode from the FC's side is then
+    expected, not a failsafe."""
+    t = _flying_telemetry()
+    t.flight_mode = "LAND"
+    wd, state, cmd = _make_wd(t)
+    wd.pilot_takeover_threshold_s = 0.0
+    state.phase = MissionPhase.DROP
+    cmd.expected_mode = "LAND"                 # tactical_align's land-on-pad
+    asyncio.run(_check_and_settle(wd))
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING
+    assert cmd.stood_down == 0
+
+
+def test_a_watchdog_rth_in_progress_is_not_an_fc_failsafe() -> None:
+    t = _flying_telemetry()
+    t.relative_alt_m = 23.0                    # > ceiling + breach
+    wd, state, cmd = _make_wd_v11(t, ceiling_breach_threshold_s=0.0)
+    wd.pilot_takeover_threshold_s = 0.0
+    state.phase = MissionPhase.SEARCH
+
+    async def _breach() -> None:
+        await wd._check_once()                 # starts the ceiling debounce
+        await asyncio.sleep(0.01)
+        await _check_and_settle(wd)            # sustained → our RTH
+    asyncio.run(_breach())
+    assert state.terminal == TerminalState.LANDED_RTH
+    assert cmd.rth_calls == 1
+    t.flight_mode = "RETURN_TO_LAUNCH"         # the FC obeying OUR rth()
+    asyncio.run(_check_and_settle(wd))
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.LANDED_RTH
+    assert cmd.stood_down == 0
+
+
+def test_fc_failsafe_is_debounced() -> None:
+    t = _flying_telemetry()
+    t.flight_mode = "RETURN_TO_LAUNCH"
+    wd, state, cmd = _make_wd(t)               # default 1.0 s debounce
+    state.phase = MissionPhase.SEARCH
+    asyncio.run(_check_and_settle(wd))         # one tick: window opens only
+    assert state.terminal == TerminalState.RUNNING
+    t.flight_mode = "HOLD"                     # blip over — window resets
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING and cmd.stood_down == 0

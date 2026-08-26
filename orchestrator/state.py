@@ -39,6 +39,13 @@ class TerminalState(str, Enum):
     # other terminal it must never be followed by a companion command; the
     # pilot owns the aircraft from this moment on.
     PILOT_TAKEOVER = "pilot_takeover"
+    # The FC entered RTL/LAND on its own (a PX4 failsafe: geofence, link,
+    # battery — 2026-08-26 it was the vertical fence on a home PX4 had walked
+    # 14 m in flight). Same contract as PILOT_TAKEOVER: the orchestrator
+    # stands down completely and never sends another command — the sweep
+    # goto that went out during that RTL's final metre re-climbed the
+    # aircraft from 0.5 m and the pilot had to land it by hand.
+    FC_FAILSAFE = "fc_failsafe"
 
 
 @dataclass

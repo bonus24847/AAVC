@@ -58,6 +58,14 @@ _R_EARTH_M = 6_378_137.0
 _PILOT_MODES = frozenset(
     {"MANUAL", "ALTCTL", "POSCTL", "ACRO", "STABILIZED", "RATTITUDE"})
 
+# AUTO modes the FC enters BY ITSELF when one of its failsafes fires (geofence,
+# link loss, low battery). Legitimate when the mission or this watchdog asked
+# for them — `DroneCommander.expected_mode` / `_terminal_action` say so — and
+# an FC failsafe otherwise. 2026-08-26 (ULog 09_24_10): PX4's vertical fence
+# RTL'd the aircraft, the mission kept flying its sweep through the RTL, and
+# the next goto went out 0.5 m before touchdown — PX4 obeyed and climbed back.
+_FC_FAILSAFE_MODES = frozenset({"RETURN_TO_LAUNCH", "LAND"})
+
 # Phases in which the vehicle is ARMED BY DESIGN for their whole duration —
 # the multi-flight conops keeps it armed on a pad between deliveries
 # (COM_DISARM_LAND=-1; re-arming over the field is forbidden). A DISARM seen
@@ -230,6 +238,7 @@ class SafetyWatchdog:
         # latch the fire would repeat every 0.5 s (record_audit does NOT
         # dedupe) and re-overwrite the terminal during the pilot's landing.
         self._takeover_fired = False
+        self._fc_failsafe_since: float | None = None
         # Terminal action in progress: None | "rth" | "abort". The watchdog
         # keeps checking DURING an in-progress RTH (run as a background task,
         # not awaited inline) so a worsening condition can escalate to LAND.
@@ -357,6 +366,27 @@ class SafetyWatchdog:
                 return
         else:
             self._manual_mode_since = None
+
+        # D3 — the FC entered RTL/LAND on its own (2026-08-26). Only in the
+        # armed-by-design phases (the mission's own final LAND has its phase,
+        # and land-on-pad / a watchdog RTH announce themselves through
+        # expected_mode / _terminal_action). Debounced like D1 so a mode
+        # blip inside PX4's own transitions cannot end the mission.
+        expected = getattr(self.commander, "expected_mode", None)
+        if (t.is_armed and st.phase in _ARMED_PHASES
+                and t.flight_mode in _FC_FAILSAFE_MODES
+                and self._terminal_action is None
+                and expected != t.flight_mode):
+            now = asyncio.get_running_loop().time()
+            if self._fc_failsafe_since is None:
+                self._fc_failsafe_since = now
+            elif now - self._fc_failsafe_since >= self.pilot_takeover_threshold_s:
+                self._stand_down(
+                    f"mode={t.flight_mode}", f"fc_failsafe_{t.flight_mode.lower()}",
+                    terminal=TerminalState.FC_FAILSAFE, headline="FC FAILSAFE")
+                return
+        else:
+            self._fc_failsafe_since = None
 
         # 2. Telemetry stale — record always; if it stays stale while ARMED,
         # escalate to RTH (companion-side backstop). PX4's NAV_DLL_ACT (set at
@@ -652,16 +682,24 @@ class SafetyWatchdog:
         that is a pilot rescuing a watchdog RTL, and the aircraft is theirs;
         the ``_takeover_fired`` latch stops every later tick from re-firing
         (and from re-writing the audit trail, which does not dedupe)."""
+        self._stand_down(detail, anomaly_kind,
+                         terminal=TerminalState.PILOT_TAKEOVER,
+                         headline="PILOT TAKEOVER")
+
+    def _stand_down(self, detail: str, anomaly_kind: str, *,
+                    terminal: TerminalState, headline: str) -> None:
+        """The common stand-down: someone else (pilot or FC) owns the aircraft.
+        ``headline`` is the literal the audit line and the GCS chip key on."""
         st = self.state
         self._takeover_fired = True
         logger.critical(
-            f"[safety] PILOT TAKEOVER {detail} — orchestrator standing down, "
+            f"[safety] {headline} {detail} — orchestrator standing down, "
             "no further commands")
         st.record_anomaly(anomaly_kind)
         st.record_audit(
-            f"t={st.time_elapsed_s():.1f}s PILOT TAKEOVER {detail} "
+            f"t={st.time_elapsed_s():.1f}s {headline} {detail} "
             "— orchestrator standing down")
-        st.set_terminal(TerminalState.PILOT_TAKEOVER)
+        st.set_terminal(terminal)
         # Latch the command OWNER too. Setting the terminal stops the mission
         # loop between awaits, but a command already queued would still reach
         # the FC — stand_down() makes DroneCommander refuse every movement

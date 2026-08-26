@@ -277,9 +277,10 @@ mission:
   # (10 / 9.0 / 2.5) inside a competition config — harmless to the aircraft,
   # which reads the profile, but this block is what a human reads when writing
   # the briefing, and it contradicted this file's own header.
-  altitude_ceiling_m: 20            # rules V1.3 hard AGL ceiling; the FC's own
-                                    # fence (GF_MAX_VER_DIST) sits at the same
-                                    # 20 m as the outer net
+  altitude_ceiling_m: 20            # rules V1.3 hard AGL ceiling (enforced by the
+                                    # companion); the FC's own fence (GF_MAX_VER_DIST)
+                                    # is a 50 m gross-runaway net only — PX4 1.17
+                                    # moves home.alt in flight (2026-08-26)
   transit_alt_m: 20                 # transit legs AT 20 m, both directions
                                     # (rules Table 1 — scored per point)
   search_floor_m: 10                # search 10-20 m; below 10 only over the pad
@@ -630,7 +631,10 @@ px4_tuning:
   # ABOVE the companion RTH, restoring the intended order. The rules' 20 m
   # ceiling is still enforced, by the companion (warn 20.5 / RTH 21.5), which is
   # the layer that can land gracefully.
-  GF_MAX_VER_DIST: 22.0     # FC vertical fence (m) — backstop ABOVE the companion
+  GF_MAX_VER_DIST: 50.0     # FC vertical fence (m) — gross-runaway net only: PX4 1.17
+                            # rewrites home.alt in flight (#25003), so a 22 m fence
+                            # RTL'd a true 8 m sweep on 2026-08-26; the companion
+                            # watchdog (latched-home AGL) is the real ceiling
   # ── DOWNWARD RANGEFINDER (Benewake TFmini-S, 0.1-12 m) ──
   # The no-RTK GPS wanders ~0.5-1.5 m vertically; the rangefinder pins AGL for
   # the delivery descent and the on-pad touchdown. EKF2_RNG_CTRL is already 1 by
