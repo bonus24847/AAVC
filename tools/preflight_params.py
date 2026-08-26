@@ -16,7 +16,11 @@ outputs, aircraft unflyable), cause never found, restored 2026-08-17. Treat it
 as a regression that can recur — which is exactly why the list is read out loud
 before every field day rather than trusted from a doc. The egg latches are here
 too: they sat at 402/405/409/410 (RC passthrough) until 2026-08-17, i.e. two
-eggs wired to the roll and yaw sticks.
+eggs wired to the roll and yaw sticks. And since 2026-08-26 the MAVLink PORT
+MAP (``MAV_0_CONFIG``/``MAV_1_CONFIG``): with TELEM2 unassigned the companion
+cannot reach the FC at all, and that never reads as a wrong parameter — it
+reads as a camera chip that will not light, a blank sensor strip, and a 🚀 that
+refuses with ``unmet critical checks: link``.
 
 **PINNED** — ``DroneCommander`` pushes these at every mission start and
 read-back verifies the envelope ones (``verify_envelope_pins``). A parked board
@@ -91,6 +95,33 @@ BOARD: dict[str, float] = {
     "BAT1_V_CHARGED": 4.18,
     "BAT1_V_EMPTY": 3.77,
     "SENS_TFMINI_CFG": 103,           # TFmini-S on TELEM3
+    # The MAVLink PORT MAP — which instance serves which physical port. Nothing
+    # in the flight stack writes these, and wrong they cost the whole day:
+    # 2026-08-26 the board held ``MAV_0_CONFIG=0`` (TELEM1 disabled) and
+    # ``MAV_1_CONFIG=101`` (the COMPANION's instance pointed at the RADIO), so
+    # **TELEM2 — the CM4's own line — had no MAVLink instance at all**.
+    # Consequences, all seen in one session and none of them naming the cause:
+    #   * the CM4's mavlink-router opened /dev/ttyAMA0, wrote happily, and read
+    #     ZERO bytes from the FC for an entire session. ``stat /dev/ttyAMA0``
+    #     is the one-command proof — mtime advancing every second while atime
+    #     stayed frozen at boot (the kernel moves a tty's atime only when a read
+    #     RETURNS bytes). The orchestrator could not have flown the aircraft:
+    #     🚀 would have died at ``unmet critical checks: link``.
+    #   * ``cm4/status_beacon.py`` was writing ``AAVC cam=OK`` into a port
+    #     nobody was listening to, so the GCS camera chip could never go green
+    #     no matter what the camera did — three days of "the camera status does
+    #     not show" that had nothing to do with the camera.
+    #   * it put the companion's ONBOARD stream set on the RADIO, which is the
+    #     2026-08-25 symptom: HIGHRES_IMU/ATTITUDE_QUATERNION/ODOMETRY flooding
+    #     a 440 B/s link while SYS_STATUS never arrived and every sensor chip
+    #     sat blank behind a green "online" badge.
+    # The values are not a preference: every archived ULog of a flight that
+    # actually flew carries 101/102 (2026-08-20 ``07_21_36`` + ``08_11_09``,
+    # G7 2026-08-21 ``07_54_40``). Same shape as the PWM_MAIN_FUNC regression
+    # above — a param reading 0 means a subsystem is unassigned, and nothing
+    # anywhere says so out loud.
+    "MAV_0_CONFIG": 101,              # TELEM1 = NOMAD radio     (MAV_0_MODE 0 Normal)
+    "MAV_1_CONFIG": 102,              # TELEM2 = CM4 companion   (MAV_1_MODE 2 Onboard)
     # The HITL firmware has NO real actuator output (docs/HITL.md: reflash a
     # flight fw before G7) — a board still flagged SYS_HITL=1 is unflyable in
     # exactly the silent way this BOARD block exists to catch, and nothing at
@@ -200,7 +231,18 @@ def boot_latched_expected(config_path: Path | None) -> dict[str, float]:
 # (EKF/aid_sources/range_finder/range_height_control.cpp:130,131,141,145), so
 # its readback IS trustworthy. Marking it would train the reader to ignore the
 # marker, which is the only thing that makes the marker worth printing.
-_STORED_NOT_PROVEN = {"MAV_1_FORWARD", "EKF2_HGT_REF"}
+# ``MAV_0_CONFIG``/``MAV_1_CONFIG`` are the newest members and earned it the
+# hard way on 2026-08-26: both were written and read back CORRECT, and TELEM2
+# stayed stone dead afterwards — PX4 assigns ports in ``rc.mavlink`` at boot and
+# never revisits them. What finally moved it was cycling the PACK. Worth saying
+# once because it cost an hour: **pulling the USB cable is not a reboot** while
+# the pack is connected — the FC keeps running on pack power and only loses its
+# USB link, so the "reboot" appears to happen and nothing changes. The proof
+# that a port map is in EFFECT is never this readback; it is traffic arriving
+# (``stat /dev/ttyAMA0`` atime moving, or this very tool answering over the
+# router, which cannot happen unless TELEM2 is live).
+_STORED_NOT_PROVEN = {"MAV_0_CONFIG", "MAV_1_CONFIG",
+                      "MAV_1_FORWARD", "EKF2_HGT_REF"}
 
 
 async def _read(commander: DroneCommander, names: list[str]) -> dict[str, float]:
