@@ -32,8 +32,67 @@ chain has ONE assumption: the frame at cache time = the frame in flight
 ⬆ AGL · MSL — a parked MSL that disagrees with the staging log's
 `cached home MSL` line is a NO-GO.
 
+## The parked MSL reads ~40 m HIGH — and the baro is CORRECT (2026-08-26)
+Operator flagged `MSL 54` parked on the KMUTNB rooftop pitch, surveyed at 15 m
+(`tools/gen_geo.py GROUND_ALT_M`). Nothing is broken: PX4 reports **pressure
+altitude referenced to `SENS_BARO_QNH`**, and that param has never been set off
+its 1013.25 default.
+
+| step | value |
+|---|---|
+| sensor RAW (`SCALED_PRESSURE` carries `sensor_baro.pressure`, PRE-calibration) | 1004.19 hPa |
+| what a 15 m deck SHOULD read under the day's real QNH 1006 (METAR VTBD/VTBS 260800Z) | **1004.2 hPa** ✅ |
+| `+ CAL_BARO0_OFF = -238.84 Pa` -> the pressure PX4 actually converts | 1006.58 hPa |
+| `/ SENS_BARO_QNH = 1013.25` -> `ALTITUDE.altitude_monotonic` | **55.46 m** (predicted 55.68) |
+| EKF (`EKF2_HGT_REF=0`) -> `GLOBAL_POSITION_INT.alt` | **53.41 m** |
+
+The error is two terms: **QNH +60.5 m** and **`CAL_BARO0_OFF` -20.0 m**, net
+**+40.7 m**. Set both right (QNH 1006, offset 0) and the same sensor reads
+**15.19 m** against the 15 m surveyed deck — sensor, METAR and survey agree
+three ways, so the barometer is accurate to 0.01 hPa (~10 cm). ⚠ **KMITL will
+show the same kind of offset** (QNH is never 1013.25): expect a wrong-looking
+MSL on the GCS at the safety inspection and do not chase it.
+
+⚠ **Do NOT "fix" QNH alone.** 1006 with the offset still in place reads
+**-4.85 m** — wrong by 20 m the other way. And moving the frame 60 m
+mid-session is precisely what dropped flight 1 on 2026-08-20. Nothing flown
+reads absolute MSL (plan altitudes are AGL above the arm point, above), the
+bias cancels on both sides, and `altitude_relative` read -0.01 m on the deck.
+If the absolute number is ever wanted, set BOTH at the START of a session and
+re-run `make alt-watch`. `local.z` = -41 m parked is the same story, not a
+second fault: `altitude_amsl = -z + ref_alt` with `ref_alt` = 12.35 m, the GPS
+value the EKF origin was set from.
+
+**The useful half of that session:** `EKF2_GPS_CTRL=7` means GPS **altitude**
+fusion (bit 1) is ON even under baro ref — it shows as the EKF sitting 2.05 m
+below the raw baro, a bounded pull the baro-bias state absorbs, NOT tracking.
+Parked 179 s / 90 samples: **EKF MSL swing 0.00 m vs GPS MSL swing 6.5 m**,
+GPS AMSL walking 39.9 -> 19.2 m across the session (same pathology as
+2026-08-20's 12.7 -> 36.6 -> 13.3). Horizontally the same receiver gave CEP95
+**4.03 / 1.76 / 2.93 m** on three 90 s `tools/gps_bench.py` runs at one spot.
+This is the first time the 2026-08-20 baro-ref decision was watched PROTECTING
+a flight-ready aircraft in real time.
+
+⚠ **OPEN from that session, not chased:** the two barometers disagree by
+**1.7 hPa (~14 m)** raw (1004.19 vs 1005.90) at sensor temperatures of
+**51.8 / 55.0 C**, and nobody knows where `CAL_BARO0_OFF = -238.84 Pa` came
+from. A stored offset encodes whatever altitude was assumed when it was
+calibrated (`VehicleAirData.cpp` calibrates `delta_alt` against a TARGET
+altitude). Harmless while it only shifts a frame nothing reads absolutely —
+but a THERMAL component would make that frame walk in flight, which is the one
+failure mode this whole file exists about. Cheapest test: log
+`ALTITUDE.altitude_monotonic` against `SCALED_PRESSURE.temperature` from cold
+boot through warm-up and see if the two move together.
+
+To re-check: the console owns the radio, so read the FC over the CM4's own
+router instead of fighting for the port — `ALTITUDE` (msg 141,
+`altitude_monotonic` = baro) + `SCALED_PRESSURE` via
+`udpout:127.0.0.1:14550` on the CM4, and today's QNH from any VTBD/VTBS METAR.
+
 ## Baro + lidar division of labour
-Baro owns the absolute frame all flight. TFmini (0.4-12 m) joins the estimate
+Baro owns the absolute frame all flight (GPS altitude is still FUSED —
+`EKF2_GPS_CTRL=7` bit 1 — but only as a bounded pull, measured 2.05 m
+against a 21 m GPS walk, above). TFmini (0.4-12 m) joins the estimate
 only below `EKF2_RNG_A_HMAX=7.0` AND under 1 m/s (`EKF2_RNG_CTRL=1`
 conditional aiding) — i.e. exactly the slow pad-approach and touchdown.
 HMAX=7 is deliberate: PX4's default 5.0 sits ON the 5 m descent rung, so the
