@@ -11,7 +11,12 @@ reset — is equally correct, and the runtime gate (``main.py``:
 flight over a ``0`` that flies fine (the old exact-``-1`` compare did).
 """
 
-from tools.preflight_params import BOARD, _board_ok, _report
+from tools.preflight_params import (
+    _STORED_NOT_PROVEN,
+    BOARD,
+    _board_ok,
+    _report,
+)
 
 
 def test_board_checks_the_17000_pack_endpoints() -> None:
@@ -48,6 +53,38 @@ def test_exact_match_params_unchanged() -> None:
     assert _board_ok("PWM_MAIN_FUNC1", 101.0, 101.0)
     assert not _board_ok("PWM_MAIN_FUNC1", 0.0, 101.0)
     assert _board_ok("SYS_AUTOSTART", 6001.0, 6001.0)
+
+
+def test_the_mavlink_port_map_is_a_board_check() -> None:
+    # 2026-08-26: the board held MAV_0_CONFIG=0 (TELEM1 disabled) and
+    # MAV_1_CONFIG=101 (the companion's instance aimed at the RADIO), leaving
+    # TELEM2 — the CM4's line — with no MAVLink instance at all. Nothing in the
+    # flight stack writes these, so it is BOARD-class by definition, and the
+    # failure is silent in the worst way: the router opens the port and reads
+    # zero bytes forever, the beacon's `AAVC cam=OK` goes into a port nobody
+    # listens to (so the GCS camera chip cannot go green), and 🚀 dies at
+    # "unmet critical checks: link". The expected values are what every ULog of
+    # a flight that actually flew carries.
+    assert BOARD.get("MAV_0_CONFIG") == 101      # TELEM1 = NOMAD radio
+    assert BOARD.get("MAV_1_CONFIG") == 102      # TELEM2 = CM4 companion
+    assert _board_ok("MAV_1_CONFIG", 102.0, 102.0)
+    assert not _board_ok("MAV_0_CONFIG", 0.0, 101.0)     # the value seen live
+    assert not _board_ok("MAV_1_CONFIG", 101.0, 102.0)   # aimed at the radio
+
+
+def test_the_port_map_readback_is_marked_as_not_proving_effect() -> None:
+    """A correct reading here proves STORAGE, never that the port is serving.
+
+    PX4 assigns MAVLink instances to ports in ``rc.mavlink`` at boot and never
+    revisits them, so a value written after boot reads back correct while the
+    old map is still in force — which is exactly what happened on 2026-08-26,
+    including through a USB unplug that was mistaken for a reboot (the pack was
+    still powering the FC). Same trap as ``GF_ACTION`` and ``EKF2_HGT_REF``: the
+    tick has to carry the caveat or it becomes the reassurance that hides it.
+    """
+    assert {"MAV_0_CONFIG", "MAV_1_CONFIG"} <= _STORED_NOT_PROVEN
+    # …and the ones already known to lie the same way stay marked.
+    assert {"MAV_1_FORWARD", "EKF2_HGT_REF"} <= _STORED_NOT_PROVEN
 
 
 def test_sys_hitl_zero_is_a_board_check() -> None:
