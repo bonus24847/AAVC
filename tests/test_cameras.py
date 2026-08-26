@@ -480,3 +480,69 @@ def test_a_slow_reopen_does_not_trigger_another_one_immediately(
     assert served >= 5, (
         "the second camera was replaced after only "
         f"{served} grab(s) — the 10 s spent OPENING it was counted as silence")
+
+
+# ── highlight-priority auto exposure (2026-08-26) ───────────────────────────
+#
+# The camera's own AE meters the whole frame: grass lands at ~130 and a white
+# pad — 4-5x the albedo — clips at 255, the marker's black modules bleed to
+# 1-3 px lines at ~28 px and nothing decodes (2788 flight frames, 0 decodes,
+# pad in view: nadir_000203 white 255 / "black" 170-190). The grabber now
+# meters the BRIGHTEST things in the frame and keeps them under clipping.
+
+def _synth(mean_ground: int, pad_value: int, pad_frac: float = 0.0035) -> np.ndarray:
+    """1280x720 mono 'grass' at `mean_ground` (noisy) with one white square
+    covering `pad_frac` of the frame (the 0.35% a 0.5 m pad is at 8 m)."""
+    rng = np.random.default_rng(1)
+    g = np.clip(rng.normal(mean_ground, 12, (720, 1280)), 0, 255).astype(np.uint8)
+    side = int(round(math.sqrt(pad_frac * 1280 * 720)))
+    g[300:300 + side, 800:800 + side] = pad_value
+    return g
+
+
+def test_meter_reads_the_pad_not_the_grass() -> None:
+    g = _load_grabber()
+    mean, hi = g.meter_gray(_synth(130, 255))
+    assert 120 < mean < 140
+    assert hi >= 250, f"p_hi {hi} missed a 0.35 %-area white pad"
+
+
+def test_ae_step_darkens_a_clipped_pad_and_reaches_the_band() -> None:
+    """Replay of the 2026-08-26 frames: mean 130, pad clipped. Each step must
+    shorten the exposure until the highlight sits in [HI_LO, HI_HI]."""
+    g = _load_grabber()
+    exp = 10.0                                  # 1 ms — what auto picked outdoors
+    true_pad = 520.0                            # what 255 was hiding (4x grass)
+    for _ in range(12):
+        pad = min(255.0, true_pad * exp / 10.0)
+        mean = 130.0 * exp / 10.0
+        new = g.ae_step(exp, mean, pad)
+        if pad >= g.AE_CLIP:
+            assert new < exp                    # never brighter while clipped
+        exp = new
+        if g.AE_HI_LO <= true_pad * exp / 10.0 <= g.AE_HI_HI:
+            break
+    assert g.AE_HI_LO <= true_pad * exp / 10.0 <= g.AE_HI_HI, \
+        f"did not converge: exposure {exp:.1f}, pad {true_pad * exp / 10.0:.0f}"
+    assert exp >= 1.0
+
+
+def test_ae_step_brightens_a_dark_frame_but_respects_the_cap() -> None:
+    g = _load_grabber()
+    exp = 4.0
+    new = g.ae_step(exp, mean=15.0, hi=60.0, max_100us=40.0)
+    assert new > exp
+    assert g.ae_step(40.0, mean=15.0, hi=60.0, max_100us=40.0) == 40.0
+    assert g.ae_step(1.0, mean=200.0, hi=255.0, max_100us=40.0) == 1.0   # floor
+
+
+def test_ae_step_holds_inside_the_band() -> None:
+    g = _load_grabber()
+    assert g.ae_step(8.0, mean=45.0, hi=210.0) == 8.0
+
+
+def test_ae_step_caps_the_ground_mean_even_with_no_highlight() -> None:
+    """Pure grass in view: nothing white to meter, so the mean cap is what
+    keeps the NEXT pad from clipping the moment it enters the frame."""
+    g = _load_grabber()
+    assert g.ae_step(20.0, mean=110.0, hi=160.0) < 20.0

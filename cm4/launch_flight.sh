@@ -22,7 +22,10 @@
 #   ROUTERD=mavlink-routerd    router binary (or an absolute path to a local build)
 #   BACKEND=v4l2|picamera2     camera backend (default v4l2)
 #   GRAB_ARGS="..."            extra camera-grabber flags (--nadir-device, --fourcc GREY, --fps, …)
-#   CAM_EXPOSURE=20            v4l2 forced exposure, UVC 100 µs units (20 = 2 ms; 0 = auto)
+#   CAM_EXPOSURE=20            v4l2 forced exposure, UVC 100 µs units (20 = 2 ms; 0 = AE)
+#   CAM_AE=highlight           with CAM_EXPOSURE=0: highlight-priority AE (default) or
+#                              'auto' = the driver's own AE (clips a white pad in sun)
+#   CAM_AE_MAX=40 CAM_AE_INIT=10   its exposure ceiling / start, 100 µs units
 #   CAM_GAIN=64                optional fixed gain 0-128 with CAM_EXPOSURE (OV9281 has no auto-gain)
 #   CAM_INTERVAL=0.04          seconds between frame writes (0.04 = 25 Hz with passthrough)
 #   CAM_PASSTHROUGH=0          disable MJPEG passthrough (fall back to YUYV + re-encode)
@@ -176,6 +179,13 @@ if [ "${NO_CAMERA:-0}" != "1" ]; then
     if [ "$CAM_EXPOSURE" != "0" ] && [ "$BACKEND" = "v4l2" ]; then
         GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--exposure-100us $CAM_EXPOSURE"
         [ -n "${CAM_GAIN:-}" ] && GRAB_ARGS="$GRAB_ARGS --gain $CAM_GAIN"
+    elif [ "${CAM_AE:-highlight}" = "highlight" ] && [ "$BACKEND" = "v4l2" ]; then
+        # Highlight-priority AE (2026-08-26): the driver's own AE meters the
+        # grass and clips a white pad at 255 — 2788 flight frames, 0 decodes.
+        # CAM_AE=auto restores the driver's AE; CAM_EXPOSURE>0 pins manual.
+        GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--exposure-100us 0 --ae-highlight"
+        [ -n "${CAM_AE_MAX:-}" ] && GRAB_ARGS="$GRAB_ARGS --ae-max-100us $CAM_AE_MAX"
+        [ -n "${CAM_AE_INIT:-}" ] && GRAB_ARGS="$GRAB_ARGS --ae-init-100us $CAM_AE_INIT"
     fi
     # 10 Hz frames (the sensor's own rate at 1280x720) and no mirror encode —
     # see sitl/run_mission.sh for the measured numbers behind both.
