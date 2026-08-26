@@ -784,6 +784,22 @@ flight fw before G7.
   nominal while the aircraft is flying perfectly well.
   ⚠ RTF is much better headless: the failing run had the dashboard up (0.57
   average), the passing one did not (0.95).
+- **COMP config matched to PRACTICE for the 28-Aug competition (2026-08-26,
+  operator: "sensor settings the same as PRACTICE").** Structured diff of
+  `sitl/kmitl_config.yaml` vs `sitl/aavc_config.yaml`: every sensor block
+  (`cameras`, `battery`, `connection`, `failsafes`, `marker`, `preflight`,
+  `gimbal`, `px4_tuning` except the per-field `RTL_RETURN_ALT`) was already
+  identical — the configs are shared by `sync_core.sh`. Three things were NOT:
+  `vision.decode_workers` (comp ran the code default 1, practice 2) and
+  `vision.poll_interval_s` (0.05 vs 0.02) — roughly half the decode attempts
+  per sweep on the field that matters — and `recording.hz` 1 vs 5 (the
+  debrief trail). The `align:` block was missing too (equal to the dataclass
+  defaults today, written out so a default change cannot diverge the fields).
+  All copied over with the reasoning inline. What legitimately differs and
+  must stay: geometry, altitudes/floors, `sweep_alt_m` 12 / `sweep_axis_deg`
+  87, sortie costs, `RTL_RETURN_ALT` 19.5, `site.ground_alt_m`. The CM4's
+  own `.aavc_site` defaults to competition (2026-08-25), and
+  `kmitl_config.yaml` is md5-identical on the laptop repos and the CM4.
 - **Highlight-priority auto exposure in the grabber (2026-08-26,
   `sitl/camera_grabber.py --ae-highlight`, the REAL launchers' default via
   `CAM_AE=highlight` when `CAM_EXPOSURE=0`).** The driver's own AE meters the
