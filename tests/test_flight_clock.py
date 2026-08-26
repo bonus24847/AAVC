@@ -153,3 +153,60 @@ def test_the_operation_window_is_measured_in_flight_time() -> None:
         f"window read {state.time_elapsed_s():.0f} s of a 1200 s budget for "
         "150 s of flying")
     assert math.isclose(state.time_remaining_s(), 1050.0, abs_tol=1.0)
+
+
+# ── 2026-08-26: the REAL aircraft ran the mission clock at 1/20 speed ──
+#
+# audit.jsonl of the 2026-08-26 15:21 flight: `t=` advanced 0.3 -> 0.6 s across
+# ~50 s of flying (preflight: `t=1.0s` held for 13-20 wall seconds), while the
+# 2026-08-18 bench session (no GPS fix -> no vehicle time -> wall fallback)
+# ticked 1:1. Mechanism: `state.now()` feeds the clock on EVERY read (~10 Hz)
+# but the vehicle timestamp on hardware only takes a new value every so often,
+# and a re-feed of the SAME value reset the wall anchor — so when the value
+# finally moved, `min(veh_step, wall_step)` saw a wall step of ~0.1 s and
+# credited that. Every deadline in the mission stretched 20x.
+
+def _read_at_10hz(period_s: float, dur_s: float = 100.0) -> float:
+    wall = _Wall()
+    clock = FlightClock(wall=wall)
+    for i in range(int(dur_s * 10)):
+        wall.t = 500.0 + i / 10
+        # the last NEW vehicle timestamp — it changes only every `period_s`
+        clock.feed(1000.0 + ((i / 10) // period_s) * period_s)
+        clock.now()
+    return clock.now()
+
+
+def test_a_sparse_vehicle_timestamp_read_often_still_counts_every_second() -> None:
+    for period in (0.2, 1.0, 5.0, 20.0):
+        got = _read_at_10hz(period)
+        assert got > 95.0, (
+            f"vehicle time changing every {period} s, read at 10 Hz: the "
+            f"mission clock credited {got:.1f} s of 100 — the 2026-08-26 "
+            "1/20-speed clock")
+
+
+def test_refeeding_the_same_timestamp_does_not_move_the_anchor() -> None:
+    wall = _Wall()
+    clock = FlightClock(wall=wall)
+    clock.feed(100.0)
+    for _ in range(9):                 # same sample re-offered at 10 Hz
+        wall.tick(0.1)
+        clock.feed(100.0)
+    wall.tick(0.1)
+    clock.feed(101.0)                  # one real second later
+    assert math.isclose(clock.now(), 1.0, abs_tol=1e-6)
+
+
+def test_wall_credited_while_stale_is_not_credited_again_on_resume() -> None:
+    """Sample gap longer than STALE_S: now() counts the wall meanwhile; when
+    the next sample lands, the interval must be credited ONCE, not twice."""
+    wall = _Wall()
+    clock = FlightClock(wall=wall)
+    clock.feed(100.0)
+    for _ in range(200):               # 20 s with no new sample, read at 10 Hz
+        wall.tick(0.1)
+        clock.now()
+    clock.feed(120.0)                  # the vehicle agrees: 20 s passed
+    assert math.isclose(clock.now(), 20.0, abs_tol=0.2), (
+        f"{clock.now():.1f} s credited for 20 s — double counted or lost")
