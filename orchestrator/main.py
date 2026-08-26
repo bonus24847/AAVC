@@ -723,6 +723,10 @@ async def run(args: argparse.Namespace) -> int:
 
     # Bare placeholder telemetry until the subscriber starts (state needs one).
     telem = TelemetrySubscriber(commander.system)
+    # goto()'s AGL->MSL conversion rides the home LATCHED AT ARMING (the
+    # subscriber refuses PX4's in-flight home.alt rewrites, 2026-08-26) —
+    # the same value every relative_alt_m consumer now reads.
+    commander.home_alt_source = lambda: telem.state.home_alt_msl
     # Optional raw pymavlink listener: augments telemetry with per-servo PWM,
     # per-ESC current/RPM, and consumed-mAh (fields MAVSDK doesn't expose) for the
     # dashboard. Reads a dedicated UDP endpoint (SITL: PX4's 14550 GCS broadcast;

@@ -11,6 +11,7 @@ safety layer decide whether to abort, RTH, or ignore.
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -369,6 +370,13 @@ class DroneCommander:
         # takes ABSOLUTE (MSL) altitude while the rest of the orchestrator
         # speaks AGL relative-altitude. Conversion: msl = home_alt + alt_agl.
         self._home_alt_msl: float | None = None
+        # Preferred over the cache above when it returns a finite value: the
+        # telemetry subscriber's home latched at the LAST arming edge
+        # (CurrentTelemetry.home_alt_msl). The cache is refreshed only when
+        # THIS object arms; on the RC-arm conops arm_and_takeoff() sees
+        # "already armed" and keeps the connect-time value. Wired by
+        # orchestrator/main.py.
+        self.home_alt_source: Callable[[], float] | None = None
         # Latched True by stand_down() when the pilot takes RC control; every
         # movement command then raises PilotInControlError instead of sending.
         self._pilot_in_control = False
@@ -616,11 +624,20 @@ class DroneCommander:
         PX4 treats NaN yaw as "hold current heading".
         """
         self._guard_pilot("goto")
-        if self._home_alt_msl is None:
+        home_alt = self._home_alt_msl
+        if self.home_alt_source is not None:
+            latched = self.home_alt_source()
+            if math.isfinite(latched):
+                if home_alt is not None and abs(latched - home_alt) > 0.5:
+                    logger.warning(
+                        f"[mavlink] goto: home latched at arming {latched:.2f} m "
+                        f"differs from the cached {home_alt:.2f} m — using the latch")
+                home_alt = latched
+        if home_alt is None:
             raise RuntimeError(
                 "home altitude unknown — connect() must be awaited before goto()."
             )
-        msl_alt = self._home_alt_msl + alt_m
+        msl_alt = home_alt + alt_m
         logger.info(
             f"[mavlink] goto ({lat:.6f}, {lon:.6f}, AGL={alt_m:.1f} m → "
             f"MSL={msl_alt:.1f} m, yaw={yaw_deg})"
