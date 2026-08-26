@@ -118,6 +118,15 @@ EOF
             if [ "${BACKEND:-v4l2}" = "v4l2" ]; then
                 GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--exposure-100us $CAM_EXPOSURE"
                 [ -n "${CAM_GAIN:-}" ] && GRAB_ARGS="$GRAB_ARGS --gain $CAM_GAIN"
+                # Highlight-priority AE (2026-08-26) whenever exposure is not
+                # pinned: the driver's AE meters the grass and clips a white
+                # pad at 255 (2788 flight frames, 0 decodes). CAM_AE=auto
+                # restores the driver's AE.
+                if [ "$CAM_EXPOSURE" = "0" ] && [ "${CAM_AE:-highlight}" = "highlight" ]; then
+                    GRAB_ARGS="$GRAB_ARGS --ae-highlight"
+                    [ -n "${CAM_AE_MAX:-}" ] && GRAB_ARGS="$GRAB_ARGS --ae-max-100us $CAM_AE_MAX"
+                    [ -n "${CAM_AE_INIT:-}" ] && GRAB_ARGS="$GRAB_ARGS --ae-init-100us $CAM_AE_INIT"
+                fi
             fi
             # ทุกเฟรมที่เขียน = โอกาสอ่าน marker เพิ่มหนึ่งครั้ง (vision worker
             # decode ทุกเฟรมใหม่ตั้งแต่ 2026-08-21) — เซนเซอร์ให้ 10 fps ที่

@@ -56,6 +56,116 @@ _AUTO_EXPOSURE_MODE = 3
 # left gain at 4 or 128 cannot follow the aircraft into a flight.
 _DEFAULT_GAIN = 64
 
+# ── highlight-priority auto exposure (2026-08-26) ──────────────────────────
+# The camera's own AE meters the WHOLE frame: sunlit grass lands at ~130 and a
+# white pad — 4-5x the albedo — clips at 255; at ~28 px the marker's black
+# modules bleed into 1-3 px lines and nothing decodes (2788 flight frames,
+# 0 decodes, pad in view: nadir_000203 white 255 / "black" 170-190). ArUco
+# needs the WHITE to be unclipped and the black to be black; it does not care
+# how dark the grass is. So: meter the brightest 0.2 % of the frame (the pad,
+# the field lines) and hold that in [AE_HI_LO, AE_HI_HI]; when nothing white
+# is in view, cap the ground mean so the NEXT pad cannot clip on entry.
+AE_HI_LO, AE_HI_HI, AE_HI_TARGET = 190.0, 225.0, 208.0
+AE_MEAN_MAX = 55.0          # grass mean cap: 55 x 4.5 (pad/grass albedo) ≈ 250
+AE_PCTL = 99.8              # a 0.5 m pad at 8 m is 0.35 % of the frame; 1 m at
+AE_STRIDE = 2               # 12 m is 0.5 % — the top 0.2 % is INSIDE the pad
+AE_PERIOD_S = 0.5
+AE_STEP_UP, AE_STEP_DOWN = 1.6, 0.5    # per-step ratio bounds
+AE_DAMP = 0.7                          # log-domain damping against overshoot
+AE_CLIP = 250.0                        # ≥ this the true highlight is unknown
+AE_DEFAULT_INIT_100US = 10             # 1 ms — what the driver's AE picked outdoors
+AE_DEFAULT_MAX_100US = 40              # 4 ms: 1.3 px of smear at 3 m/s from 8 m
+
+
+def meter_gray(gray: np.ndarray) -> tuple[float, float]:
+    """(mean, highlight) of a mono frame — highlight = the AE_PCTL percentile
+    over a strided sample (a percentile needs no more pixels than that)."""
+    s = gray[::AE_STRIDE, ::AE_STRIDE]
+    return float(s.mean()), float(np.percentile(s, AE_PCTL))
+
+
+def ae_step(exp: float, mean: float, hi: float, *,
+            max_100us: float = AE_DEFAULT_MAX_100US, min_100us: float = 1.0) -> float:
+    """Next exposure (100 µs units) from this frame's metering. Pure.
+
+    Brightness is ~linear in exposure until it clips, so the correction is a
+    RATIO (damped, bounded per step): one or two steps land in the band, and
+    a clipped highlight — whose true value is unknown — takes a bigger step
+    down. Decrease wins over increase; inside the band the value holds."""
+    if hi > AE_HI_HI or mean > AE_MEAN_MAX:
+        r = 1.0
+        if hi > AE_HI_HI:
+            r = min(r, AE_HI_TARGET / hi)
+        if mean > AE_MEAN_MAX:
+            r = min(r, AE_MEAN_MAX * 0.9 / mean)
+        if hi >= AE_CLIP:
+            r = min(r, 0.6)
+    elif hi < AE_HI_LO and mean < AE_MEAN_MAX:
+        r = min(AE_HI_TARGET / max(hi, 1.0), AE_MEAN_MAX / max(mean, 1.0))
+    else:
+        return float(exp)
+    r = max(AE_STEP_DOWN, min(AE_STEP_UP, r ** AE_DAMP))
+    return float(max(min_100us, min(max_100us, exp * r)))
+
+
+class HighlightAE:
+    """Runs ``ae_step`` on the live frame every AE_PERIOD_S and pushes the
+    result to the V4L2 node. Fail-soft like _force_short_exposure: a missing
+    v4l2-ctl leaves the camera wherever it is and says so."""
+
+    def __init__(self, device: str, *, init_100us: int = AE_DEFAULT_INIT_100US,
+                 max_100us: int = AE_DEFAULT_MAX_100US,
+                 period_s: float = AE_PERIOD_S) -> None:
+        self.device = device
+        self.exp = float(init_100us)
+        self.max_100us = float(max_100us)
+        self.period_s = period_s
+        self.mean = float("nan")
+        self.hi = float("nan")
+        self.steps = 0
+        self.next_at = 0.0
+        self._applied: int | None = None
+
+    def apply(self) -> None:
+        """Push the current exposure (manual mode) — used at open/reopen too."""
+        n = int(round(self.exp))
+        if n == self._applied:
+            return
+        self._applied = n
+        _apply_exposure(self.device, n)
+
+    def maybe_step(self, gray: "np.ndarray | None", now: float) -> bool:
+        """Meter + step if the period has elapsed. Returns True when it ran."""
+        if now < self.next_at or gray is None:
+            return False
+        self.next_at = now + self.period_s
+        self.mean, self.hi = meter_gray(gray)
+        new = ae_step(self.exp, self.mean, self.hi, max_100us=self.max_100us)
+        stepped = int(round(new)) != int(round(self.exp))
+        self.exp = new
+        if stepped:
+            self.steps += 1
+            self.apply()
+        return True
+
+    def status(self) -> str:
+        return (f"exp={self.exp:.1f}x100us mean={self.mean:.0f} hi={self.hi:.0f} "
+                f"steps={self.steps}")
+
+
+def _apply_exposure(device: str, n_100us: int) -> None:
+    """Quiet manual-exposure write for the AE loop (no readback, prints only
+    on failure — this can run twice a second)."""
+    dev = f"/dev/video{device}" if str(device).isdigit() else str(device)
+    cmd = ["v4l2-ctl", "-d", dev, "-c", "auto_exposure=1",
+           "-c", f"exposure_time_absolute={int(n_100us)}"]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=2.0)
+    except (FileNotFoundError, subprocess.TimeoutExpired,
+            subprocess.CalledProcessError) as e:
+        print(f"[grabber] AE: v4l2-ctl failed on {dev} ({e}) — exposure unchanged",
+              flush=True)
+
 
 def _to_bgr(frame: np.ndarray) -> np.ndarray:
     """Normalise a captured frame to 3-channel BGR.
@@ -353,7 +463,8 @@ def _should_reopen(*, now: float, last_ok: float, next_reopen_at: float,
             and now >= next_reopen_at)
 
 
-def _open_nadir(args: argparse.Namespace, passthrough: bool):
+def _open_nadir(args: argparse.Namespace, passthrough: bool,
+                ae: "HighlightAE | None" = None):
     """Open the nadir camera and hand back a backend ready to grab.
 
     Raises ``RuntimeError`` for every way the camera can be unusable — will not
@@ -394,7 +505,13 @@ def _open_nadir(args: argparse.Namespace, passthrough: bool):
     if args.backend == "v4l2":
         # A re-enumerated node comes back on the driver's defaults, so the
         # exposure has to be re-forced every time — not just at startup.
-        _force_short_exposure(args.nadir_device, args.exposure_100us, args.gain)
+        if ae is not None and args.exposure_100us <= 0:
+            # highlight AE owns the exposure: manual mode at its current value
+            # (the readback in _force_short_exposure proves the node took it)
+            _force_short_exposure(args.nadir_device, int(round(ae.exp)), args.gain)
+            ae._applied = int(round(ae.exp))
+        else:
+            _force_short_exposure(args.nadir_device, args.exposure_100us, args.gain)
     return cam
 
 
@@ -444,6 +561,19 @@ def main() -> int:
                     help="v4l2 only: fixed sensor gain (OV9281: 0-128, no auto-gain "
                          "— pair with --exposure-100us if frames come out dark). "
                          "-1 = leave unchanged")
+    ap.add_argument("--ae-highlight", action="store_true",
+                    help="v4l2 only: software highlight-priority auto exposure "
+                         "— meter the brightest 0.2 %% of the frame (a white pad, "
+                         "the field lines) and hold it under clipping, capping "
+                         "the ground mean when nothing white is in view. The "
+                         "driver's AE meters the grass and clips the pad "
+                         "(2026-08-26: 2788 flight frames, 0 decodes). Ignored "
+                         "when --exposure-100us > 0 (manual wins)")
+    ap.add_argument("--ae-init-100us", type=int, default=AE_DEFAULT_INIT_100US,
+                    help="starting exposure for --ae-highlight (100 µs units)")
+    ap.add_argument("--ae-max-100us", type=int, default=AE_DEFAULT_MAX_100US,
+                    help="exposure ceiling for --ae-highlight — motion smear: "
+                         "40 = 4 ms = 1.3 px at 3 m/s from 8 m")
     ap.add_argument("--reopen-after-s", type=float, default=3.0,
                     help="reopen the camera when this many seconds pass with no "
                          "frame written (a browned-out UVC camera re-enumerates "
@@ -456,13 +586,19 @@ def main() -> int:
     if passthrough and args.swap_rb:
         raise SystemExit("[grabber] --mjpeg-passthrough writes the camera's own "
                          "JPEG; there are no pixels to --swap-rb. Pick one.")
+    ae: HighlightAE | None = None
+    if args.ae_highlight and args.backend == "v4l2" and args.exposure_100us <= 0:
+        ae = HighlightAE(args.nadir_device, init_100us=args.ae_init_100us,
+                         max_100us=args.ae_max_100us)
     try:
-        nadir = _open_nadir(args, passthrough)
+        nadir = _open_nadir(args, passthrough, ae)
     except RuntimeError as exc:
         raise SystemExit(f"[grabber] {exc}") from exc
     mirror = not args.no_mirror
     print(f"[grabber] nadir {args.backend}"
           + (" MJPEG-passthrough" if passthrough else "")
+          + (f" highlight-AE(init {args.ae_init_100us}, max {args.ae_max_100us})"
+             if ae is not None else "")
           + f" dev={args.nadir_device} -> {args.nadir_out}"
           + (f" (+ {args.frame_out})" if mirror else " (mirror OFF)")
           + f" every {args.interval_s:.2f}s")
@@ -487,6 +623,7 @@ def main() -> int:
     try:
         while not stop["flag"]:
             t0 = time.monotonic()
+            gray: np.ndarray | None = None
             if passthrough:
                 payload = nadir.grab_bytes()
                 wrote = payload is not None
@@ -494,6 +631,10 @@ def main() -> int:
                     _write_bytes(payload, args.nadir_out)
                     if mirror:
                         _write_bytes(payload, args.frame_out)
+                    if ae is not None and time.monotonic() >= ae.next_at:
+                        # one decode per AE period (~15 ms on the CM4), not per frame
+                        gray = cv2.imdecode(np.frombuffer(payload, np.uint8),
+                                            cv2.IMREAD_GRAYSCALE)
             else:
                 frame = nadir.grab()
                 wrote = frame is not None
@@ -502,6 +643,11 @@ def main() -> int:
                     _write_frame(frame, args.nadir_out, args.jpeg_quality)
                     if mirror:
                         _write_frame(frame, args.frame_out, args.jpeg_quality)
+                    if ae is not None:
+                        gray = (cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                                if frame.ndim == 3 else frame)
+            if ae is not None:
+                ae.maybe_step(gray, time.monotonic())
             n_ok, n_fail = (n_ok + 1, n_fail) if wrote else (n_ok, n_fail + 1)
             now = time.monotonic()
             if wrote:
@@ -526,7 +672,7 @@ def main() -> int:
                     print(f"[grabber] close before reopen failed: {exc}",
                           flush=True)
                 try:
-                    nadir = _open_nadir(args, passthrough)
+                    nadir = _open_nadir(args, passthrough, ae)
                 except Exception as exc:                     # noqa: BLE001
                     # Re-read the clock: opening is not instant (verify_
                     # resolution grabs a frame, and _force_short_exposure shells
@@ -548,7 +694,8 @@ def main() -> int:
                     print(f"[grabber] reopened (#{n_reopen})", flush=True)
             if now - last_log > 2.0:
                 print(f"[grabber] nadir ok={n_ok} fail={n_fail} "
-                      f"reopen={n_reopen}")
+                      f"reopen={n_reopen}"
+                      + (f" AE {ae.status()}" if ae is not None else ""))
                 last_log = now
             dt = args.interval_s - (time.monotonic() - t0)
             if dt > 0:

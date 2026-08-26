@@ -784,6 +784,25 @@ flight fw before G7.
   nominal while the aircraft is flying perfectly well.
   ⚠ RTF is much better headless: the failing run had the dashboard up (0.57
   average), the passing one did not (0.95).
+- **Highlight-priority auto exposure in the grabber (2026-08-26,
+  `sitl/camera_grabber.py --ae-highlight`, the REAL launchers' default via
+  `CAM_AE=highlight` when `CAM_EXPOSURE=0`).** The driver's own AE meters the
+  whole frame — sunlit grass at ~130 — and a white pad (4-5× the albedo)
+  clips at 255 while the marker's black modules bleed to 1-3 px lines at
+  ~28 px; that is why 2788 flight frames decoded nothing with the pad in
+  view. ArUco needs the white unclipped and the black black, and does not
+  care how dark the grass is. The grabber now meters the brightest 0.2 % of
+  the frame (`meter_gray`, p99.8 — inside a 0.35 %-area pad) every 0.5 s and
+  steps the manual exposure (`ae_step`, damped ratio, ≤×1.6 up / ≥×0.5 down
+  per step, a clipped highlight takes ×0.6) to hold it in **190-225**, and
+  caps the ground mean at **55** when nothing white is in view so the next
+  pad cannot clip on entry. Exposure ceiling 4 ms (`--ae-max-100us 40`,
+  1.3 px of smear at 3 m/s from 8 m) — indoors the frames will be dark; that
+  is the bench, not a fault. Every 2 s the grabber log carries
+  `AE exp=… mean=… hi=… steps=…`. `CAM_AE=auto` restores the driver's AE,
+  `CAM_EXPOSURE>0` still pins manual and wins. ⚠ Not yet flown: bench it
+  with the printed pad IN SUN (`tools/hover_decode.py`) — the pass mark is
+  the pad's white at ~200 and the id decoding at 28 px.
 - **FC-initiated RTL/LAND now stands the mission down (2026-08-26, second
   flight, ULog `2026-08-26/09_24_10`).** PX4's own vertical fence
   (`GF_MAX_VER_DIST=22`, measured from a home PX4 had walked DOWN 14 m in
