@@ -664,3 +664,29 @@ def test_the_vertical_radius_is_pinned_in_both_field_configs() -> None:
     for name in ("aavc_config.yaml", "kmitl_config.yaml"):
         tune = yaml.safe_load((root / name).read_text())["px4_tuning"]
         assert tune.get("NAV_MC_ALT_RAD") == DEFAULT_PX4_TUNING["NAV_MC_ALT_RAD"], name
+
+
+# ── expected_mode: the mode WE asked for, so safety can tell an FC failsafe ──
+
+def test_land_and_rth_record_the_mode_they_ask_for_and_goto_clears_it() -> None:
+    """2026-08-26: PX4's own geofence RTL looked, to the watchdog, exactly like
+    the mission's own RTL/LAND. The commander now records which AUTO mode it
+    requested; a movement command clears it (the aircraft is ours again)."""
+    import asyncio as _a
+    from types import SimpleNamespace as N
+    c = DroneCommander.__new__(DroneCommander)
+    c._pilot_in_control = False
+    c._home_alt_msl = 50.0
+    c.home_alt_source = None
+    c.expected_mode = None
+    calls: list[str] = []
+
+    async def _land() -> None: calls.append("land")
+    async def _goto(*a) -> None: calls.append("goto")
+    c.system = N(action=N(land=_land, goto_location=_goto))
+
+    _a.run(c.land(disarm=False))
+    assert c.expected_mode == "LAND"
+    _a.run(c.goto(13.7, 100.7, 8.0))
+    assert c.expected_mode is None
+    assert calls == ["land", "goto"]

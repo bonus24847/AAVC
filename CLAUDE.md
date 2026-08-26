@@ -784,6 +784,44 @@ flight fw before G7.
   nominal while the aircraft is flying perfectly well.
   ⚠ RTF is much better headless: the failing run had the dashboard up (0.57
   average), the passing one did not (0.95).
+- **FC-initiated RTL/LAND now stands the mission down (2026-08-26, second
+  flight, ULog `2026-08-26/09_24_10`).** PX4's own vertical fence
+  (`GF_MAX_VER_DIST=22`, measured from a home PX4 had walked DOWN 14 m in
+  93 s — 13 rewrites, GPS altitude drifting 22.4 → 10.2 m MSL at the same
+  spot) RTL'd a sweep flying a true 8 m. Our AGL held 8.0 the whole time
+  (the latch worked) — but the mission never noticed the RTL: it stayed in
+  SEARCH, the progress guard timed out the leg the RTL was pulling the
+  aircraft away from (`sweep_leg_timeout_wp3`), and the NEXT sweep goto went
+  out at t=146 with the RTL **0.46 m from touchdown** — PX4 obeyed
+  (HOLD + reposition) and climbed back out; the pilot landed it by hand.
+  This was the "detect FC-commanded modes" item deferred on 2026-08-16.
+  Now: `DroneCommander.expected_mode` records the AUTO mode WE asked for
+  (`land()` → LAND, `rth()` → RETURN_TO_LAUNCH; cleared by `goto` /
+  `arm_and_takeoff`), and `safety.py` D3 fires `TerminalState.FC_FAILSAFE`
+  (audit `FC FAILSAFE mode=… — orchestrator standing down`, GCS chip `fc`)
+  when the FC sits in RTL/LAND in an armed-by-design phase with neither
+  `expected_mode` nor a watchdog `_terminal_action` explaining it — same
+  1 s debounce and the same `stand_down()` as a pilot takeover. Tests at the
+  end of `tests/test_safety.py`.
+- **`GF_MAX_VER_DIST` 22 → 50 (2026-08-26, same flight).** The FC fence is
+  home-relative and home moves ±15 m in flight under PX4 1.17 #25003, so at
+  22 it is a random RTL generator, not a ceiling. 50 keeps it as a
+  gross-runaway net; the rules' ceiling is the companion watchdog on the
+  latched-home AGL. Changed in `commands.py` `PARAM_OVERRIDES`, both field
+  configs, `tools/preflight_params.py` PINNED.
+- **ArUco in flight, 2026-08-26 — 2788 frames, 0 decodes, 0 cue hits, and
+  the pad WAS in view.** Frame `nadir_000203` (transit, 8 m) shows a pad
+  clearly: white blob 49×66 px, marker ~28 px (so the practice print is
+  ~0.5 m with a ~0.27 m marker — at 8 m that is exactly KMITL's 28 px).
+  It is **overexposed**: the white pad is clipped at 255 and the black
+  modules read 170-190 as 1-3 px lines (row profile at y=338), against a
+  frame mean of 130 — auto exposure meters the grass, not the pad. Neither
+  cv2.aruco (default / relaxed params, 1×-8× upscale, contrast stretch, gamma,
+  Otsu) nor `_pad_blobs` (centre-vs-rim contrast 28 against the 25 floor)
+  recovers it. The 2026-08-24 bench decode had the marker at brightness 124.
+  Open: bias exposure DOWN for the pad (a white 1 m target must land near
+  ~200, not 255) — `CAM_EXPOSURE` manual shorter than auto, or AE
+  compensation; measure on the bench with the printed pad in sun.
 - **The mission clock ran at 1/20 speed on the real aircraft (2026-08-26,
   same flight, CM4 audit).** `t=` advanced 0.3 → 0.6 s across ~50 s of flying
   and `t=1.0s` held for 13-20 wall seconds in preflight, while the 08-18 bench

@@ -135,6 +135,7 @@ class TelemetrySubscriber:
         # disarm. A pad landing between deliveries (armed, ON_GROUND) keeps it
         # frozen: PX4's 120 s correction window can still be open there.
         self._home_seen_msl: float = math.nan
+        self._home_refused_msl: float = math.nan   # last in-flight value warned about
         self._airborne_since_arm = False
         self._home_gap_warned = False
 
@@ -252,12 +253,18 @@ class TelemetrySubscriber:
         if math.isnan(self._home_seen_msl):
             return
         if self.state.is_armed and self._airborne_since_arm:
-            if abs(self._home_seen_msl - self.state.home_alt_msl) > 0.05:
+            # HOME_POSITION streams at ~1 Hz and repeats the shifted value —
+            # warn once per NEW value, not once per sample (2026-08-26: one
+            # line per second for a whole flight).
+            if (abs(self._home_seen_msl - self.state.home_alt_msl) > 0.05
+                    and abs(self._home_seen_msl - self._home_refused_msl) > 0.05):
+                self._home_refused_msl = self._home_seen_msl
                 logger.warning(
                     f"[telemetry] PX4 rewrote home.alt in flight "
                     f"{self.state.home_alt_msl:.2f} → {self._home_seen_msl:.2f} m "
                     "— IGNORED, AGL stays on the home latched at arming")
             return
+        self._home_refused_msl = math.nan
         if abs(self._home_seen_msl - self.state.home_alt_msl) > 0.05 or \
                 math.isnan(self.state.home_alt_msl):
             logger.info(f"[telemetry] home MSL latched: {self._home_seen_msl:.2f} m")

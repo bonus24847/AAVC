@@ -342,6 +342,8 @@ class GcsMissionStatus:
          "หมดงบเวลา — กลับบ้าน (RTH)"),
         ("PILOT TAKEOVER", "pilot",
          "นักบินยึดเครื่องคืน — ระบบหยุดสั่งแล้ว"),
+        ("FC FAILSAFE", "fc",
+         "FC เข้า failsafe เอง (RTL/LAND) — ระบบหยุดสั่งแล้ว"),
     )
 
     def on_audit(self, entry: str) -> None:
@@ -386,6 +388,9 @@ class GcsMissionStatus:
             return
         if "PILOT TAKEOVER" in entry:
             self._event("🛑 นักบินยึดเครื่องคืน — ระบบหยุดสั่งแล้ว", warn=True)
+            self._write()
+        elif "FC FAILSAFE" in entry:
+            self._event("🛑 FC เข้า failsafe เอง — ระบบหยุดสั่งแล้ว ให้นักบินดูแล", warn=True)
             self._write()
         elif "DELIVERY abort" in entry:
             self._event("⚠️ ข้ามการส่งที่เหลือ (งบเวลา/แบตไม่พอ)", warn=True)

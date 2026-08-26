@@ -143,7 +143,8 @@ PINNED: dict[str, float] = {
     # board — PINNED is informational, so it prints rather than stops, but do
     # not "fix" the board to match it at KMITL.
     "RTL_RETURN_ALT": 9.0,
-    "GF_MAX_VER_DIST": 20.0,          # the rules' altitude fence
+    # gross-runaway net only — PX4 1.17 moves home.alt in flight (2026-08-26)
+    "GF_MAX_VER_DIST": 50.0,
     "GF_ACTION": 3,                   # 3 = Return. NEVER 2 (Hold) — see CLAUDE.md
     "EKF2_RNG_CTRL": 1,
     "EKF2_OF_CTRL": 0,                # no flow module in the kit
