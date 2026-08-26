@@ -397,6 +397,20 @@ vision:
   # transient). Set to 0 to DISABLE (e.g. a slow bench camera). Feeds both the
   # VisionWorker and AlignParams.frame_max_age_s.
   frame_max_age_s: 2.0
+  # ── matched to the PRACTICE config 2026-08-26 (operator: "sensor settings
+  # the same as PRACTICE" for the 28-Aug competition). Both keys were missing
+  # here, so this field ran the code defaults — ONE decode worker polling at
+  # 0.05 s against the practice field's two workers at 0.02 s, i.e. about half
+  # the decode attempts per sweep. These are the values behind the
+  # 2026-08-26 flight that decoded 155 frames (ids 1/2/4/5) in a 2-leg sweep.
+  # How often the worker LOOKS for a new frame — not how often it decodes
+  # (a new-frame guard sits in front of the decode); this only bounds the
+  # wait before a fresh frame is picked up.
+  poll_interval_s: 0.02
+  # Frames decoded CONCURRENTLY. 2 goes with the grabber's --mjpeg-passthrough
+  # (20-30 Hz for ~7% of a core); cv2 releases the GIL so the extra worker is
+  # a real core, and results stay in frame order.
+  decode_workers: 2
 
 # Mission frame recorder (R2 — the RECORD half of the rules' "record AND transmit"
 # imaging requirement). Persists a low-rate JPEG trail of the nadir frames
@@ -405,7 +419,11 @@ vision:
 # mission-fatal). ~1 Hz × 20 min ≈ 200-300 MB — size the CM4 SD card accordingly.
 recording:
   enabled: true
-  hz: 1.0               # nadir frames per second
+  # 1.0 -> 5.0 (matched to PRACTICE 2026-08-26): every post-flight debrief of
+  # this project lived on these frames — the 2026-08-26 exposure diagnosis
+  # (pad clipped at 255) came from a 5 Hz trail. ~8% of one CM4 core and
+  # ~0.5 GB per 20-min window.
+  hz: 5.0               # nadir frames per second
   jpeg_quality: 80      # cv2 JPEG quality 0-100
 
 # FC link + egg-release servo (mavlink_adapter.ConnectionConfig). All optional —
@@ -979,3 +997,15 @@ preflight:
   battery_pct: 25.0         # = failsafes.bat_low_thr (critical, cannot be forced)
   gps_sats: 6               # minimum satellites (coarse, no-RTK) (critical)
   camera_max_age_s: 5.0     # nadir frame must be fresher than this (critical)
+
+# ── land-ON descent loop (orchestrator/tactical_align.py AlignParams) ──
+# Matched to the PRACTICE config 2026-08-26. These equal the dataclass
+# defaults today; they are written out so the competition field never
+# silently inherits a future default change the practice field did not fly.
+align:
+  cycle_hz: 12.0          # achieved rate (deadline-paced); ~60 ms of work per
+                          # cycle on the CM4 leaves ~38% headroom under it
+  lock_cycles: 9          # 0.75 s of in-tolerance before descending a rung
+  max_lost_cycles: 24     # 2.0 s of lost pad before climbing back
+  median_window: 3        # fixes fused per command (lag = window / cycle_hz
+                          # = 0.25 s; keep ODD and small — see the dataclass)
