@@ -513,17 +513,22 @@ def test_ae_step_darkens_a_clipped_pad_and_reaches_the_band() -> None:
     g = _load_grabber()
     exp = 10.0                                  # 1 ms — what auto picked outdoors
     true_pad = 520.0                            # what 255 was hiding (4x grass)
+
+    def _applied(e: float) -> int:              # the driver takes integers
+        return int(round(e))
+
     for _ in range(12):
-        pad = min(255.0, true_pad * exp / 10.0)
-        mean = 130.0 * exp / 10.0
+        pad = min(255.0, true_pad * _applied(exp) / 10.0)
+        mean = 130.0 * _applied(exp) / 10.0
         new = g.ae_step(exp, mean, pad)
         if pad >= g.AE_CLIP:
             assert new < exp                    # never brighter while clipped
         exp = new
-        if g.AE_HI_LO <= true_pad * exp / 10.0 <= g.AE_HI_HI:
+        if g.AE_HI_LO <= true_pad * _applied(exp) / 10.0 <= g.AE_HI_HI:
             break
-    assert g.AE_HI_LO <= true_pad * exp / 10.0 <= g.AE_HI_HI, \
-        f"did not converge: exposure {exp:.1f}, pad {true_pad * exp / 10.0:.0f}"
+    got = true_pad * _applied(exp) / 10.0
+    assert g.AE_HI_LO <= got <= g.AE_HI_HI, \
+        f"did not converge: exposure {exp:.1f} (applied {_applied(exp)}), pad {got:.0f}"
     assert exp >= 1.0
 
 
