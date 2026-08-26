@@ -48,40 +48,81 @@ class FlightClock:
     #: Must exceed the vehicle stream's period (raw_gps is ~1-5 Hz) so ordinary
     #: gaps between samples are held rather than papered over with wall time.
     STALE_S = 3.0
-    __slots__ = ("_wall", "_t", "_veh_last", "_wall_at_veh", "_wall_last")
+    #: A single vehicle step this far AHEAD of the wall is a resync (reboot,
+    #: stream re-establish), not jitter: start a new epoch instead of letting
+    #: the cumulative comparison ride a bogus offset.
+    JUMP_S = 5.0
+    __slots__ = ("_wall", "_t", "_veh_last", "_wall_at_veh", "_wall_last",
+                 "_stale_credit", "_t_base", "_veh_epoch", "_wall_epoch")
 
     def __init__(self, *, wall: Callable[[], float] = time.monotonic) -> None:
         self._wall = wall
         self._t = 0.0
         self._veh_last: float | None = None
+        # Wall time at the last NEW vehicle sample. Re-feeding the same
+        # timestamp must NOT move it (2026-08-26): state.now() feeds on every
+        # read (~10 Hz) while the hardware timestamp changes only every so
+        # often, and an anchor reset on each re-feed shrank the wall step to
+        # ~0.1 s by the time the value moved — the real aircraft's mission
+        # clock ran at 1/20 speed and every deadline stretched with it.
         self._wall_at_veh: float | None = None
         self._wall_last = wall()
+        # Wall seconds now() has credited since the last new sample (the
+        # stale fallback), netted off when that sample lands so the same
+        # interval is never counted twice.
+        self._stale_credit = 0.0
+        # The current EPOCH: within one, flight time is
+        #   _t_base + min(vehicle - _veh_epoch, wall - _wall_epoch)
+        # — a CUMULATIVE comparison, so arrival jitter (a late sample followed
+        # by an early one) cancels instead of being lost step by step. A
+        # reboot, a jump, a backwards timestamp or a stale gap starts a new
+        # epoch from the flight time credited so far.
+        self._t_base = 0.0
+        self._veh_epoch = 0.0
+        self._wall_epoch = 0.0
+
+    def _new_epoch(self, vehicle_s: float, now_wall: float) -> None:
+        self._t_base = self._t
+        self._veh_epoch = vehicle_s
+        self._wall_epoch = now_wall
 
     def feed(self, vehicle_s: float) -> None:
         """Offer the vehicle's own timestamp, in seconds (NaN = unavailable).
 
-        Cheap and idempotent: re-feeding the same timestamp advances nothing,
-        so callers may feed on every read.
+        Cheap and idempotent: re-feeding the same timestamp advances nothing
+        AND moves nothing, so callers may feed on every read.
         """
         if not math.isfinite(vehicle_s):
             return
+        if vehicle_s == self._veh_last:
+            return                      # same sample: nothing new to credit
         now_wall = self._wall()
-        if self._veh_last is not None and self._wall_at_veh is not None:
-            # Credit the SMALLER of the two elapsed times. Flight time cannot
-            # outrun the wall — lockstep SITL throttles the simulation to at
-            # most real time, and on hardware they are the same clock — so the
-            # minimum is the honest credit, and it makes three awkward cases
-            # fall out with no special-casing:
-            #   * normal SITL (vehicle slower)  -> credits the vehicle;
-            #   * a vehicle REBOOT (a jump of hours) -> credits only the wall
-            #     time that actually passed, instead of teleporting the clock
-            #     past the whole operation window in one sample;
-            #   * a long gap between reads -> still credits the full vehicle
-            #     interval, so the clock does not depend on how often callers
-            #     happen to poll it.
-            veh_step = max(0.0, vehicle_s - self._veh_last)   # 0 also absorbs
-            wall_step = max(0.0, now_wall - self._wall_at_veh)  # a backwards jump
-            self._t += min(veh_step, wall_step)
+        if self._veh_last is None or self._wall_at_veh is None:
+            self._new_epoch(vehicle_s, now_wall)
+        else:
+            veh_step = vehicle_s - self._veh_last
+            wall_step = max(0.0, now_wall - self._wall_at_veh)  # absorbs a
+            # backwards wall jump
+            resync = (veh_step < 0.0                   # reboot / bogus stamp
+                      or veh_step > wall_step + self.JUMP_S   # forward jump
+                      or self._stale_credit > 0.0)     # gap the wall covered
+            if resync:
+                # Credit the SMALLER of the two elapsed times — flight time
+                # cannot outrun the wall (lockstep throttles the sim to at
+                # most real time; on hardware they are the same clock) — net
+                # of what the stale fallback already credited for this gap.
+                # A reboot's jump of hours therefore credits only the wall
+                # that actually passed instead of teleporting the clock past
+                # the operation window; a backwards stamp credits nothing.
+                credit = min(max(0.0, veh_step), wall_step) - self._stale_credit
+                self._t += max(0.0, credit)
+                self._new_epoch(vehicle_s, now_wall)
+            else:
+                cum_veh = vehicle_s - self._veh_epoch
+                cum_wall = now_wall - self._wall_epoch
+                # max(): never backwards, even if float noise says otherwise
+                self._t = max(self._t, self._t_base + min(cum_veh, cum_wall))
+        self._stale_credit = 0.0
         self._veh_last = vehicle_s
         self._wall_at_veh = now_wall
         self._wall_last = now_wall
@@ -92,6 +133,8 @@ class FlightClock:
         stale = (self._wall_at_veh is None
                  or (now_wall - self._wall_at_veh) > self.STALE_S)
         if stale:
-            self._t += max(0.0, now_wall - self._wall_last)
+            step = max(0.0, now_wall - self._wall_last)
+            self._t += step
+            self._stale_credit += step
         self._wall_last = now_wall
         return self._t

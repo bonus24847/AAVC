@@ -784,6 +784,27 @@ flight fw before G7.
   nominal while the aircraft is flying perfectly well.
   ⚠ RTF is much better headless: the failing run had the dashboard up (0.57
   average), the passing one did not (0.95).
+- **The mission clock ran at 1/20 speed on the real aircraft (2026-08-26,
+  same flight, CM4 audit).** `t=` advanced 0.3 → 0.6 s across ~50 s of flying
+  and `t=1.0s` held for 13-20 wall seconds in preflight, while the 08-18 bench
+  session (no GPS fix → no vehicle time → wall fallback) ticked 1:1. Cause in
+  `orchestrator/flight_clock.py`: `state.now()` feeds the clock on EVERY read
+  (~10 Hz), the hardware `raw_gps` timestamp changes only every so often, and a
+  re-feed of the SAME value reset the wall anchor — so when the value finally
+  moved, `min(veh_step, wall_step)` saw ~0.1 s of wall and credited that.
+  Reproduced exactly: a timestamp changing every 1 / 5 / 20 s read at 10 Hz
+  credited 9.9 / 1.9 / 0.4 s per 100 s. Every deadline — the 20-min window,
+  `can_start_delivery`, the 25 s progress guard, touchdown and rung timeouts —
+  stretched 20× on the real bird and none of them could have fired at KMITL.
+  Fixed: a re-feed moves nothing; within an EPOCH flight time is
+  `base + min(cum_vehicle, cum_wall)` (cumulative, so arrival jitter cancels
+  instead of being lost per step); a reboot / backwards stamp / forward jump
+  > `JUMP_S` / stale gap starts a new epoch, netting off what the stale
+  fallback already credited so nothing is counted twice. Tests: the three
+  2026-08-26 cases at the end of `tests/test_flight_clock.py`. ⚠ Still open:
+  WHY the hardware timestamp only changes every ~13-20 s (MAVSDK `raw_gps`
+  over TELEM2 at the router's rate?) — the clock now tolerates it, but a
+  vehicle-time stream that sparse is worth a look on the bench.
 - **`relative_alt_m` is `alt_m − home LATCHED AT ARMING`, never PX4's own
   `relative_alt` (2026-08-26, ULog `2026-08-26/08_21_26.ulg`).** PX4 1.17
   (upstream `6604c52c98`, #25003, `HomePosition::update`) rewrites `home.alt`
