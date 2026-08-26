@@ -110,7 +110,11 @@ def ae_step(exp: float, mean: float, hi: float, *,
     else:
         return float(exp)
     r = max(AE_STEP_DOWN, min(AE_STEP_UP, r ** AE_DAMP))
-    return float(max(min_100us, min(max_100us, exp * r)))
+    new = float(max(min_100us, min(max_100us, exp * r)))
+    # The driver takes integers: a correction too small to change the applied
+    # value must not creep into the float either, or a string of 1 % nudges
+    # eventually flips the rounding and the loop hunts one unit up and down.
+    return new if int(round(new)) != int(round(exp)) else float(exp)
 
 
 class HighlightAE:
