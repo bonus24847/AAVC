@@ -546,3 +546,20 @@ def test_ae_step_caps_the_ground_mean_even_with_no_highlight() -> None:
     keeps the NEXT pad from clipping the moment it enters the frame."""
     g = _load_grabber()
     assert g.ae_step(20.0, mean=110.0, hi=160.0) < 20.0
+
+
+def test_ae_does_not_hunt_across_the_100us_quantisation() -> None:
+    """CM4 bench 2026-08-26: with the decrease aiming at 49.5 and the increase
+    at 55, the loop stepped 9 -> 7.1 -> 7.6 -> 7.0 forever because one 100 µs
+    step is 14 % at that exposure. Driver-side rounding to an integer must
+    settle within a few steps and then hold."""
+    g = _load_grabber()
+    exp = 9.0
+    per_unit = 58.0 / 9.0                       # indoor scene: mean per 100 µs
+    history = []
+    for _ in range(12):
+        applied = int(round(exp))
+        mean = per_unit * applied
+        exp = g.ae_step(exp, mean, hi=mean * 1.45)
+        history.append(int(round(exp)))
+    assert len(set(history[-6:])) == 1, f"still hunting: {history}"

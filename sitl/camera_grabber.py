@@ -67,6 +67,7 @@ _DEFAULT_GAIN = 64
 # is in view, cap the ground mean so the NEXT pad cannot clip on entry.
 AE_HI_LO, AE_HI_HI, AE_HI_TARGET = 190.0, 225.0, 208.0
 AE_MEAN_MAX = 55.0          # grass mean cap: 55 x 4.5 (pad/grass albedo) ≈ 250
+AE_MEAN_TARGET = 49.5       # where a decrease aims and below which an increase starts
 AE_PCTL = 99.8              # a 0.5 m pad at 8 m is 0.35 % of the frame; 1 m at
 AE_STRIDE = 2               # 12 m is 0.5 % — the top 0.2 % is INSIDE the pad
 AE_PERIOD_S = 0.5
@@ -92,16 +93,20 @@ def ae_step(exp: float, mean: float, hi: float, *,
     RATIO (damped, bounded per step): one or two steps land in the band, and
     a clipped highlight — whose true value is unknown — takes a bigger step
     down. Decrease wins over increase; inside the band the value holds."""
+    # Both directions aim at the SAME points (AE_HI_TARGET, AE_MEAN_TARGET)
+    # and the hold band around them is wider than one 100 µs exposure step
+    # (14 % at 0.7 ms) — otherwise the loop hunts between two targets forever
+    # (CM4 bench 2026-08-26: exp 9 → 7.1 → 7.6 → 7.0, ten steps in 8 s).
     if hi > AE_HI_HI or mean > AE_MEAN_MAX:
         r = 1.0
         if hi > AE_HI_HI:
             r = min(r, AE_HI_TARGET / hi)
         if mean > AE_MEAN_MAX:
-            r = min(r, AE_MEAN_MAX * 0.9 / mean)
+            r = min(r, AE_MEAN_TARGET / mean)
         if hi >= AE_CLIP:
             r = min(r, 0.6)
-    elif hi < AE_HI_LO and mean < AE_MEAN_MAX:
-        r = min(AE_HI_TARGET / max(hi, 1.0), AE_MEAN_MAX / max(mean, 1.0))
+    elif hi < AE_HI_LO and mean < AE_MEAN_TARGET:
+        r = min(AE_HI_TARGET / max(hi, 1.0), AE_MEAN_TARGET / max(mean, 1.0))
     else:
         return float(exp)
     r = max(AE_STEP_DOWN, min(AE_STEP_UP, r ** AE_DAMP))
@@ -695,7 +700,8 @@ def main() -> int:
             if now - last_log > 2.0:
                 print(f"[grabber] nadir ok={n_ok} fail={n_fail} "
                       f"reopen={n_reopen}"
-                      + (f" AE {ae.status()}" if ae is not None else ""))
+                      + (f" AE {ae.status()}" if ae is not None else ""),
+                      flush=True)      # the launchers do not run python -u
                 last_log = now
             dt = args.interval_s - (time.monotonic() - t0)
             if dt > 0:
