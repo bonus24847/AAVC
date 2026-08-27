@@ -55,3 +55,29 @@ def test_served_tile_route_reads_the_cache(tmp_path, monkeypatch):
 def test_page_uses_the_local_tile_route():
     assert "tile.openstreetmap.org" not in aavc_gcs.PAGE
     assert "/tiles/{z}/{x}/{y}.png" in aavc_gcs.PAGE
+
+
+# ── 2026-08-27 evening: OSM answered EVERY request from this client with its
+# "403 Access blocked — app is not following the tile usage policy" placeholder
+# (HTTP 200, 6987 bytes, all 523 cached tiles identical), so the map at the
+# field was a grid of 403 boxes. The cache now comes from Esri World Imagery
+# (satellite, JPEG — the same imagery the rules figures use); content type
+# follows the bytes, never the URL suffix. ─────────────────────────────────
+
+
+def test_tile_source_is_not_openstreetmap():
+    assert "openstreetmap" not in aavc_gcs.TILE_URL
+    assert "arcgisonline" in aavc_gcs.TILE_URL
+
+
+def test_tile_content_type_follows_the_bytes(tmp_path, monkeypatch):
+    monkeypatch.setattr(aavc_gcs, "TILE_DIR", str(tmp_path))
+    d = os.path.join(str(tmp_path), "17", "102231")
+    os.makedirs(d)
+    with open(os.path.join(d, "60488.png"), "wb") as fh:
+        fh.write(b"\xff\xd8\xff\xe0-fake-jpeg")
+    data, ctype = aavc_gcs.serve_tile("/tiles/17/102231/60488.png", online=False)
+    assert ctype == "image/jpeg"
+    assert aavc_gcs.tile_content_type(b"\x89PNG\r\n") == "image/png"
+    assert aavc_gcs.tile_content_type(b"\xff\xd8\xff") == "image/jpeg"
+    assert aavc_gcs.tile_content_type(b"<html>blocked") is None

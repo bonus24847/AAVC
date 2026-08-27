@@ -7,11 +7,13 @@
     python3 scripts/prefetch_tiles.py --bbox 13.7298 100.7872 13.7314 100.7899
 
 Reads the field yaml's geofence.controlled_airspace, grows it by --margin-m,
-and downloads every OSM tile at --zooms into aavc_gcs.TILE_DIR (repo tiles/),
-skipping tiles already there. A field is a few hundred tiles (KMITL at 300 m
-margin, z15-19: 229) — polite to the OSM tile policy (identified User-Agent,
-cached, never re-fetched). Run it while the laptop is ONLINE; the console
-then serves the map with no internet at all.
+and downloads every tile at --zooms from aavc_gcs.TILE_URL (Esri World
+Imagery — satellite JPEG) into aavc_gcs.TILE_DIR (repo tiles/), skipping tiles
+already there. A field is a few hundred tiles (KMITL at 300 m margin, z15-19:
+229). Run it while the laptop is ONLINE; the console then serves the map with
+no internet at all. Anything the server returns that is not a PNG/JPEG is
+refused (2026-08-27: OSM served a "403 blocked" placeholder as HTTP 200 and
+poisoned the whole cache — wipe tiles/ and re-run if that ever recurs).
 """
 import argparse
 import os

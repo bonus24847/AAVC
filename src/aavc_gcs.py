@@ -177,9 +177,29 @@ VENDOR_CSS = _read_vendor("leaflet.css")
 # Offline, a missing tile is a fast 404 (never a hanging fetch): the network is
 # probed once a minute with a 1 s connect, not per tile.
 TILE_DIR = os.environ.get("AAVC_TILE_DIR") or os.path.join(_HERE, "..", "tiles")
-TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+# Esri World Imagery (satellite, JPEG; {z}/{y}/{x} order) — the same imagery
+# the rules figures are drawn on. NOT openstreetmap.org: on 2026-08-27 OSM
+# answered every request from this client — the very first one included —
+# with its "403 Access blocked / tile usage policy" placeholder as an HTTP 200
+# PNG, so the whole cache (523 tiles, all 6987 bytes) was a grid of 403 boxes
+# and the field map showed exactly that. tile_content_type() sniffs the bytes,
+# so a placeholder that is not an image is refused rather than cached.
+TILE_URL = ("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/"
+            "MapServer/tile/{z}/{y}/{x}")
+TILE_HOST = "server.arcgisonline.com"
+TILE_ATTRIB = "Tiles © Esri — Esri, Maxar, Earthstar Geographics, GIS User Community"
 TILE_UA = "aavc-gcs/1.0 (KMUTNB AeroOptix field console; offline tile cache)"
 TILE_ZOOM_MAX = 19
+
+
+def tile_content_type(data):
+    """'image/png' / 'image/jpeg' from the first bytes, else None (an HTML error
+    page or a text placeholder is never a tile)."""
+    if data[:4] == b"\x89PNG":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    return None
 _TILE_RE = re.compile(r"^/tiles/(\d{1,2})/(\d{1,9})/(\d{1,9})\.png$")
 _NET_PROBE = {"at": 0.0, "ok": False}
 
@@ -223,7 +243,7 @@ def _net_ok(ttl_s=60.0):
     if now - _NET_PROBE["at"] < ttl_s:
         return _NET_PROBE["ok"]
     try:
-        socket.create_connection(("tile.openstreetmap.org", 443), timeout=1.0).close()
+        socket.create_connection((TILE_HOST, 443), timeout=1.0).close()
         ok = True
     except OSError:
         ok = False
@@ -232,7 +252,8 @@ def _net_ok(ttl_s=60.0):
 
 
 def fetch_tile(z, x, y, timeout_s=4.0):
-    """One tile from OSM (identified User-Agent per the tile usage policy), or None."""
+    """One tile from TILE_URL (identified User-Agent), or None — including when
+    the server answers with something that is not a PNG/JPEG image."""
     req = urllib.request.Request(TILE_URL.format(z=z, x=x, y=y),
                                  headers={"User-Agent": TILE_UA})
     try:
@@ -240,7 +261,7 @@ def fetch_tile(z, x, y, timeout_s=4.0):
             data = r.read()
     except Exception:
         return None
-    return data if data[:4] == b"\x89PNG" else None
+    return data if tile_content_type(data) else None
 
 
 def save_tile(path, data):
@@ -252,14 +273,19 @@ def save_tile(path, data):
 
 
 def serve_tile(url_path, *, online):
-    """(png_bytes, 'image/png') for a cached tile — fetched and cached first when
-    `online` — else None (the caller answers 404 and Leaflet leaves the cell blank)."""
+    """(image_bytes, content_type) for a cached tile — fetched and cached first
+    when `online` — else None (the caller answers 404 and Leaflet leaves the
+    cell blank). The content type follows the BYTES, not the .png URL suffix
+    Leaflet asks with: the cache holds Esri JPEGs."""
     path = tile_cache_path(url_path)
     if path is None:
         return None
     try:
         with open(path, "rb") as fh:
-            return fh.read(), "image/png"
+            data = fh.read()
+        ctype = tile_content_type(data)
+        if ctype:
+            return data, ctype
     except OSError:
         pass
     if not online:
@@ -272,7 +298,7 @@ def serve_tile(url_path, *, online):
         save_tile(path, data)
     except OSError:
         pass
-    return data, "image/png"
+    return data, tile_content_type(data)
 
 
 def _en_to_ll(e, n, lat0, lon0):
@@ -3466,7 +3492,7 @@ function initMap(){
  var cv=document.getElementById('posmap');if(cv)cv.style.display='none';
  el.style.display='block';
  lmap=L.map(el,{zoomControl:true,attributionControl:true}).setView([13.736,100.523],16);
- L.tileLayer('/tiles/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap (local cache)'}).addTo(lmap);
+ L.tileLayer('/tiles/{z}/{x}/{y}.png',{maxZoom:19,attribution:'Tiles © Esri — Esri, Maxar, Earthstar Geographics, GIS User Community (local cache)'}).addTo(lmap);
  ltrack=L.polyline([],{color:'#388bfd',weight:3}).addTo(lmap);
  [60,250,600,1200,2500].forEach(function(t){setTimeout(function(){if(lmap)lmap.invalidateSize()},t)});
  window.addEventListener('resize',function(){if(lmap)lmap.invalidateSize()});
