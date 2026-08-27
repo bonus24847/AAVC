@@ -3210,9 +3210,9 @@ body.fieldmode #fmbtn{background:#238636;color:#fff;border-color:#3fb950}
  </div>
  <div class=modal id=padmodal>
   <div class=modalbox>
-   <h3>🎯 เลือก Pad ที่จะส่ง (ID 1-6 · เลือกกี่อันก็ได้)</h3>
+   <h3>🎯 เลือก Pad ที่จะส่ง (ID 0-6 · เลือกกี่อันก็ได้)</h3>
    <div class=padgrid id=padgrid></div>
-   <div class=padrow><span>เลือกแล้ว: <b id=selcount style=color:#3fb950>0</b> / 6</span></div>
+   <div class=padrow><span>เลือกแล้ว: <b id=selcount style=color:#3fb950>0</b> / 7</span></div>
    <div class=modalbtns>
     <button class=savebtn id=savebtn type=button onclick=savePadModal()>💾 บันทึก</button>
     <button class=modalcancel type=button onclick=closePadModal()>ยกเลิก</button>
@@ -3539,6 +3539,7 @@ function a2(s){return (s.att&&s.att.heading!=null)?s.att.heading:null;}
 // from cv2.aruco so the operator matches the committee's assignment card
 // picture-to-picture instead of translating it into a number.
 var ARUCO={
+ 0:"000000010110001010000110000100000000",   // the rules PDF's Figure 7 third picture IS id 0 (2026-08-27)
  1:"000000000000011110010010010100000000",
  2:"000000000110000110000100011010000000",
  3:"000000010010010010001000001100000000",
@@ -3552,7 +3553,7 @@ function arucoSVG(id){
 }
 function renderPads(){
  var g=document.getElementById('padgrid');if(!g)return;g.innerHTML='';
- [1,2,3,4,5,6].forEach(function(id){
+ [0,1,2,3,4,5,6].forEach(function(id){
   var d=document.createElement('div');
   d.className='padbtn'+(SEL.indexOf(id)>=0?' sel':'');
   d.innerHTML=arucoSVG(id)+'<div class="padid">ID '+id+'</div>';
