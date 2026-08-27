@@ -138,7 +138,7 @@ companion, **no RTK** so GPS is coarse) delivers fragile egg cargo to
 **IAAI KMITL** field. **Six** pads are physically placed (2026-07-24
 event-briefing override of the PDF's "up to four" — `docs/RULES_AAVC2026.md`
 "Event-briefing override"): **1×1 m white**, black **circle ⌀750 mm**,
-central **400×400 mm ArUco marker** (`DICT_4X4_50`, **ids 1–6**); the
+central **400×400 mm ArUco marker** (`DICT_4X4_50`, **ids 0–6 — seven; the PDF's Figure 7 encodes 1,2,0,4,5,6**, §8 2026-08-27); the
 committee **assigns FOUR** per team, the other 2 staying permanent
 distractors. A **FLIGHT** (one arm→disarm cycle — `state.sortie_index` is
 the flight counter; "sortie" and "flight" are used interchangeably in this
@@ -784,6 +784,29 @@ flight fw before G7.
   nominal while the aircraft is flying perfectly well.
   ⚠ RTF is much better headless: the failing run had the dashboard up (0.57
   average), the passing one did not (0.95).
+- **Seven marker ids (0-6) and RTH at 15% (operator, 2026-08-27).** The
+  rules PDF says "ArUco … number 1 through 6", but its Figure 7 — the picture
+  everyone prints the pads from — **encodes 1, 2, 0, 4, 5, 6** (decoded
+  straight off the PDF render, `pdftoppm` page 7): the third marker IS id 0.
+  The 2026-08-27 full-sweep flight found exactly that pad (frames
+  `nadir_000978-980`, 56 px, conf 0.95, id 0), threw it away as a nameless
+  white blob because `VALID_MARKER_IDS` was 1-6, and then spent a 3 m decode
+  visit on it. Operator's call: 0 and 3 are both real → `VALID_MARKER_IDS =
+  0..6`, seven markers, no aliasing. Widened everywhere the set was spelled
+  out: `dashboard/commands.py` queue validator (now reads the constant), the
+  Svelte queue buttons, `aruco-glyphs.ts` (7 glyphs, regenerated), the SITL
+  pad models (`landing_pad_id_0` added, `_ALL_PAD_NAMES` 0-6), the console
+  `PAD_IDS` in aavc-gcs. ⚠ **`if h.marker_id:` is a bug now** — id 0 is
+  falsy; every check must be `is not None` (one test had it; the flight core
+  was grepped clean). Battery: profile `rth_battery_pct` 30 → **15**,
+  `land_battery_pct` 20 → **10** (both profiles): the voltage-only gauge sags
+  ~30 pt under load, and at 30 a FULL pack ended the 2026-08-27 sweep at
+  5.2 min (`DELIVERY abort … batt=36%`) with 26% still resting after landing.
+  PX4's own `BAT_CRIT_THR` 15% now coincides with the companion RTH (both
+  RTL, `expected_mode` keeps D3 quiet); `BAT_EMERGEN_THR` 7% stays under the
+  companion LAND. Preflight still refuses a launch under 25% resting. Open:
+  the real remaining energy is still unmeasured — read the charger's
+  returned mAh after a flight to fit `BAT1_V_EMPTY/V_CHARGED`.
 - **COMP config matched to PRACTICE for the 28-Aug competition (2026-08-26,
   operator: "sensor settings the same as PRACTICE").** Structured diff of
   `sitl/kmitl_config.yaml` vs `sitl/aavc_config.yaml`: every sensor block

@@ -675,7 +675,7 @@ gimbal:
 # FC-level failsafes pinned + readback-confirmed at mission start (S4). These are
 # the flight controller's OWN failsafe layer — they fire even if the CM4 companion
 # dies, so they do NOT depend on the software watchdog. Battery thresholds are
-# FRACTIONS (0..1) and sit BELOW the companion watchdog's 30%/20% RTH/LAND
+# FRACTIONS (0..1) and sit BELOW the companion watchdog's 15%/10% RTH/LAND (30/20 until 2026-08-27)
 # (mission_brain.profile) so the companion acts first and the two never race.
 # ⚠ Confirm the battery thresholds on the REAL pack's discharge curve before G7 —
 # the SITL battery is nominal. Omit a key to keep the method default.
@@ -690,13 +690,13 @@ failsafes:
   #     BAT_LOW_THR      25%  →  WARNING ONLY. The FC does not fly anywhere.
   #     BAT_CRIT_THR     15%  →  Return
   #     BAT_EMERGEN_THR   7%  →  Land where it is
-  # The companion watchdog (30% RTH / 20% LAND) therefore sits above EVERY FC
+  # The companion watchdog (15% RTH / 10% LAND since 2026-08-27) therefore sits above EVERY FC
   # action, not just above the low line — the layering still holds, and holds
   # by a wider margin than the old comments claimed, but do not plan against
   # "the FC returns at 25%": it does not.
   bat_low_thr: 0.25         # BAT_LOW_THR — warning only (see above); also the
                             # energy-budget reserve fraction (see `battery:`)
-  bat_crit_thr: 0.15        # BAT_CRIT_THR — FC RETURNS here (below companion LAND 20%)
+  bat_crit_thr: 0.15        # BAT_CRIT_THR — FC RETURNS here (= companion RTH 15% since 2026-08-27; LAND 10%)
   bat_emergen_thr: 0.07     # BAT_EMERGEN_THR — FC LANDS in place here
   low_bat_act: 3            # COM_LOW_BAT_ACT: 3 = Return at critical, Land at
                             # emergency. (1 = plain Return still works but is
@@ -715,7 +715,7 @@ failsafes:
 # flies its own low-battery RTL", which is not what PX4 does: BAT_LOW_THR only
 # warns, and COM_LOW_BAT_ACT=3 returns at BAT_CRIT_THR / lands at
 # BAT_EMERGEN_THR. bat_low_thr is still the right single owner of the reserve —
-# it is the first level anything reacts to and the companion's 30% RTH clears
+# it is the first level anything reacts to and the companion's 15% RTH clears
 # it — but it is a planning floor, not the edge of a failsafe.
 # ⚠ 2026-07-25 — TWO PACKS IN PARALLEL. The aircraft now flies two of the same
 # DXF 6S 7500 mAh 140C packs wired in PARALLEL: capacity adds (15,000 mAh),
@@ -741,7 +741,7 @@ failsafes:
 #       compensates when current > 0), so the raw, sagging in-flight voltage is
 #       read straight against these two — the numbers above are RESTED. With the
 #       17000 pack a 4-delivery flight spends ~4.5 of 12.75 Ah usable and never
-#       nears the 30% RTH, so these endpoints drive the OPERATOR's gauge
+#       nears the 15% RTH, so these endpoints drive the OPERATOR's gauge
 #       accuracy far more than any failsafe trigger. Setting them to the pack
 #       (4.18 / 3.77) is safe; verify the mid-range on a test hover (sag under
 #       load) if precision matters. Writing them to the FC is an operator

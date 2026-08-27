@@ -738,11 +738,15 @@ def test_per_delivery_abort_keeps_remaining_eggs_and_still_returns(
         monkeypatch) -> None:
     """The per-delivery gate must refuse to START a descent the pack can't
     cover: the FC's low-battery failsafe would otherwise fire mid-delivery with
-    an egg aboard. Two deliveries drain the pack to 34% — inside
-    rth_battery_pct (30) + margin (5) — so deliveries 3-4 are aborted, their
-    eggs kept, and the aircraft still flies the egress and disarms at L&R."""
+    an egg aboard. Two deliveries drain the pack to just under
+    rth_battery_pct + margin (the gate's boundary, read from the profile so a
+    floor change cannot silently retune this test) — so deliveries 3-4 are
+    aborted, their eggs kept, and the aircraft still flies the egress and
+    disarms at L&R."""
     state = _state()
     state.telemetry.battery_percent = 100.0
+    boundary = COMPETITION.rth_battery_pct + mission_mod._DELIVERY_BATT_MARGIN_PCT
+    cost = (100.0 - boundary) / 2.0 + 1.0            # two fit, the third does not
     tracker = TargetTracker()
     for mid, pos in ((3, PAD3), (1, PAD1), (4, PAD4), (6, PAD6)):
         _preload_pad(tracker, pos, mid)
@@ -754,7 +758,7 @@ def test_per_delivery_abort_keeps_remaining_eggs_and_still_returns(
         calls.append((stop_index, kw.get("payload_id"), kw.get("delivery_index")))
         st.dropped_stops.add(stop_index)
         st.telemetry.relative_alt_m = 0.0                # landed ON the pad
-        st.telemetry.battery_percent -= 33.0             # land + climb-out cost
+        st.telemetry.battery_percent -= cost             # land + climb-out cost
         return AlignResult(acquired=True, aligned=True, landed=True,
                            dropped=True, final_error_m=0.3)
 

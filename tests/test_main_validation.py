@@ -1,7 +1,7 @@
 """Config values main.py must not take on trust: assigned ids, and the L&R point.
 
 --assigned-ids (CLI) and mission.assigned_marker_ids (config) fed straight into
-int() with no range check: an out-of-range id (0, 7, 9) was silently accepted
+int() with no range check: an out-of-range id (-1, 7, 9) was silently accepted
 and then never decoded, so the sortie burned window time deferring. Validate up
 front against the competition id set with a clear error.
 """
@@ -29,7 +29,8 @@ def test_list_input_from_config() -> None:
     assert _parse_assigned_ids([3, 1]) == [3, 1]
 
 
-@pytest.mark.parametrize("bad", ["0", "7", "9", "3,7", "0,1"])
+# 0 is a real pad since 2026-08-27 (the PDF figure encodes 1,2,0,4,5,6)
+@pytest.mark.parametrize("bad", ["-1", "7", "9", "3,7", "-1,1"])
 def test_out_of_range_rejected(bad: str) -> None:
     with pytest.raises(ValueError, match="valid"):
         _parse_assigned_ids(bad)

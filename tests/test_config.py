@@ -26,8 +26,8 @@ def test_competition_profile_is_locked() -> None:
     assert p.name == "competition"
     assert p.operation_window_s == 1200.0        # AAVC 20-min window
     assert p.min_time_remaining_s == 180.0
-    assert p.rth_battery_pct == 30.0
-    assert p.land_battery_pct == 20.0
+    assert p.rth_battery_pct == 15.0    # 30 -> 15, operator 2026-08-27
+    assert p.land_battery_pct == 10.0
     assert p.datalink_loss_threshold_s == 5.0
     assert p.gps_loss_threshold_s == 5.0
     assert p.telemetry_stale_threshold_s == 10.0

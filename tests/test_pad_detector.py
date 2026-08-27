@@ -163,7 +163,7 @@ def test_handles_empty_and_tiny_frames() -> None:
 def test_renderer_rejects_invalid_ids_and_undecodable_geometry() -> None:
     import pytest
     with pytest.raises(ValueError):
-        render_pad_bgr(0)
+        render_pad_bgr(-1)                    # 0 is a real pad since 2026-08-27
     with pytest.raises(ValueError):
         render_pad_bgr(7)
     with pytest.raises(ValueError):   # ring would swallow the marker corners
@@ -173,7 +173,8 @@ def test_renderer_rejects_invalid_ids_and_undecodable_geometry() -> None:
 def test_every_competition_texture_decodes_as_itself() -> None:
     for mid in sorted(VALID_MARKER_IDS):
         face = render_pad_bgr(mid, 512)
-        got = [h.marker_id for h in find_landing_pads(face) if h.marker_id]
+        # `is not None`, not truthiness: id 0 is a real pad (2026-08-27)
+        got = [h.marker_id for h in find_landing_pads(face) if h.marker_id is not None]
         assert got == [mid]
 
 
@@ -259,3 +260,18 @@ def test_a_dim_pad_is_still_found_when_the_whole_frame_is_dim() -> None:
     dim = (frame.astype(np.float32) * 0.55).astype(np.uint8)   # ~2 stops down
     assert _pad_blobs(dim, cv2.cvtColor(dim, cv2.COLOR_BGR2GRAY)), \
         "cue lost the pad once the frame was darkened"
+
+
+def test_id_0_is_a_competition_id() -> None:
+    """2026-08-27: the rules PDF's Figure 7 says "1 through 6" but its third
+    picture ENCODES id 0 (decoded straight off the PDF render); the field pad
+    printed from it read as id 0 too and was thrown away as a nameless white
+    blob — then a 3 m decode visit was spent on it. Operator: ids 0 and 3 are
+    both real pads; the competition set is 0..6, seven markers."""
+    img = np.full((960, 1280, 3), GRASS, np.uint8)
+    marker = cv2.aruco.generateImageMarker(
+        cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50), 0, 80)
+    img[440:520, 600:680] = cv2.cvtColor(marker, cv2.COLOR_GRAY2BGR)
+    ids = [h.marker_id for h in find_landing_pads(img)]
+    assert ids == [0], ids
+    assert VALID_MARKER_IDS == frozenset(range(0, 7))

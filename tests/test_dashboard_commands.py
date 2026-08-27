@@ -223,7 +223,7 @@ def test_mission_ids_rejects_duplicates_and_out_of_range() -> None:
     with pytest.raises(ValidationError):
         MissionIdsRequest(ids=[3, 3])
     with pytest.raises(ValidationError):
-        MissionIdsRequest(ids=[0])
+        MissionIdsRequest(ids=[-1])            # 0 is a real pad since 2026-08-27
     with pytest.raises(ValidationError):
         MissionIdsRequest(ids=[7])
     with pytest.raises(ValidationError):

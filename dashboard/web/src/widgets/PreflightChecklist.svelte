@@ -189,7 +189,7 @@
           <strong>committee-assigned</strong> pad ids (ArUco) in sortie order,
           click again to remove:</span>
         <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;">
-          {#each [1, 2, 3, 4, 5, 6] as mid}
+          {#each [0, 1, 2, 3, 4, 5, 6] as mid}
             {@const pos = localQueue.indexOf(mid)}
             {@const inQueue = pos >= 0}
             {@const served = inQueue && pos < servedCount}

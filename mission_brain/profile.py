@@ -74,8 +74,11 @@ COMPETITION = MissionProfile(
     name="competition",
     operation_window_s=1200.0,        # AAVC 20-min window
     min_time_remaining_s=180.0,
-    rth_battery_pct=30.0,
-    land_battery_pct=20.0,
+    rth_battery_pct=15.0,             # 30 -> 15 (operator 2026-08-27): the
+                                      # voltage-only gauge sags ~30 pt under
+                                      # load, and 30 ended a full-pack sweep
+                                      # at 5 min with 26% still resting
+    land_battery_pct=10.0,            # 20 -> 10, kept under the RTH floor
     datalink_loss_threshold_s=5.0,
     gps_loss_threshold_s=5.0,
     telemetry_stale_threshold_s=10.0,
@@ -113,8 +116,11 @@ PRODUCTION = MissionProfile(
     name="production",
     operation_window_s=3600.0,        # longer real-world missions
     min_time_remaining_s=180.0,
-    rth_battery_pct=30.0,
-    land_battery_pct=20.0,
+    rth_battery_pct=15.0,             # 30 -> 15 (operator 2026-08-27): the
+                                      # voltage-only gauge sags ~30 pt under
+                                      # load, and 30 ended a full-pack sweep
+                                      # at 5 min with 26% still resting
+    land_battery_pct=10.0,            # 20 -> 10, kept under the RTH floor
     datalink_loss_threshold_s=5.0,
     gps_loss_threshold_s=5.0,
     telemetry_stale_threshold_s=10.0,

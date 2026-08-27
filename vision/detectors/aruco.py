@@ -48,7 +48,11 @@ from .base import BaseDetector, Detection
 
 # ── marker dictionary + field constants (rules Figure 6/7) ──
 PAD_DICT = cv2.aruco.DICT_4X4_50      # arucogen "4x4" = OpenCV DICT_4X4_50
-VALID_MARKER_IDS = frozenset(range(1, 7))   # ids 1..6; ≤4 pads placed
+# ids 0..6 — SEVEN markers (2026-08-27). The rules PDF says "1 through 6", but
+# its Figure 7 (what everyone prints from) encodes 1, 2, 0, 4, 5, 6: the third
+# picture IS id 0, and the field pad printed from it decoded as 0 on
+# 2026-08-27 while this set threw it away. Operator: 0 and 3 are both real.
+VALID_MARKER_IDS = frozenset(range(0, 7))
 PAD_SIZE_M = 1.0                      # white pad side
 MARKER_SIZE_M = 0.4                   # marker side (incl. its black border)
 CIRCLE_DIAMETER_M = 0.75              # black ring on the pad
@@ -129,7 +133,7 @@ DECODE_STATS: dict[str, int] = {
 class PadHit:
     cx: int                 # pad/marker centroid (the aim point), pixels
     cy: int
-    marker_id: int | None   # decoded ArUco id (1..6), or None = cue-only blob
+    marker_id: int | None   # decoded ArUco id (0..6), or None = cue-only blob
     radius_px: float        # marker-equivalent HALF-SIDE (px). Decoded: half the
     #                         mean marker edge; blob-only: 0.4 × half pad side.
     #                         Named radius_px so the projection size-prior +
