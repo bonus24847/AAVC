@@ -1,0 +1,266 @@
+\documentclass[11pt,a4paper]{article}
+% ---- engine: XeLaTeX (Thai + Latin) ----
+\usepackage{fontspec}
+\usepackage[strings]{underscore}
+\usepackage[a4paper,margin=16mm,top=17mm,bottom=16mm,headheight=15pt]{geometry}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{amssymb}
+\usepackage{needspace}
+\usepackage{multicol}
+\usepackage{newunicodechar}
+
+\setmainfont{Garuda}
+\setmonofont{DejaVu Sans Mono}[Scale=0.86]
+\newfontfamily\symfont{DejaVu Sans}[Scale=0.9]
+\newunicodechar{→}{{\symfont →}}\newunicodechar{↔}{{\symfont ↔}}\newunicodechar{⇒}{{\symfont ⇒}}\newunicodechar{≈}{{\symfont ≈}}\newunicodechar{≠}{{\symfont ≠}}\newunicodechar{≤}{{\symfont ≤}}\newunicodechar{≥}{{\symfont ≥}}\newunicodechar{▶}{{\symfont ▶}}\newunicodechar{·}{{\symfont ·}}
+\XeTeXlinebreaklocale "th"
+\XeTeXlinebreakskip = 0pt plus 0.1pt
+
+\definecolor{navy}{HTML}{0B1F3A}
+\definecolor{stopred}{HTML}{B91C1C}
+\definecolor{amber}{HTML}{B45309}
+\definecolor{grn}{HTML}{15803D}
+\definecolor{blu}{HTML}{1D4ED8}
+\definecolor{gray}{HTML}{6B7280}
+\definecolor{hlyel}{HTML}{FDE68A}
+\definecolor{hlred}{HTML}{FECACA}
+
+\titleformat{\section}{\large\bfseries\color{navy}}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries\color{navy}}{\thesubsection}{0.5em}{}
+\titlespacing*{\section}{0pt}{10pt}{4pt}
+\titlespacing*{\subsection}{0pt}{6pt}{2pt}
+\setcounter{secnumdepth}{2}
+
+\newlist{cl}{itemize}{1}
+\setlist[cl]{label=$\square$, leftmargin=1.7em, itemsep=3pt, topsep=2pt, parsep=0pt}
+
+\pagestyle{fancy}\fancyhf{}
+\lhead{\small\textbf{\color{navy}AAVC 2026} \color{gray}— Competition Checklist}
+\rhead{\small\color{gray}IAAI KMITL · 28–30 Aug 2026}
+\cfoot{\small\color{gray}\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\stoptag}{{\bfseries\color{stopred}[STOP]}}
+\newcommand{\hl}[1]{\colorbox{hlyel}{\strut #1}}
+\newcommand{\hlr}[1]{\colorbox{hlred}{\strut\color{stopred}\bfseries #1}}
+\newcommand{\who}[1]{{\small\color{blu}[#1]}}
+
+\newcommand{\crit}[1]{\par\vspace{2pt}\noindent%
+  {\setlength{\fboxrule}{0.8pt}\setlength{\fboxsep}{5pt}%
+  \fcolorbox{stopred}{stopred!6}{\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule}%
+  {\small\color{stopred}\textbf{!\ \ }#1}}}\par\vspace{3pt}}
+\newcommand{\note}[1]{\par\vspace{2pt}\noindent%
+  {\setlength{\fboxrule}{0.6pt}\setlength{\fboxsep}{5pt}%
+  \fcolorbox{amber}{amber!7}{\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule}%
+  {\small\color{amber!80!black}\textbf{▶\ \ }#1}}}\par\vspace{3pt}}
+
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.22}
+
+\begin{document}
+
+% ===================== TITLE =====================
+\thispagestyle{empty}
+{\color{navy}\Huge\bfseries AAVC 2026}\\[3pt]
+{\color{navy}\LARGE\bfseries Competition Checklist — IAAI KMITL}\\[3pt]
+{\large ระเบียบการตรวจสอบและปฏิบัติการวันแข่งขัน · ทีม AeroOptix (KMUTNB)}\\[7pt]
+{\color{stopred}\rule{\linewidth}{1.2pt}}\\[7pt]
+
+\begin{tabular}{@{}p{2.4cm}p{5.6cm}p{2.6cm}p{5.6cm}@{}}
+\textbf{อากาศยาน} & EFT X6100 hexacopter · AUW 7.2 kg & \textbf{FC / Companion} & Pixhawk 6X (PX4 1.17) + Raspberry Pi CM4\\
+\textbf{Profile} & \hl{\code{competition} (\code{kmitl_config.yaml})} & \textbf{Envelope} & transit \textbf{20 m} · ceiling 20 · floor 10 · sweep 12 m\\
+\textbf{แบตเตอรี่} & 6S 17000 mAh (เต็ม 25.1 V) + สำรอง 15000 & \textbf{Window} & \textbf{20 นาที} นับจาก GO แรก · 4 ไข่ ใน 1 เที่ยว\\
+\end{tabular}
+
+\vspace{4pt}
+\textbf{บทบาท:} \who{OP} Operator/GCS · \who{PIC} นักบินนิรภัย (RC) · \who{ENG} ช่างอากาศยาน/แบต/ไข่ · \who{LEAD} หัวหน้าทีม (ติดต่อกรรมการ, จับเวลา)
+
+\vspace{4pt}
+\begin{tabular}{@{}p{1.6cm}p{4.0cm}p{1.6cm}p{3.4cm}p{1.5cm}p{2.2cm}@{}}
+วันที่ & \underline{\hspace{3.6cm}} & Slot & \underline{\hspace{3.0cm}} & แบต\% & \underline{\hspace{1.8cm}}\\
+PIC & \underline{\hspace{3.6cm}} & OP & \underline{\hspace{3.0cm}} & ids & \underline{\hspace{1.8cm}}\\
+\end{tabular}
+
+{\color{gray}\rule{\linewidth}{0.4pt}}
+
+% ===================== 0 SCHEDULE =====================
+\section{กำหนดการ (กติกา V1.3 หน้า 9–10) — อ่านจากเอกสาร ไม่ใช่จากความจำ}
+\begin{tabular}{@{}p{3.0cm}p{13.6cm}@{}}
+\toprule
+\textbf{ศุกร์ 28 ส.ค.} & 08:00–09:00 ลงทะเบียน · 09:00 briefing · \hl{\textbf{safety inspection}} · \hl{\textbf{13:00–18:00 flight trial}} (slot 15 นาที มาก่อนได้ก่อน ซ้ำได้ถ้าเวลาเหลือ) · \hl{\textbf{presentation 15 นาที + Q\&A 5 นาที}} (ประกาศ slot ตอนมาถึง) · 18:30 opening dinner\\
+\textbf{เสาร์ 29 ส.ค.} & \textbf{Scored flight day 1} — รวมพลที่ Terminal 1 ก่อน \textbf{07:30}\\
+\textbf{อาทิตย์ 30 ส.ค.} & \textbf{Scored flight day 2} · 18:30 ประกาศผล/ปิดงาน\\
+\bottomrule
+\end{tabular}
+\crit{\hlr{28 ส.ค. ไม่ใช่วันซ้อม — เป็นวันสุดท้ายที่แก้อะไรได้} อากาศยานต้องมาถึงในสภาพพร้อมบินแล้ว; trial slot มีไว้เรียนรู้สนามจริง ไม่ใช่ debug. safety inspection ไม่ผ่าน = กินเวลาบินของเราเอง}
+
+% ===================== 1 PRE-DEPARTURE =====================
+\section{คืนก่อนออกเดินทาง — Pre-departure (ที่แล็บ) \stoptag}
+\begin{cl}
+\item \who{ENG} \textbf{ชาร์จแบต 17000 และ 15000 ให้เต็ม} (25.1 V = 4.18 V/cell) แล้ว \hl{ถอดแพ็คออกจากเครื่อง} — เสียบค้างกิน $\sim$0.76 A ตลอดเวลา (เคยหาย 3.8 Ah ใน 5 ชม.)
+\item \who{OP} \textbf{โค้ดล่าสุดอยู่บน CM4}: \code{bash cm4/deploy.sh drone@10.42.0.1} แล้วเทียบ md5 ทั้ง 3 ที่ (repo aavc-comp / CM4 / \code{.aavc_site}) — \hl{\code{~/mission/.aavc_site} บน CM4 = \code{competition}}
+\item \who{OP} รัน \code{make test} + \code{make lint} เขียว บน repo ที่ deploy
+\item \who{OP} \textbf{\code{tools/preflight_params.py} ผ่านลิงก์ → BOARD 24/24} (ตาราง §\ref{sec:board}) — ถ้ามีตัวใดผิด \hlr{แก้คืนนี้} ไม่ใช่ที่สนาม
+\item \who{OP} \hl{\code{EKF2_HGT_REF = 0} (baro)} และ \code{MAV_1_FORWARD} เป็นค่า \hl{boot-latched} — ถ้าเพิ่งเปลี่ยน ต้อง \textbf{reboot FC} แล้วอ่านซ้ำ; readback ทันทีหลังเขียนไม่พิสูจน์อะไร
+\item \who{ENG} \textbf{กล้อง}: ยึดแน่น ไม่ถอด/หมุน — \code{mount_yaw_deg = 180} วัดจากตัวเครื่องแล้ว; ถ้าถอดต้องวัดใหม่ด้วย \code{tools/measure_mount_yaw.py}
+\item \who{ENG} \textbf{บั๊กที่เจอวันที่ 26 ส.ค. ทั้ง 3 เรื่อง} (home-alt latch · flight clock · highlight-AE) อยู่บน CM4 แล้ว — ดูใน log ว่ามี \code{WARN PX4 rewrote home.alt … IGNORED} และ \code{AE exp=…} ได้
+\item \who{LEAD} \textbf{เอกสาร}: กติกา V1.3 พิมพ์ · Technical Report · เอกสาร safety inspection (§\ref{sec:insp}) · checklist นี้ 2 ชุด · USB สำรอง deck (HTML+PPTX+media)
+\item \who{ENG} \textbf{อะไหล่/ของ}: ใบพัดสำรอง · กล่องหัวใจ+ไข่ซ้อม · pad พิมพ์ (สำหรับ bench decode) · powerbank CM4 ชาร์จเต็ม · สาย GPS สำรอง · หัวแร้ง/สายไฟ · เทป · มัลติมิเตอร์
+\end{cl}
+
+% ===================== 2 ARRIVAL / STANDBY =====================
+\section{มาถึงสนาม — ลงทะเบียน / standby area \stoptag}
+\crit{กติกา หน้า 13: \hlr{ห้ามเปิดวิทยุ RC และ telemetry ใน standby area} — CM4 ยก WiFi AP ขึ้นเองตอนบูต และ console เริ่ม beacon ทันที ⇒ \textbf{ห้ามเสียบแบตจนกว่าจะถึงจุดปล่อย} · ปิดฝา console ระหว่างรอ · ยืนยันการตีความกับกรรมการใน briefing 09:00}
+\begin{cl}
+\item \who{LEAD} ลงทะเบียน 08:00–09:00 · รับ slot presentation + trial · ถาม: \textbf{จุด L\&R จริง · no-fly zone จริง · วิธี assign 4 id · สัญญาณเริ่มนับเวลา · ระยะยืนของทีม}
+\item \who{LEAD} briefing 09:00 — จดทุกอย่างที่ต่างจาก PDF (ครั้งก่อน briefing เปลี่ยนจาก 4 pad เป็น 6 pad assign 4)
+\item \who{OP} หลัง briefing: ถ้าพิกัด L\&R / no-fly ต่างจาก \code{kmitl_config.yaml} → แก้ \code{ground_operation.launch_recovery} + \code{no_fly_zones} + \code{site.center} \hl{ให้เท่ากันทั้งสามที่} แล้ว deploy ใหม่ + รัน test geometry
+\item \who{PIC} วิทยุ RC ปิด · kill switch อยู่ตำแหน่ง \textbf{ปลด} (kill ค้างจะทำให้ RC health หายทั้งที่ลิงก์ดี — \code{tools/rc_check.py})
+\end{cl}
+
+% ===================== 3 SAFETY INSPECTION =====================
+\section{Safety Inspection (เช้า 28 ส.ค.) — สิ่งที่กรรมการจะดู}\label{sec:insp}
+\begin{cl}
+\item \who{ENG} โครงสร้าง: แขน/ใบพัด/น็อตแน่น · ไม่มีสายหลวม · สายแบต XT90 + สายกล้อง/TFmini/NOMAD จัดเรียบร้อย · ID ทีมติดที่ลำ
+\item \who{ENG} \textbf{payload}: latch 4 ตัว (AUX 4/1/2/3) เปิด-ปิดครบ · กล่องหัวใจใส่-ล็อกได้ · ไม่มีอะไรหล่นได้เอง
+\item \who{PIC} \textbf{kill switch สาธิตได้} (props off) · \textbf{RC failsafe}: ปิด TX แล้ว FC เข้า Return (\code{NAV_RCL_ACT}) — \hl{ยังไม่เคยซ้อมจริง (F-06) ต้องทำที่ bench ก่อนตรวจ}
+\item \who{OP} \textbf{geofence + ceiling}: อธิบายได้ว่า \code{GF_ACTION = 3 (Return)} verify แล้ว · เพดาน 20 m ที่ companion บน AGL ที่ latch ตอน arm · \code{GF_MAX_VER_DIST = 50} เป็นตาข่ายใหญ่ (home ของ PX4 เลื่อนกลางอากาศ)
+\item \who{OP} \textbf{แบต}: เกจ voltage-only อ่าน conservative · floor RTH 30\% / LAND 20\% · energy gate ปฏิเสธไม่เริ่มถ้าไม่พอ
+\item \who{LEAD} \textbf{emergency procedure} พูดได้ใน 30 วิ: POSCTL = นักบินยึดคืน → companion stand down · FC failsafe: geofence/datalink/RC-loss → Return · kill switch เป็นทางสุดท้าย
+\item \who{LEAD} \textbf{ไม่มี internet/4G บนอากาศยาน} — ระบบ offline ทั้งหมด (ผิดกติกา = DQ)
+\end{cl}
+
+% ===================== 4 BOARD =====================
+\section{Board gate — \code{tools/preflight_params.py} ต้อง 24/24 \stoptag}\label{sec:board}
+\crit{รันหลังเสียบแบตที่จุดปล่อยทุกครั้ง (ผ่าน router หรือ \code{--serial /dev/ttyAMA0}) — บล็อก \textbf{BOARD} ผิดแม้ตัวเดียว = \hlr{ไม่บิน}. บล็อก PINNED เป็นข้อมูล (commander pin ให้ตอน mission start)}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{4.3cm}>{\raggedright\arraybackslash}p{3.4cm}>{\raggedright\arraybackslash}p{8.9cm}@{}}
+\toprule
+\textbf{พารามิเตอร์} & \textbf{ค่าที่ต้องเป็น} & \textbf{ทำไม} \\
+\midrule
+\code{PWM_MAIN_FUNC1..6} & 101..106 & \hlr{motor map — เคยกลายเป็น 0 เอง} = มอเตอร์ไม่ผูก output\\
+\code{PWM_AUX_FUNC1..4} & 301..304 & latch ไข่ (เคยเป็น RC passthrough — ไข่หล่นตอนเอียง)\\
+\code{SYS_AUTOSTART} / \code{CA_ROTOR_COUNT} & 6001 / 6 & Generic Hexarotor X\\
+\code{BAT1_CAPACITY} & $-1$ & voltage-only gauge (ไม่มี current sensor)\\
+\code{BAT1_N_CELLS} / \code{V_CHARGED} / \code{V_EMPTY} & 6 / 4.18 / 3.77 & endpoints ของแพ็ค 17000 semi-solid\\
+\code{SENS_TFMINI_CFG} / \code{EKF2_RNG_CTRL} & 103 / 1 & TFmini-S บน TELEM3 · aiding $<$7 m\\
+\code{EKF2_OF_CTRL} & 0 & ไม่มี optical flow\\
+\code{EKF2_HGT_REF} & 0 (baro) & \hl{boot-latched} — GPS ref เคย RTH เที่ยวหนึ่งเพราะสูงเพี้ยน 10.8 m\\
+\code{MAV_0_CONFIG} / \code{MAV_1_CONFIG} / \code{MAV_1_FORWARD} & ตาม config & TELEM2 ตาย = อาการเหมือน ``กล้องตาย''\\
+\code{SYS_HITL} & 0 & ห้ามเป็น firmware HIL\\
+\code{MPC_THR_HOVER} & 0.58 & hover ของลำนี้ (bench 21 ส.ค.)\\
+\code{RTL_RETURN_ALT} / \code{GF_MAX_VER_DIST} / \code{GF_ACTION} & 19.5 / 50 / 3 & Return ที่เพดาน · ตาข่ายใหญ่ · \textbf{3 = Return} (ห้าม 2 = Hold)\\
+\code{MPC_Z_V_AUTO_DN} / \code{MPC_YAW_MODE} / \code{COM_DISARM_LAND} & 0.4 / 5 / $-1$ & ลง pad ช้า · ถือหัวทิศ · ลง pad กลางภารกิจไม่ disarm\\
+\bottomrule
+\end{tabular}
+
+% ===================== 5 LAUNCH POINT SETUP =====================
+\section{ที่จุดปล่อย — Setup \& link (ก่อน GO)}
+\begin{cl}
+\item \who{ENG} \textbf{เสียบแบต 17000} (ที่จุดปล่อยเท่านั้น) · จดแรงดัน: \underline{\hspace{1.5cm}} V (ต้อง $\geq$ 24.6 V ≈ 90\%)
+\item \who{OP} laptop ต่อ AP \code{AAVC-DRONE} (CM4 = 10.42.0.1, laptop static .50) · \textbf{เปิดด้วย icon COMP} (ไม่ใช่ PRACTICE) — clear state + profile competition
+\item \who{OP} \textbf{ไม่มี Crash dump บน SD} (ถ้ามี: อ่าน \code{fault_*.log} ก่อน แล้วลบผ่าน MAVFTP + reboot + อ่าน BOARD ซ้ำ)
+\item \who{OP} \code{preflight_params.py} → \hl{BOARD 24/24} (§\ref{sec:board})
+\item \who{PIC} NOMAD ↔ FC (telemetry) · ELRS RC ↔ FC · \code{rc_check.py} = RC healthy · kill switch ปลด
+\item \who{ENG} \textbf{egg latch 4 ตัว} bench test (ถอดใบพัด/ตำแหน่ง DISARMED) แล้วใส่ใบพัด · น็อตใบพัดแน่น
+\item \who{OP} \textbf{กล้อง}: chip เขียว ~15 วิ หลัง GCS ต่อ CM4 · \hl{\code{CAM_AE=highlight} (auto)} — ถ้ามีเวลาก่อน trial: \code{tools/hover_decode.py} กับ pad พิมพ์กลางแดด ผ่านเมื่อ ขาวของ pad ~200 และ decode ได้ที่ 28 px
+\item \who{OP} รอ \textbf{GPS 3D fix + HDOP $\leq$ 2} (ที่โล่ง) · chip ``ในรั้ว'' เขียว · TFmini บนพื้นอ่านขยะ = ปกติ (ต่ำกว่า 0.4 m)
+\item \who{OP} \textbf{ตำแหน่ง L\&R ใน config = จุดที่วางเครื่องจริง} — \code{main.py} จะ ERROR ถ้า \code{site.center} ≠ \code{launch_recovery}
+\item \who{OP} ดูบรรทัดเริ่มของ orchestrator: \hl{\code{transit 3 pts @ 20 m, sweep 5 legs @ 12 m}} — ถ้าเป็น 9 m / 10 m = profile ผิด (practice) \hlr{หยุด แก้ก่อน}
+\end{cl}
+
+% ===================== 6 GO =====================
+\section{GO — รับ id, โหลดไข่, ปล่อยบิน \stoptag}
+\crit{\hlr{Two-person rule}: \who{OP} กด id บน GCS เป็น \textbf{รูป marker} เทียบการ์ดกรรมการ ภาพต่อภาพ → \who{LEAD} อ่านเลขทวนออกเสียงเทียบการ์ดอีกครั้ง → จึงบันทึก. ลงผิด pad เสียคะแนนมากกว่าไม่ลง}
+\begin{cl}
+\item \who{LEAD} รับ \textbf{4 id} จากกรรมการ · จด: \underline{\hspace{0.8cm}} \underline{\hspace{0.8cm}} \underline{\hspace{0.8cm}} \underline{\hspace{0.8cm}} · ถามว่า \textbf{เวลาเริ่มนับเมื่อไร}
+\item \who{OP} เลือก id ทั้ง 4 ตามลำดับ (mission queue) · บันทึก → GCS โชว์ \code{assigned_id_queue} ตรง
+\item \who{ENG} \textbf{โหลดไข่ในกล่องหัวใจ 4 ใบ}: delivery 1 → latch AUX4 (FL) · 2 → AUX1 (RR) · 3 → AUX2 (FR) · 4 → AUX3 (RL) — ลำดับปล่อยจริงระบบเลือกตาม route — \hl{ทุก latch ต้องมีไข่}
+\item \who{ENG} ยืนยันทุก latch \textbf{ล็อก} · เดินห่างเครื่อง ≥ 5 m · \who{LEAD} เคลียร์คนออกจาก L\&R
+\item \who{OP} กดปุ่ม Up (stage) → checklist บน GCS เขียวครบ (GPS · รั้ว · แบต · link · RC) → \textbf{สไลด์ยืนยัน upload} → รอ \code{RC-GO — staged} ใน log (ถ้าค้าง ดู \code{unmet critical checks} §\ref{sec:trouble})
+\item \who{PIC} \textbf{arm ผ่าน RC → สลับ OFFBOARD} — GCS เขียวเมื่อโดรนรับภารกิจ · \who{LEAD} \hl{กดนาฬิกา 20 นาที}
+\item \who{OP} เฝ้าบรรทัด \code{FLIGHT 1 START eggs=4 ids=…} และ \code{TRANSIT_PASS P1/P2/P3}
+\end{cl}
+
+% ===================== 7 IN FLIGHT =====================
+\section{ระหว่างบิน — Monitoring (พูดออกเสียง)}
+\begin{cl}
+\item \who{OP} ทุก 1 นาที: \textbf{เวลาเหลือ · แบต\% · เฟส · pad ที่เจอ/ส่งแล้ว} — ไข่ใบที่ 4 ต้องเริ่มลงเมื่อเหลือ \textbf{$\geq$ 300 s} (gate ปฏิเสธเองถ้าไม่พอ)
+\item \who{OP} \textbf{ความสูง}: อ่าน \code{TELEM alt=} ของเรา (AGL จาก home ที่ latch) — \textbf{ถ้าเลขความสูงบน GCS ``ไต่เอง'' ทั้งที่เครื่องนิ่ง} = \hl{relative\_alt ของ PX4 ไม่ใช่ของเรา}
+\item \who{OP} \textbf{กล้อง}: log \code{AE exp=… hi=…} ทุก 2 วิ · pad ที่ decode ได้ขึ้นบน GCS ทันที
+\item \who{PIC} มือบนสวิตช์ตลอด · ดูเครื่องไม่ดูจอ · \textbf{สลับ POSCTL} เมื่อ: บินออกนอกรั้ว / ไต่เกิน 22 m / หมุนไม่หยุด / ลงผิดที่ / ทุกอย่างที่รู้สึกผิด
+\item \who{OP} ถ้า FC สั่ง Return/Land เอง → audit ต้องมี \code{FC FAILSAFE … standing down} (chip \code{fc}) — companion จะไม่แย่งคุม
+\item \who{LEAD} ประกาศทุก 5 นาที · เตือนที่ \textbf{15:00} และ \textbf{18:00} — เกิน 20 นาทีมีโทษต่อนาที
+\end{cl}
+
+% ===================== 8 EMERGENCY =====================
+\section{ฉุกเฉิน — Emergency}
+\crit{\hlr{POSCTL = นักบินยึดคืน} companion stand down ภายใน 1 วิ และปฏิเสธทุกคำสั่ง (ซ้อมบน FC จริง 21 ส.ค.) → บินมือกลับ L\&R · แจ้งกรรมการ}
+\begin{cl}
+\item FC failsafe อัตโนมัติ: geofence → Return · datalink → Return · RC loss → Return · แบตต่ำ → Return แล้ว Land · vertical net 50 m
+\item ไข่: ปล่อยได้เฉพาะหลัง touchdown · ปล่อยมือทำได้เฉพาะ \textbf{บนพื้น} (interlock)
+\item มอเตอร์ดับ 1 ตัว: ทรงตัว+แรงยกอยู่ \textbf{เสีย yaw} → PIC ยึดคืนแล้วลงทันที
+\item เหตุร้ายแรง (มุ่งหาคน/โครงสร้าง): \textbf{kill switch} — PIC ตัดสินใจคนเดียว ไม่ต้องถาม
+\item หลังเหตุ: \textbf{ห้าม re-arm} จนกว่าจะอ่าน log · แจ้งกรรมการก่อนทุกอย่าง
+\end{cl}
+
+% ===================== 9 POST-FLIGHT =====================
+\section{หลังบิน — Post-flight / ระหว่างเที่ยว}
+\begin{cl}
+\item \who{PIC} ลง L\&R → \textbf{disarm} → \who{ENG} เข้าเครื่องได้เมื่อใบพัดหยุดสนิท · \hl{ถอดแบตทันทีเมื่อไม่บินต่อ}
+\item \who{OP} \code{tools/verify_flight.py runs/<id>/audit.jsonl} — ต้อง PASS (fails closed) · จด delivered x/4, id ถูก, ระยะปล่อย, remaining s
+\item \who{OP} ดาวน์โหลด \textbf{ULog} จาก SD (ทุกเที่ยว) · ดู home-alt WARN · AE log · \code{FLIGHT n ENERGY …mAh} → ใช้ปรับ seed ถ้าต่าง
+\item \who{ENG} ไข่แตกไหม · latch คืนตำแหน่ง · ใบพัด/แขน · แบต\% เหลือ: \underline{\hspace{1.2cm}} — \hl{เที่ยวถัดไปใช้แพ็คเต็ม} (เกจย้อย 30–35 จุดใต้โหลด; 26 ส.ค. แพ็คเที่ยวที่ 3 โดน floor 29\%)
+\item \who{OP} ถ้าบินซ้ำ: \textbf{restart stack} (icon COMP ใหม่) — บินซ้ำโดยไม่ restart = state/กล่องเก่าค้าง
+\end{cl}
+
+% ===================== 10 TRIAL SLOT PLAN =====================
+\section{แผน trial slot 28 ส.ค. (13:00–18:00, 15 นาที/slot)}
+\begin{cl}
+\item \textbf{Slot 1 — ภารกิจเต็มบนสนามจริง}: profile competition · เก็บ: decode ที่ 12 m ได้ไหม (ต้องเห็น \code{target_confirmed} ครบ 6) · AGL นิ่ง · transit 3/3 · เวลา sweep จริง vs 407 s
+\item ถ้า decode ไม่ได้ที่ 12 m: ดู \code{AE hi=} (ขาวต้อง 190–225) → ปรับ \code{--ae-max-100us} / \code{CAM_EXPOSURE} แล้วใช้ slot 2 — \hlr{ห้ามลด sweep ต่ำกว่า 12 m ถ้ายังไม่รู้สาเหตุ} (floor 10 m คือเส้นกติกา)
+\item \textbf{Slot 2 — ซ้อมเต็มพร้อมไข่ซ้อม + จับเวลา 20 นาที} = dress rehearsal (G8) · ซ้อม POSCTL takeover 1 ครั้งตอนจบ
+\item หลัง trial: ประชุม 10 นาที — อะไรจะเปลี่ยนก่อนพรุ่งนี้ (ถ้าไม่จำเป็น \textbf{ไม่เปลี่ยน})
+\end{cl}
+
+% ===================== 11 TROUBLESHOOTING =====================
+\section{วิธีแก้ปัญหา — Troubleshooting}\label{sec:trouble}
+\needspace{4\baselineskip}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{4.3cm} >{\raggedright\arraybackslash}p{4.6cm} >{\raggedright\arraybackslash}p{7.5cm}@{}}
+\toprule
+\textbf{อาการ} & \textbf{สาเหตุ} & \textbf{วิธีแก้} \\
+\midrule
+\endfirsthead
+\multicolumn{3}{@{}l}{\small\color{gray}(ต่อ) วิธีแก้ปัญหา}\\
+\toprule
+\textbf{อาการ} & \textbf{สาเหตุ} & \textbf{วิธีแก้} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+arm ไม่ได้ / มอเตอร์ไม่หมุน & \code{PWM_MAIN_FUNC1..6} = 0 (motor map หลุด) & ตั้ง 101..106 + readback แล้ว \code{ACTUATOR_TEST} M1..M6; ห้ามเลือก airframe ซ้ำใน QGC\\
+``Crash dump present'' & hardfault log ค้างบน SD & อ่าน \code{fault_*.log} ก่อน → ลบผ่าน MAVFTP → reboot → BOARD 24/24 ซ้ำ\\
+ปุ่ม Up กดแล้วไม่ staged & \code{unmet critical checks: link/armable/ekf/home/on\_ground} & \code{ssh drone@10.42.0.1 'tail -20 ~/mission/runs/aavc_delivery_mission/orchestrator.log'} — link: NOMAD/TELEM2 · home: รอ GPS · on\_ground: เครื่องยังลอย/state ค้าง → restart\\
+OFFBOARD สลับไม่ติด & ไม่มี orchestrator ป้อน setpoint & ต้องกดปุ่ม Up ก่อนเสมอ; ดู \code{RC-GO — staged}\\
+takeoff abort ``did not reach … AGL'' & tolerance vs \code{NAV_MC_ALT_RAD} (แก้แล้ว) & ถ้าเกิด: ตรวจ \code{NAV_MC_ALT_RAD = 0.8} ถูก pin; ลง disarm restart\\
+ความสูงบน GCS ไต่เองทั้งที่เครื่องนิ่ง & PX4 เขียน home.alt ใหม่กลางอากาศ (\#25003) & ดู \code{TELEM alt=} ของเรา (latch); WARN \code{rewrote home.alt … IGNORED} = ระบบกันไว้แล้ว\\
+RTH เองที่ความสูงต่ำ & fence ของ FC เทียบ home ที่เลื่อน & ต้อง \code{GF_MAX_VER_DIST = 50}; audit ต้องมี \code{FC FAILSAFE}\\
+กล้องเห็น pad แต่ decode 0 & overexposed (ขาว 255) / manual exposure ค้าง & \code{CAM_AE=highlight}, \code{CAM_EXPOSURE=0}; log \code{AE hi=} ต้อง 190–225; \code{replay_frames.py} กับเฟรมที่บันทึก\\
+chip กล้องเทา/แดง & CM4 infra ไม่รัน / TELEM2 ตาย / สายกล้อง & รอ 15 วิ; \code{start_infra.sh}; \code{/tmp/aavc_camera.log}; TELEM2 ตายอาการเหมือนกล้องตาย → BOARD\\
+RC ``unhealthy'' ทั้งที่ลิงก์ดี & kill switch ค้าง / โหมดผิด & \code{tools/rc_check.py}; ปลด kill; TX power cycle แล้วรอ re-acquire\\
+GPS แดง / PDOP สูง & บัง/ดาวน้อย/เพิ่งบูต & ที่โล่ง รอ 3D + hdop ≤ 2; ถ้าค้าง: สาย GPS (เคยเปลี่ยน)\\
+แบต\% ตกฮวบตอนบิน & voltage-only ไม่มี load comp (ย้อย 30–35 จุด) & ปกติ — floor ทำงานฝั่งปลอดภัย; ใช้แพ็คเต็มทุกเที่ยว ไม่ลด floor\\
+นาฬิกาภารกิจเดินช้า/เร็ว & vehicle time sparse (แก้ epoch แล้ว) & ดู \code{t=} ใน audit เทียบนาฬิกาจริง 1:1; ถ้าไม่ใช่ ใช้ wall fallback (ปิด vehicle time)\\
+pad marker ทั้งหมดอยู่ผิดที่บนแผนที่ 31 km & \code{site.center} ≠ \code{launch_recovery} & แก้ config ให้เท่ากัน (test geometry จับ)\\
+บินซ้ำแล้ว decode ไม่เจอ & กล่องเก่าบัง marker / state ค้าง & เก็บกล่อง · restart stack ก่อนบินซ้ำ\\
+\end{longtable}
+
+\vspace{2pt}{\color{gray}\rule{\linewidth}{0.4pt}}\\[2pt]
+{\small\color{gray}AAVC 2026 · Team AeroOptix (KMUTNB) · competition @ IAAI KMITL · rev. 2026-08-27 · แหล่ง: กติกา V1.3, CLAUDE.md §0–§8, tools/preflight\_params.py}
+\end{document}

@@ -1,0 +1,270 @@
+\documentclass[11pt,a4paper]{article}
+
+% ---- engine: XeLaTeX (Thai + Latin) ----
+\usepackage{fontspec}
+\usepackage[strings]{underscore}   % literal _ in text so param names need no escaping
+\usepackage[a4paper,margin=17mm,top=17mm,bottom=16mm,headheight=15pt]{geometry}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{amssymb}
+\usepackage{needspace}
+
+% Thai + Latin from one font (Garuda covers both, clean digits); mono for code.
+\setmainfont{Garuda}
+\setmonofont{DejaVu Sans Mono}[Scale=0.88]
+\XeTeXlinebreaklocale "th"
+\XeTeXlinebreakskip = 0pt plus 0.1pt
+
+\definecolor{navy}{HTML}{0B1F3A}
+\definecolor{stopred}{HTML}{B91C1C}
+\definecolor{amber}{HTML}{B45309}
+\definecolor{grn}{HTML}{15803D}
+\definecolor{blu}{HTML}{1D4ED8}
+\definecolor{gray}{HTML}{6B7280}
+
+\titleformat{\section}{\large\bfseries\color{navy}}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries\color{navy}}{\thesubsection}{0.5em}{}
+\titlespacing*{\section}{0pt}{11pt}{4pt}
+\titlespacing*{\subsection}{0pt}{6pt}{2pt}
+\setcounter{secnumdepth}{2}
+
+\newlist{cl}{itemize}{1}
+\setlist[cl]{label=$\square$, leftmargin=1.7em, itemsep=3pt, topsep=2pt, parsep=0pt}
+
+\pagestyle{fancy}\fancyhf{}
+\lhead{\small\textbf{\color{navy}AAVC 2026} \color{gray}— Pre-Flight \& Field Checklist}
+\rhead{\small\color{gray}KMUTNB Practice}
+\cfoot{\small\color{gray}\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\stoptag}{{\bfseries\color{stopred}[STOP]}}
+
+% critical red-bordered callout
+\newcommand{\crit}[1]{\par\vspace{2pt}\noindent%
+  {\setlength{\fboxrule}{0.8pt}\setlength{\fboxsep}{5pt}%
+  \fcolorbox{stopred}{stopred!6}{\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule}%
+  {\small\color{stopred}\textbf{!\ \ }#1}}}\par\vspace{3pt}}
+
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.25}
+
+\begin{document}
+
+% ===================== TITLE =====================
+\thispagestyle{empty}
+{\color{navy}\Huge\bfseries AAVC 2026}\\[3pt]
+{\color{navy}\LARGE\bfseries Pre-Flight \& Field Operations Checklist}\\[3pt]
+{\large ระเบียบการตรวจสอบก่อนบิน — ซ้อมแข่ง สนาม KMUTNB (Practice)}\\[7pt]
+{\color{stopred}\rule{\linewidth}{1.2pt}}\\[7pt]
+
+\begin{tabular}{@{}p{2.4cm}p{5.3cm}p{2.6cm}p{5.6cm}@{}}
+\textbf{อากาศยาน} & EFT X6100 (hexacopter) & \textbf{FC / Companion} & Pixhawk 6X + Raspberry Pi CM4\\
+\textbf{Autopilot} & PX4 1.17 & \textbf{Profile} & \code{kmutnb_skyfield} — เพดาน 10 m\\
+\textbf{แบตเตอรี่} & 6S 17000 mAh (เต็ม 25.1 V) & \textbf{Window} & 20 นาที (นับจาก GO แรก)\\
+\end{tabular}
+
+\vspace{3pt}
+\textbf{Concept of Operation (RC-GO):} เว็บ (AAVC GCS) ทำหน้าที่ \emph{stage} ภารกิจเท่านั้น — ไม่สั่งบิน;
+นักบินนิรภัย \textbf{arm ผ่าน RC แล้วสลับเข้า OFFBOARD} เพื่อปล่อยบิน; สลับไป \textbf{POSCTL} เมื่อใดก็ตาม
+= companion ถอย (stand down) แล้วนักบินคุมเอง
+
+\vspace{5pt}
+\begin{tabular}{@{}p{1.6cm}p{4.0cm}p{1.6cm}p{3.4cm}p{1.5cm}p{2.2cm}@{}}
+วันที่ & \underline{\hspace{3.6cm}} & เวลา & \underline{\hspace{3.0cm}} & แบต\% & \underline{\hspace{1.8cm}}\\
+นักบิน RC & \underline{\hspace{3.6cm}} & Operator & \underline{\hspace{3.0cm}} & Log & \underline{\hspace{1.8cm}}\\
+\end{tabular}
+
+{\color{gray}\rule{\linewidth}{0.4pt}}
+
+% ===================== 1 PRE-DEPARTURE =====================
+\section{ก่อนออกสนาม — Pre-departure (ที่แล็บ)}
+\begin{cl}
+\item \textbf{ชาร์จแบต 17000 ให้เต็ม} (25.1 V / 4.18 V ต่อเซลล์). \emph{ถอดแพ็คหลังชาร์จ} — เสียบค้างไว้ $\sim$0.76 A ต่อชั่วโมงจะกินไปเรื่อย ๆ
+\item \textbf{โค้ดล่าสุดอยู่บน CM4}: aavc-practice deploy แล้ว, มี \code{sitl/run_mission.sh} (มี \code{INFRA_ONLY}) และ \code{cm4/start_infra.sh}
+\item \textbf{Restart AAVC GCS} ก่อนใช้งาน เพื่อโหลดของที่แก้ล่าสุด (servo fix / chip รั้ว$\to$mission geofence / camera auto-start)
+\item (ถ้าเพิ่งแก้โค้ด) \code{make test} + \code{make lint} เขียว
+\end{cl}
+
+% ===================== 2 GROUND STATION =====================
+\section{ตั้งค่า Ground Station}
+\begin{cl}
+\item เปิดด้วย \textbf{icon PRACTICE} (ไม่ใช่ COMP) — จะรัน \code{clear_state.sh} ล้าง state เก่าให้เองทุกครั้ง, profile = \code{kmutnb_skyfield}
+\item เชื่อม \textbf{laptop $\leftrightarrow$ CM4 hotspot}; ยืนยัน CM4 ตอบ (\code{192.168.28.41}, ssh ได้)
+\item เชื่อม \textbf{NOMAD $\leftrightarrow$ FC} (telemetry) และ \textbf{ELRS RC $\leftrightarrow$ FC} (นักบินนิรภัย)
+\item AAVC GCS bind \code{127.0.0.1} (เครื่องเดียว) — ถูกต้องแล้ว ไม่ต้องเปิดสู่ LAN
+\end{cl}
+
+% ===================== 3 HARDWARE BENCH =====================
+\section{ตรวจฮาร์ดแวร์ (bench — ถอดใบพัด) \stoptag}
+\crit{รันก่อนทุกครั้ง: \code{.venv/bin/python tools/preflight_params.py} — บล็อก \textbf{BOARD ต้อง 15/15 ถูกทั้งหมด}
+ถ้ามีตัวใดผิด = อย่าเพิ่งบิน. บล็อก PINNED เป็นข้อมูลเฉย ๆ (commander pin ให้ตอน connect)}
+\begin{cl}
+\item \textbf{Motor map} \code{PWM_MAIN_FUNC1..6 = 101..106} — {\color{stopred}\bfseries เคย regress เป็น 0 = มอเตอร์ไม่ผูก output บินไม่ได้; เช็คทุกครั้ง อย่าเชื่อค่าเก่า} (อย่าเผลอเลือก airframe ซ้ำใน QGC — จะล้าง map)
+\item \textbf{Servo latch} \code{PWM_AUX_FUNC1..4 = 301..304} (AUX 4/1/2/3 = FL/RR/FR/RL). ทดสอบ \code{ACTUATOR_TEST} เปิด/ปิดครบ 4 มุม; latch หนึ่งต้อง \code{PWM_AUX_MAX = 2100}
+\item \textbf{Motor spin} (ถ้าไม่มั่นใจ): \code{ACTUATOR_TEST} M1..M6 ทีละตัว — หมุนครบ 6 ลำดับ+ทิศถูก
+\item \textbf{Battery gauge chain}: \code{BAT1_CAPACITY = -1} (voltage-only), \code{BAT1_N_CELLS = 6}, \code{BAT1_V_EMPTY} / \code{BAT1_V_CHARGED} ตรงกับแพ็ค 17000
+\item \textbf{TFmini-S}: \code{SENS_TFMINI_CFG} ตั้งพอร์ตแล้ว, \code{EKF2_RNG_CTRL = 1}. {\color{gray}บนพื้นอ่านค่าขยะ (ต่ำกว่า 0.4 m + กล้องสูงจากพื้น 3.5 cm) — เชื่อค่าเฉพาะตอนบิน}
+\item \textbf{ไม่มี Crash dump บน SD} — ถ้าขึ้น \emph{``Preflight fail: Crash dump present''} = บล็อก arm (ดู §\ref{sec:trouble})
+\item \textbf{Camera} เสียบแน่น (Meige OV9281, nadir, hard-mount ไม่มี gimbal); fov 74.2$^\circ$ วัดแล้ว
+\end{cl}
+
+% ===================== 4 BATTERY =====================
+\section{แบตเตอรี่}
+\begin{cl}
+\item \textbf{ชาร์จ $\geq$ 90\%} ก่อนออกบิน; เต็ม = 25.1 V
+\item ไม่มี current sensor (PM03D ถอดออก) $\Rightarrow$ gauge เป็น \textbf{voltage-only}: จะ \emph{ตกตอนดันคันเร่งแล้วเด้งกลับ} — safety.py จึงรอ 5 วิ ก่อนตัดสิน (ปกติ)
+\item ต่ำกว่า threshold: RTH $\sim$30\%, LAND $\sim$20\% (FC failsafe เป็นตาข่าย)
+\item {\color{gray}แพ็ค semi-solid หนัก 1.5 kg, AUW พร้อมบิน $\sim$7.2 kg (MTOW $\leq$ 25 kg — เหลือเยอะ)}
+\end{cl}
+
+% ===================== 5 FIELD SETUP =====================
+\section{ตั้งสนาม — Field Setup}
+\begin{cl}
+\item \textbf{pad สะอาด} — ไม่มีกล่อง/ของจากรอบก่อนวางบัง ArUco marker (บินซ้ำโดยไม่ restart stack = marker ถูกบัง)
+\item วางอากาศยาน \textbf{อยู่ในรั้ว geofence} ตั้งแต่ต้น (ดู chip ``ในรั้ว'')
+\item รอ \textbf{GPS 3D fix + HDOP ต่ำ} — ไม่มี RTK จึงหยาบ; ให้ที่โล่ง เห็นฟ้า ห่างอาคาร
+\item ยืนยัน \textbf{profile บน CM4 = \code{kmutnb_skyfield}} (เพดาน 10 m) — ไม่ใช่ comp/KMITL
+\end{cl}
+
+% ===================== 6 GCS STATUS =====================
+\section{ตรวจสถานะบน GCS (Sensor Chips)}
+ก่อน stage ต้องเขียวครบ (เทียบตาราง):
+
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{2.3cm} >{\raggedright\arraybackslash}p{6.2cm} >{\raggedright\arraybackslash}p{8.0cm}@{}}
+\toprule
+\textbf{Chip} & \textbf{ควรเป็น} & \textbf{ถ้าไม่เขียว} \\
+\midrule
+GPS & \textcolor{grn}{3D + hdop $\leq$ 2} & แดง/``PDOP สูง'' = PX4 ยังไม่พร้อม arm — รอ sats \\
+Lidar & \textcolor{grn}{OK} (เฉพาะตอนบิน) & บนพื้น = n/a (ค่าขยะ) ถือว่าปกติ \\
+กล้อง & \textcolor{grn}{OK} (ผ่านวิทยุ) $\sim$15 วิ หลังต่อ CM4 & เทา = CM4 infra ยังไม่รัน (auto-start / ดู §\ref{sec:trouble}) \\
+Radio & \textcolor{grn}{OK} & หลุด = เช็ค NOMAD \\
+CM4 & \textcolor{grn}{OK} & หลุด = เช็ค hotspot \\
+รั้ว & \textcolor{grn}{ในรั้ว} (ใช้ mission geofence + GPS) & เทา = ยังไม่มี GPS fix / ไม่มีรั้วใน config \\
+\bottomrule
+\end{tabular}
+
+% ===================== 7 STAGING =====================
+\section{Stage ภารกิจ \& ปล่อยบิน (RC-GO)}
+\begin{cl}
+\item เลือก \textbf{pad id 4 อัน} จากที่กรรมการ assign (ปุ่มโชว์สัญลักษณ์ ArUco คู่กับเลข) แล้ว \textbf{บันทึก assignment}
+\item กด \textbf{ปุ่ม Up ขึ้นโดรน} $\to$ หน้าต่าง checklist $\to$ \textbf{สไลด์ยืนยัน} upload $\to$ ดู progress ขึ้นเครื่อง
+\item นักบิน \textbf{arm RC} แล้ว \textbf{สลับเข้า OFFBOARD} — GCS จะแจ้งเขียวเมื่อโดรนเข้า OFFBOARD (เว็บไม่ได้ปล่อยเอง)
+\item \textbf{Window 20 นาที เริ่มนับที่ GO แรก} (ในการแข่งจริง เริ่มตอนหัวหน้าทีมแจ้ง ``พร้อม'')
+\end{cl}
+
+% ===================== 8 IN-FLIGHT =====================
+\section{ระหว่างบิน — Monitoring}
+\begin{cl}
+\item เพดาน: transit ที่ 20 m (comp) / ปฏิบัติตาม profile ซ้อม; ลงต่ำกว่า 10 m เฉพาะช่วง descent ลง pad
+\item เฝ้า: geofence (ในรั้ว), แบต\%, transit pass P1$\to$P3 ทั้งไป-กลับ, การ deliver แต่ละ pad, camera feed
+\item อย่าปล่อยไข่กลางอากาศ — ระบบปล่อยหลัง touchdown เท่านั้น (ถ้า telemetry อ่านว่าลอย จะ skip)
+\end{cl}
+
+% ===================== 9 EMERGENCY =====================
+\section{ขั้นตอนฉุกเฉิน — Emergency}
+\crit{นักบินนิรภัยยึดคืนได้ทุกวินาที: \textbf{สลับ POSCTL} $\Rightarrow$ companion stand down ทันที (หยุดส่งคำสั่ง) แล้วบินมือ}
+\begin{cl}
+\item \textbf{FC failsafes} (อัตโนมัติ): geofence breach $\to$ Return; datalink loss $\to$ Return; RC loss $\to$ Return; แบตต่ำ $\to$ Return แล้ว Land; altitude fence 20 m
+\item \textbf{no-fly / เพดาน / floor}: companion watchdog เตือน/RTH อิสระอีกชั้น
+\item \textbf{ปล่อย servo มือ}: ทำได้เฉพาะ \emph{บนพื้น} (interlock ล็อกระหว่าง mission บิน)
+\item เหตุร้ายแรง: \textbf{kill switch บน RC} (นักบินตัดสิน)
+\end{cl}
+
+% ===================== 10 POST-FLIGHT =====================
+\section{หลังบิน — Post-flight}
+\begin{cl}
+\item ลงที่ L\&R แล้ว \textbf{disarm}; เก็บอากาศยาน
+\item รัน \textbf{\code{tools/verify_flight.py runs/<id>/audit.jsonl}} — ต้อง PASS (fails closed)
+\item ตรวจ: delivered กี่/กี่ pad, id ถูก, ไข่แตกไหม, ระยะปล่อย
+\item \textbf{ถอดแพ็คแบต} เก็บ; จด log\% ที่เหลือ
+\end{cl}
+
+% ===================== 11 TROUBLESHOOTING =====================
+\section{วิธีแก้ปัญหา — Troubleshooting}\label{sec:trouble}
+\needspace{4\baselineskip}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{4.6cm} >{\raggedright\arraybackslash}p{4.6cm} >{\raggedright\arraybackslash}p{6.8cm}@{}}
+\toprule
+\textbf{อาการ} & \textbf{สาเหตุ} & \textbf{วิธีแก้} \\
+\midrule
+\endfirsthead
+\multicolumn{3}{@{}l}{\small\color{gray}(ต่อ) วิธีแก้ปัญหา}\\
+\toprule
+\textbf{อาการ} & \textbf{สาเหตุ} & \textbf{วิธีแก้} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+
+arm ไม่ได้ / มอเตอร์ไม่หมุน &
+\code{PWM_MAIN_FUNC1..6} อ่านเป็น 0 (motor map หลุด) &
+ตั้งกลับ 101..106 (เขียนผ่านลิงก์ + readback) แล้ว \code{ACTUATOR_TEST} M1..M6 ยืนยัน; อย่าเลือก airframe ซ้ำใน QGC \\
+
+``Crash dump present'' บล็อก arm &
+hardfault log ค้างบน SD (มักเป็น bench session, ไม่ใช่ตอนบิน) &
+\textbf{อ่าน} \code{/fs/microsd/fault_*.log} ก่อน แล้วลบผ่าน MAVFTP + reboot; ตรวจ fence/params รอดหลัง reboot \\
+
+chip กล้องเทา &
+CM4 ไม่ได้รัน camera grabber + status\_beacon &
+รอ auto-start $\sim$15 วิ (พอ GCS ต่อ CM4); ถ้าไม่มา: \code{ssh drone@192.168.28.41 'bash cm4/start_infra.sh'} (infra-only ไม่บิน); เช็ค hotspot \\
+
+chip กล้อง \textcolor{stopred}{แดง} ``ไม่มีเฟรม'' &
+beacon รันแล้วแต่ grabber เปิดกล้องไม่ได้ &
+เช็คสายกล้อง/พอร์ต v4l2; ดู \code{/tmp/aavc_camera.log} บน CM4 \\
+
+chip รั้วเทา (``รั้ว ?'') &
+ยังไม่มี GPS fix หรือ config ไม่มี \code{controlled_airspace} &
+รอ GPS fix; ตรวจ field yaml มี geofence polygon (practice = aavc\_config) \\
+
+GPS แดง / ``PDOP สูง'' &
+ดาวเทียมน้อย / บัง / เพิ่งบูต &
+รอ 3D + hdop $\leq$ 2 ที่โล่ง; GCS แดงตรงกับ PX4 ที่ยังไม่ให้ arm (ตั้งใจ) \\
+
+servo เปิด/ปิดเอง หรือ ``ปิดทั้งหมด'' ช้า &
+โค้ด GCS เก่ายังรันอยู่ (บั๊กเดิม) &
+\textbf{Restart AAVC GCS} โหลด fix (single-supervisor + non-blocking close) \\
+
+CM4 ต่อไม่ได้ (ssh timeout) &
+hotspot ไม่ต่อ / CM4 ปิด / ยังบูตไม่เสร็จ &
+เช็ค hotspot, IP \code{.41}, \code{cm4/find_cm4.sh}; \emph{กวาดวงไม่เจอ $\ne$ พัง} \\
+
+ปุ่ม Up ล็อกกดไม่ได้ &
+CM4 unreachable หรือยังไม่ save pad &
+ต่อ CM4 ให้เขียว + เลือก \& บันทึก pad ก่อน \\
+
+\code{/api/cmd/preflight/go} ตอบ 409 &
+ไม่มี assignment หรือ window ไม่พอ &
+ตั้ง mission-id queue; ถ้าจงใจ overtime กด FORCE (โทษต่อนาทีเป็นดุลพินิจ operator) \\
+
+แบต\% เพี้ยน (สูง/ต่ำผิด) &
+endpoints / capacity ไม่ตรงแพ็ค &
+ยืนยัน \code{BAT1_CAPACITY = -1}, \code{V_EMPTY/V_CHARGED} ผ่าน \code{preflight_params.py} \\
+
+ไปไม่ถึง waypoint / leg timeout &
+ลมปะทะ / leg ยาวกว่า nominal &
+progress guard จัดการ (ทิ้ง leg เมื่อหยุดเข้าใกล้ 25 วิ); เช็คลม, บินใหม่ \\
+
+หลัง wipe \code{parameters.bson} เพดานทะลุ / RTH เอง &
+estimator ยังไม่ converge (hover thrust/EKF) &
+บินทิ้ง 1 เที่ยว หรือ restart SITL/บูตใหม่ ก่อนเชื่อค่า \\
+
+param import fail (บูต) &
+\code{/fs/mtd_params} เสีย, fallback SD backup &
+กู้จาก \code{parameters_backup.bson} (มี motor map + fence); re-verify BOARD 15/15 \\
+
+อ่าน param เองแล้ว int ขึ้น 0.0 หมด &
+pymavlink 2.4.49 bit-cast bug บน PX4 1.17 &
+ใช้ \code{preflight_params.py} (ผ่าน MAVSDK); helper อื่น guard \code{recv_match} \\
+
+\end{longtable}
+
+\vspace{2pt}{\color{gray}\rule{\linewidth}{0.4pt}}\\[2pt]
+{\small\color{gray}AAVC 2026 · Team KMUTNB · practice @ KMUTNB sky field · rev. 2026-08-20 —
+ตอนต่อ CM4 ได้ ให้ทีม Claude ช่วยรัน \code{preflight_params.py} + ตรวจ profile/infra สดก่อนบินได้}
+
+\end{document}
