@@ -11,6 +11,7 @@ exhaustion, and the time-policy refusal path is unchanged.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import cast
 
 from mavlink_adapter.telemetry import CurrentTelemetry
@@ -408,3 +409,21 @@ def test_rc_go_false_keeps_the_plain_gate() -> None:
         commander=_RcGoCommander(), rc_go=False,
     )
     assert _go(gate, 1) == [3]      # releases immediately — no RC hold
+
+
+def test_gate_timeout_comes_from_the_preflight_config() -> None:
+    """Between flights the headless gate waits for the criticals (link / ekf /
+    home) to come back after the pack swap has REBOOTED the FC — and a cold
+    GPS lock alone can outlast the 120 s that was hard-coded here, ending the
+    mission with the recovery flight still owed (2026-08-27 bench review).
+    The field config owns the number: preflight.gate_timeout_s."""
+    state = _state([3, 1])
+    gate = _sortie_gate_factory(
+        state, dash=None, home=_HOME, geofence=[tuple(v) for v in _AREA],
+        cfg={"preflight": {"gate_timeout_s": 0.2}}, profile=COMPETITION,
+        policy=TimePolicy(), tracker=cast(TargetTracker, _Tracker()),
+    )
+    t0 = time.monotonic()
+    assert _go(gate, 1) is None              # a bare state never passes criticals
+    assert time.monotonic() - t0 < 5.0       # gave up on the CONFIG's clock, not 120 s
+    assert any("preflight_timeout" in a for a in state.anomalies)

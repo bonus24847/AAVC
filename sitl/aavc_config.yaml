@@ -926,6 +926,12 @@ preflight:
   battery_pct: 25.0         # = failsafes.bat_low_thr (critical, cannot be forced)
   gps_sats: 6               # minimum satellites (coarse, no-RTK) (critical)
   camera_max_age_s: 5.0     # nadir frame must be fresher than this (critical)
+  # How long the headless gate waits for the criticals before giving a flight
+  # up. Between flights this IS the battery-swap window (FC reboots on the new
+  # pack, needs link + GPS lock + EKF + home again; a cold lock alone can take
+  # 1-3 min). Same 420 s as the competition config — see kmitl_config.yaml
+  # for the reasoning (2026-08-27 bench review).
+  gate_timeout_s: 420.0
 
 # ── terminal landing loop (orchestrator/tactical_align.py) ──────────────────
 # Only override what you are A/B-ing; anything omitted keeps the dataclass
