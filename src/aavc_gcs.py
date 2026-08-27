@@ -110,7 +110,7 @@ def f2i(f):
 #   mission_status.json  (mission -> GCS)  {phase, pads_mapped:{id:[e,n]}, ...}
 # All of this is read-only aggregation layered on top — the proven Link / MAVLink /
 # command code below is left untouched (memory: build from Sys_ID, don't rewrite it).
-PAD_IDS = [1, 2, 3, 4, 5, 6]                       # ArUco pad IDs (rules: dict 4x4, IDs 1-6)
+PAD_IDS = [0, 1, 2, 3, 4, 5, 6]                    # ArUco pad IDs: the PDF's Figure 7 encodes 1,2,0,4,5,6 — id 0 is real (2026-08-27)
 _HERE = os.path.dirname(os.path.abspath(__file__))
 def _default_captures():
     """Auto-share files with the touch-and-go mission if it's a sibling repo, else a local
