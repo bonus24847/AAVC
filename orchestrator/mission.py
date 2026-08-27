@@ -59,7 +59,7 @@ from dataclasses import replace
 from loguru import logger
 
 from mavlink_adapter.commands import DroneCommander
-from mission_brain.flights import chunk_flights
+from mission_brain.flights import chunk_flights, max_flights_for
 from mission_brain.live_plan import ServedStop, pointer_for, render_live_plan
 from mission_brain.profile import MissionProfile, load_profile
 from mission_brain.schemas import Coordinate, MissionPhase, MissionPlan
@@ -982,6 +982,32 @@ async def run_delivery_mission(
                     # dashboard reads it as "this flight's pads, in order".
                     state.flight_ids = list(routed)
 
+            # A RECOVERY flight (index past the queue's positional chunks —
+            # same rule as main.py::_chunk_for) flies with whatever the rack
+            # still holds: the eggs that came home are still latched where the
+            # crew loaded them before flight 1, because nobody re-racks eggs
+            # at the swap (operator 2026-08-27: "ผมไม่อยากสลับถุงไข่"). Its
+            # serve slots therefore CONTINUE the wiring-order progression
+            # through the latches that have not fired, instead of restarting
+            # at slot 0 and popping already-empty holds. Positional flights
+            # keep slot == position: their rack IS freshly loaded from AUX4 up.
+            recovery_slots: list[int] | None = None
+            _q = state.assigned_id_queue
+            if _q and flight > max_flights_for(len(_q), max(1, state.eggs_aboard)):
+                n_rack = (_n_channels if isinstance(_n_channels, int) else
+                          max(state.eggs_aboard,
+                              len(state.payload_slots_fired) + len(flight_ids)))
+                _fired = set(state.payload_slots_fired)
+                recovery_slots = [s for s in range(n_rack) if s not in _fired]
+                state.record_audit(
+                    f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} RECOVERY "
+                    f"slots={recovery_slots[:len(flight_ids)]} "
+                    f"fired={sorted(_fired)}")
+                logger.info(
+                    f"[mission] flight {flight}: recovery — serving from the "
+                    f"unfired latches {recovery_slots[:len(flight_ids)]} "
+                    f"(already fired: {sorted(_fired)})")
+
             # Serve each assigned id, re-checking the budget before EVERY
             # descent. The aircraft is already committed to this flight, so the
             # gate reserves only the egress + L&R landing — but it must never
@@ -1014,7 +1040,11 @@ async def run_delivery_mission(
                         f"t={state.time_elapsed_s():.1f}s DELIVERY {delivery_no} END "
                         f"delivered=False pad={assigned} reason=not_found")
                     continue
-                if isinstance(_n_channels, int) and slot >= _n_channels:
+                payload = ((recovery_slots[slot]
+                            if slot < len(recovery_slots) else None)
+                           if recovery_slots is not None else slot)
+                if payload is None or (isinstance(_n_channels, int)
+                                       and payload >= _n_channels):
                     # The same config mismatch the pre-takeoff WARN above
                     # flags (_n_channels, read once per flight) — this is the
                     # guard that keeps it non-fatal. Unguarded, _serve() would
@@ -1028,6 +1058,8 @@ async def run_delivery_mission(
                     # why, keep flying. Unknown channel count (fakes/tests
                     # without a `config`) is never treated as a shortage —
                     # only an isinstance-confirmed int gates this branch.
+                    # `payload is None` = a recovery flight with more owed
+                    # ids than unfired latches: nothing aboard to release.
                     delivery_no += 1
                     state.delivery_index = delivery_no
                     state.record_anomaly(
@@ -1051,9 +1083,14 @@ async def run_delivery_mission(
                 # the second release.
                 stop_index = delivery_no - 1
                 if await _serve(flight, assigned, stop_index=stop_index,
-                                payload_id=slot, delivery_index=delivery_no):
+                                payload_id=payload, delivery_index=delivery_no):
                     n_delivered += 1
                     delivered += 1
+                    # Physical-release ledger: which latch actually fired.
+                    # _serve returns True only when the release command
+                    # succeeded (res.dropped), so this is what the recovery
+                    # flight's slot map above reads as "no egg here any more".
+                    state.payload_slots_fired.append(payload)
 
             if not _running():
                 break
