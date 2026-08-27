@@ -24,6 +24,7 @@ import struct
 import subprocess
 import threading
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import yaml
@@ -163,6 +164,115 @@ def _read_vendor(name):
 
 VENDOR_JS = _read_vendor("leaflet.js")
 VENDOR_CSS = _read_vendor("leaflet.css")
+
+
+# ── Offline map tiles (2026-08-27) ───────────────────────────────────────────
+# The page used to load tiles straight from tile.openstreetmap.org, so with no
+# internet (the rules ban SIM cards; the KMITL console was first opened
+# offline and drew its zones on black) the map was blank — the practice field
+# only ever "worked" on the browser's own cache from earlier online sessions.
+# Tiles now come from /tiles/{z}/{x}/{y}.png, served out of a repo-local cache
+# (TILE_DIR) that fills itself while the laptop is online and that
+# scripts/prefetch_tiles.py fills for a whole field ahead of a field day.
+# Offline, a missing tile is a fast 404 (never a hanging fetch): the network is
+# probed once a minute with a 1 s connect, not per tile.
+TILE_DIR = os.environ.get("AAVC_TILE_DIR") or os.path.join(_HERE, "..", "tiles")
+TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+TILE_UA = "aavc-gcs/1.0 (KMUTNB AeroOptix field console; offline tile cache)"
+TILE_ZOOM_MAX = 19
+_TILE_RE = re.compile(r"^/tiles/(\d{1,2})/(\d{1,9})/(\d{1,9})\.png$")
+_NET_PROBE = {"at": 0.0, "ok": False}
+
+
+def tile_xy(lat, lon, z):
+    """Slippy-map tile indices (x, y) holding (lat, lon) at zoom z (OSM convention)."""
+    n = 2 ** int(z)
+    x = int((float(lon) + 180.0) / 360.0 * n)
+    lat_r = math.radians(float(lat))
+    y = int((1.0 - math.asinh(math.tan(lat_r)) / math.pi) / 2.0 * n)
+    return max(0, min(n - 1, x)), max(0, min(n - 1, y))
+
+
+def tiles_covering(lat_min, lon_min, lat_max, lon_max, z, margin_m=0.0):
+    """Every (x, y) tile at zoom z that touches the bbox grown by margin_m metres."""
+    mid = math.radians((float(lat_min) + float(lat_max)) / 2.0)
+    dlat = float(margin_m) / 111320.0
+    dlon = float(margin_m) / (111320.0 * max(math.cos(mid), 1e-6))
+    x0, y1 = tile_xy(float(lat_min) - dlat, float(lon_min) - dlon, z)
+    x1, y0 = tile_xy(float(lat_max) + dlat, float(lon_max) + dlon, z)
+    return [(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)]
+
+
+def tile_cache_path(url_path):
+    """/tiles/z/x/y.png -> the cache file for it, or None for anything that is not
+    a well-formed slippy path (the only way a request can reach the filesystem)."""
+    m = _TILE_RE.match(url_path or "")
+    if not m:
+        return None
+    z, x, y = (int(g) for g in m.groups())
+    n = 2 ** z
+    if z > TILE_ZOOM_MAX or not (0 <= x < n) or not (0 <= y < n):
+        return None
+    return os.path.join(TILE_DIR, str(z), str(x), f"{y}.png")
+
+
+def _net_ok(ttl_s=60.0):
+    """Can we reach the tile host? Probed at most once per ttl_s with a 1 s
+    connect, so an offline console never stalls a page full of tile requests."""
+    now = time.time()
+    if now - _NET_PROBE["at"] < ttl_s:
+        return _NET_PROBE["ok"]
+    try:
+        socket.create_connection(("tile.openstreetmap.org", 443), timeout=1.0).close()
+        ok = True
+    except OSError:
+        ok = False
+    _NET_PROBE["at"], _NET_PROBE["ok"] = now, ok
+    return ok
+
+
+def fetch_tile(z, x, y, timeout_s=4.0):
+    """One tile from OSM (identified User-Agent per the tile usage policy), or None."""
+    req = urllib.request.Request(TILE_URL.format(z=z, x=x, y=y),
+                                 headers={"User-Agent": TILE_UA})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            data = r.read()
+    except Exception:
+        return None
+    return data if data[:4] == b"\x89PNG" else None
+
+
+def save_tile(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "wb") as fh:
+        fh.write(data)
+    os.replace(tmp, path)
+
+
+def serve_tile(url_path, *, online):
+    """(png_bytes, 'image/png') for a cached tile — fetched and cached first when
+    `online` — else None (the caller answers 404 and Leaflet leaves the cell blank)."""
+    path = tile_cache_path(url_path)
+    if path is None:
+        return None
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(), "image/png"
+    except OSError:
+        pass
+    if not online:
+        return None
+    z, x, y = (int(g) for g in _TILE_RE.match(url_path).groups())
+    data = fetch_tile(z, x, y)
+    if data is None:
+        return None
+    try:
+        save_tile(path, data)
+    except OSError:
+        pass
+    return data, "image/png"
 
 
 def _en_to_ll(e, n, lat0, lon0):
@@ -3356,7 +3466,7 @@ function initMap(){
  var cv=document.getElementById('posmap');if(cv)cv.style.display='none';
  el.style.display='block';
  lmap=L.map(el,{zoomControl:true,attributionControl:true}).setView([13.736,100.523],16);
- L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(lmap);
+ L.tileLayer('/tiles/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap (local cache)'}).addTo(lmap);
  ltrack=L.polyline([],{color:'#388bfd',weight:3}).addTo(lmap);
  [60,250,600,1200,2500].forEach(function(t){setTimeout(function(){if(lmap)lmap.invalidateSize()},t)});
  window.addEventListener('resize',function(){if(lmap)lmap.invalidateSize()});
@@ -4295,6 +4405,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(data)
             else:
                 self._send(404, "{}")
+        elif self.path.startswith("/tiles/"):
+            got = serve_tile(self.path, online=_net_ok())
+            if got is None:
+                self._send(404, "{}")
+            else:
+                self._send(200, got[0], got[1])
         elif self.path == "/leaflet.js":
             self._send(200, VENDOR_JS, "application/javascript")
         elif self.path == "/leaflet.css":
