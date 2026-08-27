@@ -873,3 +873,45 @@ def test_fc_failsafe_fires_on_the_first_tick() -> None:
     asyncio.run(_check_and_settle(wd))         # ONE tick is enough
     assert state.terminal == TerminalState.FC_FAILSAFE
     assert cmd.stood_down == 1
+
+
+def test_our_own_land_on_the_pad_then_takeoff_is_not_an_fc_failsafe() -> None:
+    """2026-08-27 14:51 (ULog 07_51_21): the first real egg released on pad 1
+    (err 0.14 m) — and 0.3 s later D3 fired "FC FAILSAFE mode=LAND" with the
+    aircraft still sitting on the pad: arm_and_takeoff() had cleared
+    expected_mode while PX4 was still in OUR land mode, and with no debounce
+    that was enough. The takeoff already sent then climbed to a HOLD the
+    mission could no longer command. Rules now: LAND on the ground is never a
+    failsafe, and an expectation is CONSUMED when the FC leaves the mode by
+    itself (LAND -> TAKEOFF), not cleared ahead of time."""
+    t = _flying_telemetry()
+    wd, state, cmd = _make_wd(t)
+    state.phase = MissionPhase.DROP
+    cmd.expected_mode = "LAND"                 # tactical_align's land-on-pad
+    t.flight_mode, t.landed_state = "LAND", "ON_GROUND"
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING
+
+    # climb-out: the FC leaves LAND for TAKEOFF on our takeoff command; the
+    # expectation is consumed, nothing fires
+    t.flight_mode, t.landed_state = "TAKEOFF", "TAKING_OFF"
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING
+    assert cmd.expected_mode is None
+    t.flight_mode, t.landed_state = "HOLD", "IN_AIR"
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING and cmd.stood_down == 0
+
+    # ...but a LAND we did not ask for, in the air, still stands us down at once
+    t.flight_mode, t.landed_state = "LAND", "LANDING"
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.FC_FAILSAFE and cmd.stood_down == 1
+
+
+def test_a_land_mode_on_the_ground_never_fires_even_without_an_expectation() -> None:
+    t = _flying_telemetry()
+    wd, state, cmd = _make_wd(t)
+    state.phase = MissionPhase.DROP
+    t.flight_mode, t.landed_state = "LAND", "ON_GROUND"
+    asyncio.run(_check_and_settle(wd))
+    assert state.terminal == TerminalState.RUNNING and cmd.stood_down == 0

@@ -535,7 +535,9 @@ class DroneCommander:
 
     async def arm_and_takeoff(self, altitude_m: float) -> None:
         self._guard_pilot("arm/takeoff")
-        self.expected_mode = None
+        # expected_mode is deliberately NOT cleared here (2026-08-27): PX4 is
+        # still in our LAND on the pad when this runs; the watchdog consumes
+        # the expectation itself once the FC leaves that mode for TAKEOFF.
         await self.system.action.set_takeoff_altitude(altitude_m)
         # Landing ON a pad keeps the vehicle ARMED (COM_DISARM_LAND=-1), so a
         # mid-sortie climb-out is takeoff-only — arm just once per sortie.
