@@ -519,6 +519,17 @@ async def run_delivery_mission(
                 # was computed against)
                 await _restore_climb_cap()
 
+    # Per-flight battery-egress latch (reset at every flight start below); the
+    # sweep's _done() flips it via nonlocal, the serve loop reads/sets it.
+    batt_egress = False
+
+    def _battery_egress_due() -> bool:
+        """Below the PLANNED egress floor (profile.egress_battery_pct)? NaN
+        (no gauge yet) is never "due" — the FC's own failsafe owns that case,
+        exactly as the delivery gate's NaN branch already reasons."""
+        pct = state.telemetry.battery_percent
+        return not math.isnan(pct) and pct < prof.egress_battery_pct
+
     async def _sweep_for(flight: int) -> None:
         """Fly the FULL boustrophedon sweep (finish-sweep-then-serve, operator
         decision 2026-07-03): discovery only, feeding every decoded pad into
@@ -542,8 +553,29 @@ async def run_delivery_mission(
             if len(tracker.distinct_confirmed_ids()) >= max_pads:
                 return True
             wanted = set(state.flight_ids)
-            return bool(wanted) and all(
-                tracker.confirmed_by_marker(a) is not None for a in wanted)
+            if bool(wanted) and all(
+                    tracker.confirmed_by_marker(a) is not None for a in wanted):
+                return True
+            #  (c) the pack is below the planned egress floor (operator
+            #      2026-08-27): the sweep is the mission's biggest single
+            #      consumer (6.6 min at KMITL) and used to run down to the
+            #      15% FAILSAFE, which is a straight-line RTL. Stop here and
+            #      let the flight egress through the corridor with what it
+            #      has, so the crew can swap the pack. Latched for the flight.
+            nonlocal batt_egress
+            if not batt_egress and _battery_egress_due():
+                batt_egress = True
+                pct = state.telemetry.battery_percent
+                state.record_audit(
+                    f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} SWEEP "
+                    f"battery egress batt={pct:.0f}% < {prof.egress_battery_pct:.0f}% "
+                    "— returning via the corridor for resupply")
+                logger.warning(
+                    f"[mission] flight {flight}: battery {pct:.0f}% below the "
+                    f"{prof.egress_battery_pct:.0f}% egress floor — sweep "
+                    "stopped, egressing through the corridor")
+                return True
+            return False
 
         for orig_i, wp in enumerate(spec.waypoints):
             if not _running():
@@ -818,6 +850,14 @@ async def run_delivery_mission(
             _entry_mah, _ = energy_consumed_mah(
                 state.telemetry, state.energy_capacity_mah)
             _entry_pct = state.telemetry.battery_percent
+            # Battery egress latch for THIS flight (operator 2026-08-27):
+            # once the pack reads below prof.egress_battery_pct the flight
+            # stops starting things — sweep legs, decode visits, deliveries —
+            # and goes home through the corridor as a normal egress, so the
+            # crew can swap the pack and the recovery flight serves the rest.
+            # Latched (not re-read) so a gauge rebound while slowing down
+            # cannot restart a descent the floor already refused.
+            batt_egress = False
             # …and the far side of the swap window. The crew could only have
             # changed the pack since the last flight ended, so compare against
             # what it read then. The baseline is rebased from the NEW pack's own
@@ -893,6 +933,8 @@ async def run_delivery_mission(
                 # been served yet at this point in the flight).
                 owed = len(flight_ids)
                 for a in missing:
+                    if batt_egress or _battery_egress_due():
+                        break
                     if tracker.identified_unconfirmed(a):
                         state.record_audit(
                             f"t={state.time_elapsed_s():.1f}s registry top-up: "
@@ -904,6 +946,10 @@ async def run_delivery_mission(
                                       for a in flight_ids):
                     await _sweep_for(flight)
                 for a in flight_ids:
+                    # A decode visit is 30-60 s of flying at the 10 m floor:
+                    # not on a pack the sweep has already egressed on.
+                    if batt_egress:
+                        break
                     if _running() and tracker.confirmed_by_marker(a) is None:
                         await _decode_visits(flight, a, owed=owed)
                 # Registry completion (opportunistic): a pad the sweep saw but
@@ -935,6 +981,7 @@ async def run_delivery_mission(
                 positional_flights = len(
                     chunk_flights(state.assigned_id_queue, state.eggs_aboard))
                 if (_running() and flight < positional_flights
+                        and not batt_egress and not _battery_egress_due()
                         and (tracker.unidentified_candidates()
                              or tracker.identified_unconfirmed())
                         and len(tracker.distinct_confirmed_ids()) < max_pads
@@ -1018,8 +1065,23 @@ async def run_delivery_mission(
                 if not _running():
                     break
                 pct = state.telemetry.battery_percent
+                # Two battery arms: the FAILSAFE margin (never start a descent
+                # the 15% RTL would interrupt with an egg aboard) and the
+                # PLANNED egress floor (operator 2026-08-27: below
+                # egress_battery_pct nothing new starts — the flight goes home
+                # through the corridor to swap the pack). Latched for the
+                # flight once crossed, like the sweep's own check.
+                if not batt_egress and not math.isnan(pct) \
+                        and pct < prof.egress_battery_pct:
+                    batt_egress = True
+                    state.record_audit(
+                        f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} BATTERY "
+                        f"EGRESS batt={pct:.0f}% < {prof.egress_battery_pct:.0f}% "
+                        "before a delivery — returning via the corridor for "
+                        "resupply")
                 batt_ok = (math.isnan(pct)
-                           or pct > prof.rth_battery_pct + _DELIVERY_BATT_MARGIN_PCT)
+                           or (pct > prof.rth_battery_pct + _DELIVERY_BATT_MARGIN_PCT
+                               and not batt_egress))
                 if not (pol.can_start_delivery(state.time_remaining_s()) and batt_ok):
                     state.record_audit(
                         f"t={state.time_elapsed_s():.1f}s DELIVERY abort: flight "
