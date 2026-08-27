@@ -526,30 +526,35 @@ async def run_delivery_mission(
         the sweep can win — see _done()."""
 
         def _done() -> bool:
-            # Locked decision (CLAUDE.md §2): finish-sweep-then-serve — the
-            # sweep runs to COMPLETION so later flights fly direct; early-stop
-            # is legitimate ONLY once the registry covers the whole field
-            # (max_pads distinct confirmed ids) — never on "this flight's own
-            # ids happen to be confirmed", which strands the registry and
-            # makes the next flight pay a whole re-sweep.
-            # (Review 2026-07-24: this used to also carry
-            # `len(wanted) >= max_pads and all(confirmed for a in wanted)`.
-            # For a list of DISTINCT ids that arm was dead — the max_pads
-            # check above already returns True whenever it would — and for a
-            # DUPLICATE-id flight (e.g. headless --assigned-ids "3,3,3,3") it
-            # was actively harmful: all(...) collapses onto a single distinct
-            # id and truncates the sweep after just one confirmed pad, the
-            # exact regression finish-sweep-then-serve exists to prevent.
-            # Deleted rather than guarded further — nothing legitimately
-            # needs it.)
-            return len(tracker.distinct_confirmed_ids()) >= max_pads
+            # Two ways the sweep has nothing left to win:
+            #  (a) the registry covers the whole field (max_pads distinct
+            #      confirmed ids) — the 2026-07-03 finish-sweep-then-serve
+            #      rule, kept for flights whose own ids are still missing;
+            #  (b) every DISTINCT id THIS flight serves is confirmed
+            #      (operator 2026-08-27). The mission flies ONE flight with
+            #      all its eggs aboard, so "finish the sweep for the next
+            #      flight" was buying nothing: 2026-08-27 14:13 confirmed
+            #      1/4/5 by t=52 s and would have swept on until ~t=190 s —
+            #      on a pack that ends a full sweep at 5 min. A duplicate-id
+            #      list (headless "3,3,3,3") collapses to its one distinct
+            #      pad and stops once that pad is confirmed: that IS every
+            #      pad it serves.
+            if len(tracker.distinct_confirmed_ids()) >= max_pads:
+                return True
+            wanted = set(state.flight_ids)
+            return bool(wanted) and all(
+                tracker.confirmed_by_marker(a) is not None for a in wanted)
 
         for orig_i, wp in enumerate(spec.waypoints):
             if not _running():
                 return
             if _done():
-                logger.info(f"[mission] flight {flight}: registry complete "
+                logger.info(f"[mission] flight {flight}: every pad this flight "
+                            "serves is confirmed (or the registry is complete) "
                             "— sweep done early")
+                state.record_audit(
+                    f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} SWEEP "
+                    f"done early confirmed={sorted(tracker.distinct_confirmed_ids())}")
                 return
             _phase(MissionPhase.SEARCH)
             state.command_pointer = pointer_for(state.plan, wp_index=orig_i)
