@@ -863,13 +863,13 @@ def test_a_watchdog_rth_in_progress_is_not_an_fc_failsafe() -> None:
     assert cmd.stood_down == 0
 
 
-def test_fc_failsafe_is_debounced() -> None:
+def test_fc_failsafe_fires_on_the_first_tick() -> None:
+    """No debounce (2026-08-27): the 1 s wait was the window in which the
+    14:13 flight's next sweep goto went out and undid the pilot's LAND."""
     t = _flying_telemetry()
     t.flight_mode = "RETURN_TO_LAUNCH"
-    wd, state, cmd = _make_wd(t)               # default 1.0 s debounce
+    wd, state, cmd = _make_wd(t)               # default debounce is irrelevant
     state.phase = MissionPhase.SEARCH
-    asyncio.run(_check_and_settle(wd))         # one tick: window opens only
-    assert state.terminal == TerminalState.RUNNING
-    t.flight_mode = "HOLD"                     # blip over — window resets
-    asyncio.run(_check_and_settle(wd))
-    assert state.terminal == TerminalState.RUNNING and cmd.stood_down == 0
+    asyncio.run(_check_and_settle(wd))         # ONE tick is enough
+    assert state.terminal == TerminalState.FC_FAILSAFE
+    assert cmd.stood_down == 1

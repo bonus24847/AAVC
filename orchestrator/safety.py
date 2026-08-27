@@ -238,7 +238,6 @@ class SafetyWatchdog:
         # latch the fire would repeat every 0.5 s (record_audit does NOT
         # dedupe) and re-overwrite the terminal during the pilot's landing.
         self._takeover_fired = False
-        self._fc_failsafe_since: float | None = None
         # Terminal action in progress: None | "rth" | "abort". The watchdog
         # keeps checking DURING an in-progress RTH (run as a background task,
         # not awaited inline) so a worsening condition can escalate to LAND.
@@ -370,23 +369,21 @@ class SafetyWatchdog:
         # D3 — the FC entered RTL/LAND on its own (2026-08-26). Only in the
         # armed-by-design phases (the mission's own final LAND has its phase,
         # and land-on-pad / a watchdog RTH announce themselves through
-        # expected_mode / _terminal_action). Debounced like D1 so a mode
-        # blip inside PX4's own transitions cannot end the mission.
+        # expected_mode / _terminal_action). NOT debounced (2026-08-27): PX4
+        # never enters RTL/LAND by itself as a transient, and the 1 s wait
+        # copied from D1 was exactly the window in which the 14:13 flight's
+        # next sweep goto went out 0.12 s before the stand-down — PX4 obeyed
+        # it, left the pilot's LAND for HOLD, and the pilot had to take the
+        # sticks (POSCTL) before a second LAND held.
         expected = getattr(self.commander, "expected_mode", None)
         if (t.is_armed and st.phase in _ARMED_PHASES
                 and t.flight_mode in _FC_FAILSAFE_MODES
                 and self._terminal_action is None
                 and expected != t.flight_mode):
-            now = asyncio.get_running_loop().time()
-            if self._fc_failsafe_since is None:
-                self._fc_failsafe_since = now
-            elif now - self._fc_failsafe_since >= self.pilot_takeover_threshold_s:
-                self._stand_down(
-                    f"mode={t.flight_mode}", f"fc_failsafe_{t.flight_mode.lower()}",
-                    terminal=TerminalState.FC_FAILSAFE, headline="FC FAILSAFE")
-                return
-        else:
-            self._fc_failsafe_since = None
+            self._stand_down(
+                f"mode={t.flight_mode}", f"fc_failsafe_{t.flight_mode.lower()}",
+                terminal=TerminalState.FC_FAILSAFE, headline="FC FAILSAFE")
+            return
 
         # 2. Telemetry stale — record always; if it stays stale while ARMED,
         # escalate to RTH (companion-side backstop). PX4's NAV_DLL_ACT (set at

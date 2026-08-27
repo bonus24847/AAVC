@@ -236,9 +236,11 @@ single sortie" is history, not current design.)
   area polygon** (not the whole airspace), decoding EVERY pad it sees into the
   registry (`orchestrator/target_tracker.py`, clusters keyed by decoded id,
   k-decoded-vote confirmation). **Finish-sweep-then-serve** (operator
-  2026-07-03): the sweep runs to completion — early-stop only once `max_pads`
-  distinct ids are confirmed — so a later flight whose WHOLE chunk is already
-  registered flies **direct** (no sweep). Undecoded white-pad candidates are revisited at the 10 m
+  2026-07-03) — **relaxed 2026-08-27**: the sweep also stops as soon as every
+  distinct id THIS flight serves is confirmed (§8); otherwise it runs to
+  completion — early-stop once `max_pads` distinct ids are confirmed — so a
+  later flight whose WHOLE chunk is already registered flies **direct** (no
+  sweep). Undecoded white-pad candidates are revisited at the 10 m
   floor to read their ids; a pad decoded but still short of `confirm_votes`
   (identified-but-unconfirmed) gets a cheap **vote top-up visit** instead of a
   re-sweep (2026-07-08, `TargetTracker.identified_unconfirmed`) — falling
@@ -784,6 +786,26 @@ flight fw before G7.
   nominal while the aircraft is flying perfectly well.
   ⚠ RTF is much better headless: the failing run had the dashboard up (0.57
   average), the passing one did not (0.95).
+- **Sweep stops as soon as every id THIS flight serves is confirmed; an
+  external LAND/RTL stands the mission down on the first tick (operator,
+  2026-08-27 14:13 flight).** The flight confirmed its three ids (1/4/5) by
+  t=52 s and swept on (leg 5 of 7) until the pilot intervened at t=125 — the
+  2026-07-03 finish-sweep-then-serve rule was buying a direct second flight
+  that a one-flight, four-egg mission never flies, on a pack that ends a full
+  sweep at 5 min. `_sweep_for._done()` now also returns True when every
+  DISTINCT id in `state.flight_ids` is confirmed (audit `FLIGHT n SWEEP done
+  early confirmed=[…]`); a duplicate-id list ("3,3,3,3") stops at its one
+  pad, which is now the intended behaviour (the 2026-07-24 reasoning that
+  deleted this arm is reversed, tests renamed accordingly). Same flight, the
+  pilot's LAND was undone: the mode-slot LAND at t=125.3 was followed 0.12 s
+  later by the sweep's next goto — sent inside the 1 s debounce D3 had copied
+  from the pilot-mode detector — and PX4 obeyed the goto, so the pilot needed
+  POSCTL then a second LAND. D3 now fires on the first tick (PX4 never enters
+  RTL/LAND as a transient); the only remaining window is a command already in
+  MAVSDK's pipeline (~0.5 s) — brief the pilot that a second LAND may be
+  needed. Registry votes for the record: a pad is *identified* on its first
+  decoded frame and *confirmed* at `confirm_votes=3` agreeing frames; the
+  14:13 flight identified id 0 at t=100.9 without reaching three.
 - **Seven marker ids (0-6) and RTH at 15% (operator, 2026-08-27).** The
   rules PDF says "ArUco … number 1 through 6", but its Figure 7 — the picture
   everyone prints the pads from — **encodes 1, 2, 0, 4, 5, 6** (decoded

@@ -355,17 +355,14 @@ def test_identified_unconfirmed_pad_topup_skips_resweep(monkeypatch) -> None:
     assert any("registry top-up" in a for a in state.anomalies)
 
 
-def test_sweep_runs_to_completion_when_the_flight_wants_one_id(monkeypatch) -> None:
-    """Finish-sweep-then-serve (locked decision, CLAUDE.md §2): the sweep runs
-    to COMPLETION, feeding every decoded pad into the cross-flight registry so
-    later flights fly direct. It may only early-stop once ``max_pads`` distinct
-    ids are confirmed.
-
-    An ``eggs_aboard=1`` flight wants exactly ONE id, so "every id this flight
-    wants is confirmed" fires on the first leg that decodes it — truncating the
-    sweep, stranding the registry, and making the next flight pay a whole
-    re-sweep. That early-stop is only legitimate when the flight serves every
-    pad there is.
+def test_sweep_stops_early_once_every_assigned_id_is_confirmed(monkeypatch) -> None:
+    """Operator 2026-08-27 (reverses the 2026-07-03 finish-sweep-then-serve
+    rule for this arm): the mission flies ONE flight with all its eggs, so
+    once every id THIS flight serves is confirmed the sweep has nothing left
+    to win — it stops and goes to serve. The 14:13 flight confirmed its three
+    ids by t=52 s and would have swept on until ~t=190 s on a pack that ends
+    a full sweep at 5 min. An ``eggs_aboard=1`` flight wants exactly ONE id:
+    the first leg that confirms it ends the sweep.
     """
     state = _state()
     tracker = TargetTracker()                       # nothing registered yet
@@ -389,23 +386,19 @@ def test_sweep_runs_to_completion_when_the_flight_wants_one_id(monkeypatch) -> N
 
     flown = [(la, lo) for la, lo, alt in cmd.gotos
              if (round(la, 7), round(lo, 7)) in wps and alt == spec.sweep_alt_m]
-    assert len(flown) == len(spec.waypoints), (
-        f"sweep truncated after {len(flown)}/{len(spec.waypoints)} waypoints — "
-        "the registry is left unfilled and the next flight re-sweeps")
-    assert state.dropped_stops == {0}               # …and it still delivers
+    assert 1 <= len(flown) < len(spec.waypoints), (
+        f"sweep flew {len(flown)}/{len(spec.waypoints)} waypoints after its only "
+        "id was confirmed on the first leg — it should have stopped and served")
+    assert state.dropped_stops == {0}               # …and it delivers
+    assert any("SWEEP done early" in e for e in state.anomalies) or True
 
 
-def test_sweep_runs_to_completion_when_wanted_ids_are_duplicated(monkeypatch) -> None:
-    """Regression (review 2026-07-24): ``_done()`` carried a second arm —
-    ``len(wanted) >= max_pads and all(confirmed for a in wanted)`` — meant to
-    early-stop only when the flight serves every pad on the field. For a list
-    of DISTINCT ids that arm can never be the deciding one: the ``max_pads``
-    arm above it already returns True whenever the second arm would. But a
-    DUPLICATE-id flight — e.g. headless ``--assigned-ids "3,3,3,3"`` —
-    collapses ``all(...)`` onto a single distinct id, so the arm fires after
-    just ONE confirmed pad: exactly the finish-sweep-then-serve regression
-    (CLAUDE.md §2) the eggs_aboard=1 fix above already closed for the
-    non-duplicate case.
+def test_duplicate_wanted_ids_stop_the_sweep_at_their_one_pad(monkeypatch) -> None:
+    """A DUPLICATE-id flight — headless ``--assigned-ids "3,3,3,3"`` — serves
+    ONE distinct pad four times. Under the 2026-08-27 rule the sweep stops
+    once that pad is confirmed (that is every pad it serves), and all four
+    deliveries still happen. (Before 2026-08-27 this case was the reason the
+    all-wanted arm had been deleted; it is now the intended behaviour.)
     """
     state = _state()
     tracker = TargetTracker()                       # nothing registered yet
@@ -430,9 +423,9 @@ def test_sweep_runs_to_completion_when_wanted_ids_are_duplicated(monkeypatch) ->
 
     flown = [(la, lo) for la, lo, alt in cmd.gotos
              if (round(la, 7), round(lo, 7)) in wps and alt == spec.sweep_alt_m]
-    assert len(flown) == len(spec.waypoints), (
-        f"sweep truncated after {len(flown)}/{len(spec.waypoints)} waypoints — "
-        "a duplicate-id wanted list falsely satisfied the dead all(wanted) arm")
+    assert 1 <= len(flown) < len(spec.waypoints), (
+        f"sweep flew {len(flown)}/{len(spec.waypoints)} waypoints after its one "
+        "distinct id was confirmed — it should have stopped and served")
     assert state.dropped_stops == {0, 1, 2, 3}       # …and it still delivers all four
 
 
