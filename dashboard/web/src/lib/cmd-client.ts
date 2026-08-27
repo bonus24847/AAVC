@@ -77,7 +77,7 @@ export const cmdMissionIds = (ids: number[], operator_note: string = '') =>
 // Per-sortie launch authorization — releases the mission's PREFLIGHT hold.
 // The backend fires only on a green board (all critical checks pass);
 // `payload_confirmed` acknowledges the egg-loaded advisory and
-// `assigned_marker_id` is THIS sortie's pad id (1-6) — null resolves it
+// `assigned_marker_id` is THIS sortie's pad id (0-6) — null resolves it
 // from the mission queue (a non-null id overrides the queue for this
 // sortie only). `force` overrides the window-too-short refusal.
 export const cmdPreflightGo = (

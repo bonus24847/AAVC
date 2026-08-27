@@ -86,11 +86,11 @@ DEFAULT_N_PADS = 6           # event briefing: 6 pads placed on the field; the
 # larger 14.5 m spacing; this bound only gates --seed layouts.)
 MIN_SEPARATION_M = 10.0      # keep pads well apart (also > tracker dedupe radius)
 POLYGON_INSET_M = 4.0        # keep pads off the search-area boundary
-# Every pad name that could ever be spawned (ids 1-6, the full DICT_4X4_50
+# Every pad name that could ever be spawned (ids 0-6, the full competition
 # competition set — NOT just DEFAULT_N_PADS or the configured n_pads), so the
 # idempotent pre-spawn cleanup always removes a stale pad from a PRIOR run
 # with a higher n_pads even when this run asks for fewer.
-_ALL_PAD_NAMES = tuple(f"pad_{i}" for i in range(1, 7))
+_ALL_PAD_NAMES = tuple(f"pad_{i}" for i in range(0, 7))
 
 
 def _wgs84_m_per_deg(lat0: float) -> tuple[float, float]:

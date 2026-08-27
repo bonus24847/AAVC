@@ -44,6 +44,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from orchestrator.constants import TOUCHDOWN_ALT_GUARD_M
 from orchestrator.state import OrchestratorState
+from vision.detectors.aruco import VALID_MARKER_IDS
 
 from .payloads import CommandResultEvent, CommandSessionEvent
 from .realtime import RealtimeBroadcaster
@@ -117,8 +118,9 @@ class MissionIdsRequest(BaseModel):
     @classmethod
     def _ids_valid(cls, v: list[int]) -> list[int]:
         for i in v:
-            if not 1 <= i <= 6:
-                raise ValueError(f"marker id {i} outside the valid set 1..6")
+            if i not in VALID_MARKER_IDS:
+                raise ValueError(f"marker id {i} outside the valid set "
+                                 f"{min(VALID_MARKER_IDS)}..{max(VALID_MARKER_IDS)}")
         if len(set(v)) != len(v):
             raise ValueError("mission queue ids must be distinct")
         return v
@@ -548,7 +550,7 @@ def make_command_router(
         if effective_id is None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="no assignment for this sortie — pick the id (1-6) or "
+                detail="no assignment for this sortie — pick the id (0-6) or "
                        "set the mission queue (/api/cmd/mission_ids)",
             )
         if not getattr(state, "param_pins_ok", True) and not req.force:

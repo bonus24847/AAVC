@@ -119,5 +119,5 @@ def test_all_pad_names_covers_all_six_slots() -> None:
     """The idempotent pre-spawn cleanup must remove every name that could ever
     have been spawned (ids 1-6), so a stale pad_5/pad_6 from a previous
     6-pad run can never survive into a later, smaller-n_pads run."""
-    assert _ALL_PAD_NAMES == tuple(f"pad_{i}" for i in range(1, 7))
-    assert len(_ALL_PAD_NAMES) == 6
+    assert _ALL_PAD_NAMES == tuple(f"pad_{i}" for i in range(0, 7))
+    assert len(_ALL_PAD_NAMES) == 7          # ids 0-6 since 2026-08-27
