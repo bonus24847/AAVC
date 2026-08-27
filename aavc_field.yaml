@@ -1,62 +1,81 @@
-# AAVC 2026 competition field (KMITL) — GPS zones + pad defaults for aavc_gcs.py.
+# AAVC 2026 competition field (IAAI KMITL, Lat Krabang) — field file for the
+# AAVC GCS console (~/Desktop/aavc-gcs/src/aavc_gcs.py), i.e. the AAVCGCS-COMP
+# icon (missions.yaml entry `aavc`):
 #
-# Self-contained so the console runs standalone (on GitHub); override with
-#   python3 src/aavc_gcs.py --field /path/to/other_field.yaml
-# GPS values copied from touch_and_go_for_race/config.yaml (geofence block).
+#   python3 ~/Desktop/aavc-gcs/src/aavc_gcs.py --field aavc_field.yaml
+#
+# STRUCTURE + every non-geometry value mirror the practice field file
+# (mission repo gcs/kmutnb_field.yaml) on purpose — operator 2026-08-27:
+# "ปรับให้เหมือนกัน ต่างแค่สนามแข่ง, path ที่ต้องบิน". The console has only
+# ever been flown from the PRACTICE icon; the competition icon must behave
+# identically, so the ONLY things allowed to differ here are the coordinates.
+#
+# EVERY geo number below is copied from the rules PDF
+# (AAVC2026_RulesAndRegulation_V1.3, p.2 airspace + search area, p.4 Table 1
+# transit route) and is digit-for-digit the same set the flight config
+# sitl/kmitl_config.yaml flies. NOT ground-surveyed — verify at the 28-Aug
+# trial. Corner order is NW,NE,SE,SW (a simple rectangle, the order
+# kmitl_config.yaml uses); the PDF lists corner PAIRS (NW,NE,SW,SE), which
+# read literally is a bowtie. The console angle-sorts vertices about the
+# centroid anyway (load_zones), so the map is safe either way.
+#
+# ⚠ NO-FLY ZONE: KMITL has one (rules Figure 1/3 — the orange block on the
+# EAST side, south of the search area's east end) but the PDF gives it as a
+# picture only, no coordinates, and this console has no no-fly overlay.
+# Ask the committee for its vertices at the briefing.
 
 geofence:
-  # Controlled airspace boundary — [lat, lon]. Leaving it = disqualification.
+  # Controlled airspace boundary — [lat, lon]. Leaving it = disqualification
+  # (rules p.13: "Leaving the operation airspace ... is strictly prohibited").
   controlled_airspace:
-    - [13.731312, 100.787175]
-    - [13.731359, 100.789916]
-    - [13.729806, 100.787228]
-    - [13.729994, 100.789841]
-  # Search area (pads live here) — [lat, lon]
+    - [13.731312, 100.787175]   # NW
+    - [13.731359, 100.789916]   # NE
+    - [13.729994, 100.789841]   # SE
+    - [13.729806, 100.787228]   # SW
+  # Search area (pads live here) — [lat, lon]. Northern strip, ~227 x 78 m.
   search_area:
-    - [13.731239, 100.787824]
-    - [13.731359, 100.789916]
-    - [13.730723, 100.787840]
-    - [13.730703, 100.789776]
-  # Local NED origin = transit P1 (launch / RTH). local (0,0) = this point, so the
-  # mission's local-frame detected pads convert to lat/lon about here on the map.
+    - [13.731239, 100.787824]   # NW
+    - [13.731359, 100.789916]   # NE
+    - [13.730703, 100.789776]   # SE
+    - [13.730723, 100.787840]   # SW
+  # Local ENU origin = the Launch & Recovery point = transit P1 (rules Table 1:
+  # "RTH / holding point"; kmitl_config.yaml site.center ==
+  # ground_operation.launch_recovery == this). The mission's local-frame
+  # detected pads convert to lat/lon about here on the map. The physical L&R
+  # pad (rules Figure 2, red block) sits just west of P1 — same point at map
+  # scale.
   local_origin: [13.730322, 100.787446]
 
-# Default pads to service (operator overrides live in the GCS UI). AAVC: choose any
-# subset of the 6 ArUco pads (dictionary 4x4, IDs 1-6) — not capped at 4.
+# Default pads to service (operator overrides live in the GCS UI). AAVC:
+# choose any subset of the 6 ArUco pads (dictionary 4x4, IDs 0-6 — the rules
+# figure's third marker decodes as id 0).
 aruco_assignment: [1, 2, 3, 4]
 
-# Mandatory transit route P1->P2->P3 (reference, for a future map overlay).
+# Mandatory transit route P1->P2->P3 (map overlay reference) — rules p.4
+# Table 1, scored per coordinate in order BOTH ways. P1 doubles as the RTH /
+# holding point; P3 is the search-area ingress/egress gate.
 transit_waypoints:
-  - {id: 1, lat: 13.730322, lon: 100.787446}   # launch / RTH / hold
-  - {id: 2, lat: 13.730397, lon: 100.788694}   # intermediate
-  - {id: 3, lat: 13.730712, lon: 100.788755}   # search-area ingress/egress
+  - {id: 1, lat: 13.730322, lon: 100.787446}   # P1 — launch / RTH hold
+  - {id: 2, lat: 13.730397, lon: 100.788694}   # P2 — intermediate
+  - {id: 3, lat: 13.730712, lon: 100.788755}   # P3 — search-area ingress/egress
 
-# Payload-release servos — the manual "ปล่อย servo" buttons on the GCS. The console
-# sends MAV_CMD_DO_SET_SERVO(output, pwm) per servo (one click = one servo, or the
-# "ปล่อยทั้งหมด" button = all). RC-only flight is unchanged; this is the only actuator
-# command the GCS sends, and it is gated behind picking the drop pads first.
-# ⚠️ SET THE REAL VALUES once you can read the Pixhawk 6X output config: which AUX
-# outputs the 4 payload servos are wired to, and the PWM that opens (released) vs
-# holds (held) each latch. Defaults below are placeholders (AUX1-4, 2000/1000 us).
-# 2026-08-12 (mission_AAVC): PX4 ไม่มี handler ของ DO_SET_SERVO — GCS ส่ง
-# DO_SET_ACTUATOR แทน โดยเลข output = AUX channel 9..12 → actuator-set index
-# (num-8) → output function 301..304 (= PWM_AUX_FUNC1..4 บน Pixhawk 6X จริง,
-# SIM_GZ_SV_FUNC1..4 ใน SITL). Real HW: PWM_AUX_MIN 1000 / PWM_AUX_MAX 2000
-# ทำให้ค่า actuator +0.8/-0.8 = 1900/1100 us พอดี.
-# 2026-08-15: การต่อสายจริงบนแท่น ("บน" = ด้านใกล้หัวโดรน) —
-#   AUX1 = ท้าย-ขวา | AUX2 = หน้า-ขวา | AUX3 = ท้าย-ซ้าย | AUX4 = หน้า-ซ้าย
-# ปุ่มในหน้า GCS = "เลข AUX pin" (ไม่ใช่ลำดับไข่) จึงเรียง 1..4 ตามพินตรงๆ
-# ลำดับปล่อยของ mission (FL→RR→FR→RL) อยู่ที่ mission_AAVC/config.yaml
-# delivery.servo.channels: [4, 1, 2, 3] — ฝั่ง GCS ไม่ต้องรู้
+# Payload-release servos — the manual "ปล่อย servo" buttons on the GCS.
+# IDENTICAL to the practice field file: FOUR independent latch servos, outputs
+# are ACTUATOR-SET indices 1..4 (MAV_CMD_DO_SET_ACTUATOR param1..4 / PX4
+# output function "Peripheral via Actuator Set 1..4" — PX4 has no
+# DO_SET_SERVO handler, so the GCS's _servo_send speaks DO_SET_ACTUATOR).
+# PWM semantics: the GCS normalizes (pwm-1500)/500 -> 1900 = +0.8 release,
+# 1100 = -0.8 hold — the same +0.8 the mission's own release flies
+# (2026-08-27 ULog: AUX4 1900 / AUX1 1990 on the real latches, both eggs
+# out) and the value the practice console has re-latched with all week.
 payload_servos:
-  outputs: [1, 2, 3, 4]     # = actuator-set index 1..4 (func 301..304) = AUX pin
-  labels:                   # ป้ายบนปุ่ม — "มุมไหนของโดรน" ไม่ใช่ "ไข่ใบที่เท่าไร"
-    1: "ท้าย-ขวา"
-    2: "หน้า-ขวา"
-    3: "ท้าย-ซ้าย"
-    4: "หน้า-ซ้าย"
-  released_us: 2000         # PWM that RELEASES the latch (drops the payload) → +1.0
-                            # 2026-08-15: 1900 (+0.8) เปิดไม่สุดบนสลักจริง —
-                            # PX4 map ค่า −1..+1 ลง [PWM_AUX_MIN, PWM_AUX_MAX]
-                            # = [1000, 2000] ดังนั้น +0.8 ได้แค่ 1900 µs
-  held_us: 1100             # PWM that HOLDS it shut (reset) → -0.8
+  # actuator-set index == the REAL AUX pin the servo plugs into (PWM_AUX_FUNCn
+  # = 300+n) — so button N drives AUX N. AS-WIRED 2026-08-15, "top" = nose end:
+  #   AUX 1 = rear-right | AUX 2 = front-right | AUX 3 = rear-left | AUX 4 = front-left
+  # NOTE the buttons are per-PIN, NOT per-egg: the mission's delivery order
+  # 0..3 maps through connection.drop_servo_channels = [4, 1, 2, 3]
+  # (sitl/kmitl_config.yaml), i.e. the FIRST egg released is AUX 4. Full table:
+  # docs/SERVO_AUX_MAPPING.md.
+  outputs: [1, 2, 3, 4]   # actuator-set index = AUX pin (one button per latch)
+  released_us: 1900       # -> +0.8: opens the latch (drops the payload)
+  held_us: 1100           # -> -0.8: holds it shut (reset, ready to reload)
