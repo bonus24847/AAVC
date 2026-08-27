@@ -376,8 +376,18 @@ class SafetyWatchdog:
         # it, left the pilot's LAND for HOLD, and the pilot had to take the
         # sticks (POSCTL) before a second LAND held.
         expected = getattr(self.commander, "expected_mode", None)
+        if (expected is not None and t.flight_mode != expected
+                and t.flight_mode not in _FC_FAILSAFE_MODES):
+            # The FC has LEFT the mode we asked for on its own schedule (our
+            # land-on-pad's LAND -> our takeoff's TAKEOFF): the expectation is
+            # consumed here, never cleared ahead of time by the next command —
+            # 2026-08-27 14:51 arm_and_takeoff() cleared it while PX4 still sat
+            # in LAND on the pad and D3 fired 0.3 s after the first real egg.
+            self.commander.expected_mode = None
+            expected = None
         if (t.is_armed and st.phase in _ARMED_PHASES
                 and t.flight_mode in _FC_FAILSAFE_MODES
+                and t.landed_state != "ON_GROUND"      # LAND on the ground is ours
                 and self._terminal_action is None
                 and expected != t.flight_mode):
             self._stand_down(

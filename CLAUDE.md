@@ -786,6 +786,19 @@ flight fw before G7.
   nominal while the aircraft is flying perfectly well.
   ⚠ RTF is much better headless: the failing run had the dashboard up (0.57
   average), the passing one did not (0.95).
+- **First real egg on a pad — and D3 fired on our own LAND 0.3 s later
+  (2026-08-27 14:51, ULog `07_51_21`).** `DELIVERY 1 RELEASE pad=1 err=0.14 m
+  delivered=True`, then `FC FAILSAFE mode=LAND` with the aircraft still
+  sitting on the pad: `arm_and_takeoff()` had cleared `expected_mode` while
+  PX4 was still in OUR land mode, and the now-undebounced D3 took that as an
+  external LAND — stood the mission down, the takeoff already sent climbed to
+  an 8 m HOLD nothing could command, the pilot landed it. Two rules now, both
+  in `safety.py` D3: **LAND on the ground is never a failsafe**
+  (`landed_state == ON_GROUND` exempts it), and **an expectation is CONSUMED
+  when the FC leaves the mode by itself** (LAND → TAKEOFF clears
+  `expected_mode` inside the watchdog) — never cleared ahead of time by the
+  next command (`arm_and_takeoff` no longer touches it; `goto` still does).
+  Tests at the end of `tests/test_safety.py`.
 - **Sweep stops as soon as every id THIS flight serves is confirmed; an
   external LAND/RTL stands the mission down on the first tick (operator,
   2026-08-27 14:13 flight).** The flight confirmed its three ids (1/4/5) by
