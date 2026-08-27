@@ -221,7 +221,20 @@ single sortie" is history, not current design.)
   the flight gate: failing it skips the remaining eggs in that flight
   (audited `DELIVERY abort: flight n skipping remaining ids=…`) and heads
   home with them still aboard, rather than starting a descent the budget
-  can't finish. Between FLIGHTS the vehicle lands at L&R and **disarms**
+  can't finish. **Planned battery egress at `profile.egress_battery_pct`
+  (30%, operator 2026-08-27):** below it the flight starts NOTHING new — the
+  sweep's `_done()` stops the search (audit `FLIGHT n SWEEP battery egress
+  batt=…`), decode visits are skipped, and the delivery gate refuses
+  (`FLIGHT n BATTERY EGRESS …` + the usual `DELIVERY abort`) — then it flies
+  the NORMAL egress through P3→P2→P1, lands and disarms so the crew can
+  swap the pack and the recovery flight serves what is owed (from the
+  latches that still hold eggs). Latched per flight (`batt_egress`), so a
+  gauge rebound cannot restart a descent. `rth_battery_pct` (15%) stays the
+  FAILSAFE underneath: a straight-line PX4 RTL that skips the scored
+  transit points and, from the east end of the KMITL search area, hugs the
+  no-fly zone — the whole point of the planned floor is never reaching it
+  (the flight is fully autonomous; nobody can fly it home by hand).
+  Between FLIGHTS the vehicle lands at L&R and **disarms**
   (resupply crew approaches); `COM_DISARM_LAND=-1` is retained so a
   **mid-flight pad landing (between deliveries) stays ARMED** (no re-arm
   over the field — which also pins PX4 home to the launch point while

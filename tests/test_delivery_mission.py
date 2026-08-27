@@ -1909,3 +1909,85 @@ def test_recovery_after_a_failed_release_fires_that_eggs_own_latch(monkeypatch):
     # Flight 1: slot 0 fired, slot 1 retained. Recovery: pad 4 → slot 1.
     assert state.payload_slots_fired == [0, 1]
     assert calls[-1] == (4, 1)
+
+
+# ── Battery egress floor: below egress_battery_pct the flight goes HOME via the
+# corridor, as a normal egress (operator 2026-08-27: "ต่ำกว่า 30% ให้ RTH ตาม
+# corridor ยังไม่ใช้ failsafe" — the flight is fully autonomous, the crew cannot
+# fly it back by hand, and a failsafe RTL is a straight line that skips the
+# scored transit points and hugs the no-fly zone from the east end). ──────────
+
+
+class _DrainingCommander(RecordingCommander):
+    """Every leg costs pack: the sweep drains the gauge, so a long sweep on a
+    tired pack crosses the egress floor mid-search."""
+
+    def __init__(self, state: OrchestratorState, per_goto_pct: float) -> None:
+        super().__init__(state)
+        self.per_goto_pct = per_goto_pct
+
+    async def goto(self, lat: float, lon: float, alt_m: float,
+                   yaw_deg: float = float("nan")) -> None:
+        await super().goto(lat, lon, alt_m, yaw_deg)
+        self.state.telemetry.battery_percent -= self.per_goto_pct
+
+
+def test_low_battery_ends_the_sweep_and_flies_the_corridor_home(monkeypatch):
+    """Nothing registered, so flight 1 must sweep; the pack crosses the egress
+    floor a few legs in. The sweep stops there, no delivery is attempted, and
+    the aircraft flies the EGRESS corridor P3->P2->P1 and disarms at L&R —
+    not a failsafe RTL."""
+    state = _state()
+    state.telemetry.battery_percent = COMPETITION.egress_battery_pct + 6.0
+    tracker = TargetTracker()                       # no pads known → sweep
+    fake = _fake_serve(state)
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", fake)
+    cmd = _DrainingCommander(state, per_goto_pct=2.0)
+
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([3, 5], eggs_aboard=2), profile=COMPETITION))
+
+    assert fake.calls == []                         # no descent started
+    assert any("SWEEP battery egress" in a for a in state.anomalies)
+    assert _transit_audit(state)[-3:] == [
+        ("P3", "egress"), ("P2", "egress"), ("P1", "egress")]
+    assert cmd.landings == [True]
+    assert not state.telemetry.is_armed
+    assert state.terminal is TerminalState.COMPLETED
+
+
+def test_delivery_gate_refuses_below_the_egress_floor(monkeypatch):
+    """Pads known (no sweep). The first delivery starts above the floor and
+    drains the pack below it; the second must be refused and the flight must
+    egress via the corridor with that egg still aboard."""
+    state = _state()
+    state.telemetry.battery_percent = COMPETITION.egress_battery_pct + 2.0
+    tracker = TargetTracker()
+    _preload_pad(tracker, PAD3, 3)
+    _preload_pad(tracker, PAD1, 1)
+    _identity_route(monkeypatch)                     # serve in queue order
+    calls: list[int] = []
+
+    async def draining_serve(commander, st, target, *, stop_index, params, **kw):
+        calls.append(params.assigned_marker_id)
+        st.dropped_stops.add(stop_index)
+        st.telemetry.relative_alt_m = 0.0
+        st.telemetry.battery_percent -= 5.0          # land + release + climb
+        return AlignResult(acquired=True, aligned=True, landed=True,
+                           dropped=True, final_error_m=0.3)
+
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", draining_serve)
+    cmd = FakeCommander(state)
+
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([3, 1], eggs_aboard=2), profile=COMPETITION))
+
+    assert len(calls) == 1                          # second never started
+    assert any("BATTERY EGRESS" in a for a in state.anomalies)
+    assert any("DELIVERY abort" in a for a in state.anomalies)
+    assert _transit_audit(state)[-3:] == [
+        ("P3", "egress"), ("P2", "egress"), ("P1", "egress")]
+    assert cmd.landings == [True]
+    assert state.delivered_marker_ids == [3]

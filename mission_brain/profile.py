@@ -30,6 +30,13 @@ class MissionProfile(BaseModel):
     # ── battery (%) — RTH first, then LAND-in-place ──
     rth_battery_pct: float = Field(..., ge=0, le=100)
     land_battery_pct: float = Field(..., ge=0, le=100)
+    # PLANNED egress floor (operator 2026-08-27): below this the mission stops
+    # sweeping / serving and flies HOME through the transit corridor as a
+    # normal egress — land, disarm, swap the pack, fly the recovery flight.
+    # Sits well above rth_battery_pct, which stays the FAILSAFE (a straight-
+    # line PX4 RTL that skips the scored transit points and, from the east
+    # end of the KMITL search area, hugs the no-fly zone).
+    egress_battery_pct: float = Field(..., ge=0, le=100)
     # ── link / sensor loss debounce (s) before the watchdog escalates to RTH ──
     datalink_loss_threshold_s: float = Field(..., ge=0)
     gps_loss_threshold_s: float = Field(..., ge=0)
@@ -79,6 +86,9 @@ COMPETITION = MissionProfile(
                                       # load, and 30 ended a full-pack sweep
                                       # at 5 min with 26% still resting
     land_battery_pct=10.0,            # 20 -> 10, kept under the RTH floor
+    egress_battery_pct=30.0,          # planned corridor egress for resupply
+                                      # (operator 2026-08-27) — the failsafe
+                                      # floors above are the net UNDER this
     datalink_loss_threshold_s=5.0,
     gps_loss_threshold_s=5.0,
     telemetry_stale_threshold_s=10.0,
@@ -121,6 +131,9 @@ PRODUCTION = MissionProfile(
                                       # load, and 30 ended a full-pack sweep
                                       # at 5 min with 26% still resting
     land_battery_pct=10.0,            # 20 -> 10, kept under the RTH floor
+    egress_battery_pct=30.0,          # planned corridor egress for resupply
+                                      # (operator 2026-08-27) — the failsafe
+                                      # floors above are the net UNDER this
     datalink_loss_threshold_s=5.0,
     gps_loss_threshold_s=5.0,
     telemetry_stale_threshold_s=10.0,
