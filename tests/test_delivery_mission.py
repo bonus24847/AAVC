@@ -1819,3 +1819,93 @@ def test_every_search_goto_commands_the_sweep_heading(monkeypatch) -> None:
     transit_yaws = [y for (la, lo, _), y in zip(cmd.gotos, cmd.yaws)
                     if (round(la, 7), round(lo, 7)) not in wps]
     assert any(math.isnan(y) for y in transit_yaws)
+
+
+# ── Recovery flight fires the latches that still HOLD eggs (2026-08-27) ──────
+# The crew does NOT restock between a flight and its recovery flight — the
+# undelivered eggs come home still latched where flight 1 loaded them
+# (wiring order AUX 4/1/2/3 = slots 0..3). The recovery flight must therefore
+# CONTINUE the slot progression through the unfired latches, not restart at
+# slot 0 and pop two empty holds (operator, 2026-08-27: "ผมไม่อยากสลับถุงไข่").
+
+
+def _identity_route(monkeypatch):
+    """Pin serve order to the queue order — nearest-first routing is someone
+    else's test, and these assertions are about SLOTS, which follow position."""
+    monkeypatch.setattr(mission_mod, "order_by_nearest",
+                        lambda ids, *a, **k: list(ids))
+
+
+def test_recovery_flight_fires_the_latches_that_still_hold_eggs(monkeypatch):
+    """Flight 1 releases slots 0,1 (pads 1,4); the battery gate sent eggs 3,4
+    home. The recovery flight serving pads 5,6 must fire slots 2,3 — the
+    latches those eggs are still sitting in — not restart at AUX4."""
+    state = _state()
+    state.assigned_id_queue = [1, 4, 5, 6]
+    state.eggs_aboard = 4
+    state.max_sorties = 2
+    tracker = TargetTracker()
+    for pad, mid in ((PAD1, 1), (PAD4, 4), (PAD5, 5), (PAD6, 6)):
+        _preload_pad(tracker, pad, mid)
+    _identity_route(monkeypatch)
+    fake = _fake_serve(state)
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", fake)
+    cmd = FakeCommander(state)
+
+    chunks = {1: [1, 4], 2: [5, 6]}
+
+    async def gate(flight: int):
+        return chunks.get(flight)
+
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
+        sortie_gate=gate, profile=COMPETITION))
+
+    assert state.terminal is TerminalState.COMPLETED
+    assert [c[1] for c in fake.calls] == [0, 1, 2, 3]
+    assert state.payload_slots_fired == [0, 1, 2, 3]
+    assert state.delivered_marker_ids == [1, 4, 5, 6]
+
+
+def test_recovery_after_a_failed_release_fires_that_eggs_own_latch(monkeypatch):
+    """Flight 1: pad 1 releases slot 0; pad 4's release FAILS (egg still in
+    slot 1 / AUX1). The recovery flight re-serving pad 4 must fire slot 1 —
+    where that egg physically is — not slot 0's already-empty latch."""
+    state = _state()
+    state.assigned_id_queue = [1, 4]
+    state.eggs_aboard = 4
+    state.max_sorties = 2
+    tracker = TargetTracker()
+    _preload_pad(tracker, PAD1, 1)
+    _preload_pad(tracker, PAD4, 4)
+    _identity_route(monkeypatch)
+
+    calls: list[tuple[int | None, int | None]] = []
+
+    async def serve(commander, st, target, *, stop_index, params, **kw):
+        # Pad 4 fails BOTH attempts of its flight-1 delivery (delivery 2);
+        # every other serve succeeds.
+        ok = not (params.assigned_marker_id == 4
+                  and kw.get("delivery_index") == 2)
+        calls.append((params.assigned_marker_id, kw.get("payload_id")))
+        if ok:
+            st.dropped_stops.add(stop_index)
+        st.telemetry.relative_alt_m = 0.0
+        return AlignResult(acquired=True, aligned=ok, landed=ok,
+                           dropped=ok, final_error_m=0.3)
+
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", serve)
+    cmd = FakeCommander(state)
+
+    chunks = {1: [1, 4], 2: [4]}
+
+    async def gate(flight: int):
+        return chunks.get(flight)
+
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
+        sortie_gate=gate, profile=COMPETITION))
+
+    # Flight 1: slot 0 fired, slot 1 retained. Recovery: pad 4 → slot 1.
+    assert state.payload_slots_fired == [0, 1]
+    assert calls[-1] == (4, 1)

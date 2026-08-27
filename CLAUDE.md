@@ -200,7 +200,18 @@ single sortie" is history, not current design.)
   `connection.drop_servo_channels: [4, 1, 2, 3]` maps `payload_id` → channel
   (`ConnectionConfig.actuator_index`; empty list = the old
   `drop_servo_channel + payload_id` progression). `drop_payload_count=4`;
-  a single latch was the `eggs_aboard=1` case. Table + QGC bench sheet:
+  a single latch was the `eggs_aboard=1` case. ⚠ A **RECOVERY flight**
+  (index past the queue's positional chunks, same rule as
+  `main.py::_chunk_for`) serves from the **unfired latches** instead of
+  restarting at slot 0 (2026-08-27, operator: the crew does NOT re-rack
+  eggs at the battery swap — the eggs that came home are still latched
+  where flight 1 loaded them): `state.payload_slots_fired` records every
+  release that physically happened, and `mission.py::recovery_slots`
+  continues the wiring-order progression through what still holds an egg
+  (audit `FLIGHT n RECOVERY slots=… fired=…`). Before this, a recovery
+  flight re-fired slots 0/1 — two already-empty holds — and flew its eggs
+  home. Positional flights are byte-identical (slot == position; rack
+  freshly loaded from AUX4 up). Table + QGC bench sheet:
   `docs/SERVO_AUX_MAPPING.md`. The mission-global `stop_index` (`= delivery_index - 1`) — **not**
   the flight/sortie index — keys the release idempotence ledger
   (`state.dropped_stops`), so two deliveries inside the same flight can

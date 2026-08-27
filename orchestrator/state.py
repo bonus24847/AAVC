@@ -144,6 +144,14 @@ class OrchestratorState:
     # unambiguously (I5, review 2026-07-24).
     delivered_marker_ids: list[int] = field(
         default_factory=list, compare=False, repr=False)
+    # Payload SLOTS (0..drop_payload_count-1 → AUX 4/1/2/3) whose release
+    # actually FIRED, across the WHOLE mission. A recovery flight carries the
+    # eggs that came home still latched where they were loaded, so its serve
+    # slots continue through the latches NOT in this list instead of
+    # restarting at slot 0 (mission.py's recovery_slots; operator 2026-08-27
+    # — the crew does not re-rack eggs between a flight and its recovery).
+    payload_slots_fired: list[int] = field(
+        default_factory=list, compare=False, repr=False)
     # Guards the two concurrent drop paths — the tactical DROP_NOW and the
     # planned DROP_PAYLOAD (both in the mission loop) — so a single payload is
     # released at most once: both claim payload_dropped under
