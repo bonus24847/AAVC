@@ -448,6 +448,13 @@ def _sortie_gate_factory(
     /api/cmd/mission_ids update applies at the next hold.
     """
     pf = cfg.get("preflight", {}) or {}
+    # How long the HEADLESS gate waits for the criticals (link / armable /
+    # ekf / home) before giving the flight up. Between flights this is the
+    # pack-swap window: the FC reboots on the new pack and a cold GPS lock
+    # alone can outlast the old hard-coded 120 s, which ended the mission with
+    # the recovery flight still owed (2026-08-27 bench review). The field
+    # config owns it (preflight.gate_timeout_s); the kwarg stays the default.
+    headless_timeout_s = float(pf.get("gate_timeout_s", headless_timeout_s))
     kwargs: dict[str, Any] = dict(
         geofence=[list(v) for v in geofence],
         home_lat=home.lat,
