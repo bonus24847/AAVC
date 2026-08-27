@@ -85,10 +85,11 @@ controlled_airspace:
   - [13.729994, 100.789841]   # SE
   - [13.729806, 100.787228]   # SW
 
-# Search area = where the pads are placed: the NW 30 x 40 m of the airspace
-# (field frame s∈[-28,+2], t∈[-20,+20] — midfield to short of the NW goal).
-# The boustrophedon sweep covers THIS polygon (not the whole airspace).
-# Vertices [lat, lon], CCW.
+# Search area = where the six pads are placed: the NORTHERN strip of the
+# airspace, ~227 x 78 m (rules PDF p.2). The boustrophedon sweep covers THIS
+# polygon (not the whole airspace). Vertices [lat, lon]. (The "NW 30 x 40 m
+# of the airspace / field frame s,t" text that sat here until 2026-08-27 was
+# the PRACTICE pitch's — the same class of stale text as F-08.)
 search_area:
   # ⚠ Rules PDF (KMITL, p.3), NOT surveyed — reordered NW,NE,SE,SW (simple
   # rectangle). The boustrophedon sweeps THIS polygon (~227 x 78 m). Verify at
@@ -99,7 +100,7 @@ search_area:
   - [13.730723, 100.787840]   # SW
 
 # Primary transit route — MANDATORY both directions, scored per coordinate
-# passed in order (same rule as KMITL, scaled onto the pitch). Ingress
+# passed in order (rules PDF p.4 Table 1 + p.12 scoring matrix). Ingress
 # P1->P2->P3 at transit_alt_m; egress reversed. P1 doubles as the RTH holding
 # point; P3 sits on the search-area SE edge (the ingress/egress gate).
 transit_route:
@@ -110,8 +111,19 @@ transit_route:
   - [13.730397, 100.788694]   # P2  intermediate
   - [13.730712, 100.788755]   # P3  search-area ingress/egress
 
-# No published no-fly zone on the practice field — empty list (the loader and
-# orchestrator/safety.py accept it; add zones here if the pitch ever gets one).
+# ⚠ KMITL HAS a no-fly zone — rules Figure 1/3, the orange block on the EAST
+# side, south of the search area's east end — but the PDF gives it as a
+# picture only, no coordinates, so this list is EMPTY and the companion
+# no-fly watchdog is BLIND here. Entering it is "strictly prohibited"
+# (p.13; steep penalties / DQ). Get the vertices from the committee at the
+# 28-Aug briefing and paste them here as [[lat, lon], ...] polygons. Until
+# then: the PLAN never goes near it (the sweep is inset 8 m inside the search
+# polygon, transit P1-P3 is west of it), and the one exposure is a FAILSAFE
+# RTL from the EAST end of the search area — PX4 RTL flies a straight line
+# home that hugs the block's northern edge (2026-08-27 review; safety-pilot
+# brief: take over and exit along the corridor if an RTL fires out east).
+# (The "no published no-fly zone on the practice field" text that sat here
+# until 2026-08-27 was the PRACTICE file's.)
 no_fly_zones: []
 
 # Ground operations — the Launch & Recovery point: on the pitch long axis,
