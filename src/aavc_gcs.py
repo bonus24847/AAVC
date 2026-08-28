@@ -2296,8 +2296,16 @@ class Link:
     # (no per-press threads to leak), and self-clearing once the vehicle arms.
 
     _TEST_PERIOD_S = 0.4        # resend interval (PX4 ignores frames > 100 ms old)
-    _TEST_TIMEOUT_S = 1.5       # per-command timeout: > period, so no flicker;
-                                # short enough that a dead console releases fast
+    _TEST_TIMEOUT_S = 4.0       # per-command timeout: >> period, so a radio hiccup
+                                # cannot drop the latch — 2026-08-28 (KMITL bench,
+                                # NOMAD radio on a TELEM1 capped at MAV_0_RATE=1200
+                                # B/s): with 1.5 s any keep-alive that queued behind
+                                # the saturated link for > 1.5 s let PX4 time the
+                                # test out, the latch snapped to PWM_AUX_DIS (closed)
+                                # and the next keep-alive re-opened it — the
+                                # operator's "servo กระตุกเปิดปิดเอง" after 5-6 min
+                                # held open. 4 s rides out the observed 1-3 s gaps;
+                                # a dead console still releases within 4 s.
 
     def _servo_test_hold(self, idx, value):
         """Mark actuator-set `idx` to be held open until _servo_test_stop()."""
