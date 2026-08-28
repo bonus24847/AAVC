@@ -348,6 +348,15 @@ class TelemetrySubscriber:
             logger.warning(f"[telemetry] actuator outputs stream unavailable: {e}")
 
     async def _sub_battery(self) -> None:
+        # 2026-08-28 (KMITL trial): the pack reading reached the mission every
+        # ~30 s — the FC's TELEM2 instance was throttled to MAV_1_RATE=1200 B/s
+        # and PX4 scaled every stream down to fit. Ask for 1 Hz explicitly on
+        # top of fixing the board value (tools/preflight_params.py BOARD).
+        try:
+            await self.system.telemetry.set_rate_battery(1.0)
+        except Exception as e:
+            logger.warning(f"[telemetry] set_rate_battery failed: {e} — battery "
+                           "may update slowly; check MAV_1_RATE on the board")
         async for bat in self.system.telemetry.battery():
             # MAVSDK Battery.remaining_percent is already 0..100
             # (telemetry.proto: "range: 0% to 100%") — unchanged 2.x→3.x, and

@@ -317,10 +317,14 @@ fi
 # operator saw "no signal" + red lidar + no camera for 10 minutes while the
 # leftover console listened to a silent UDP port. Kill ANY console by pattern
 # before starting ours, and wait for the port to actually free up.
-if pgrep -f 'aavc_gcs[.]py' >/dev/null 2>&1; then
-    pkill -TERM -f 'aavc_gcs[.]py' 2>/dev/null
-    for _ in $(seq 1 10); do pgrep -f 'aavc_gcs[.]py' >/dev/null 2>&1 || break; sleep 0.5; done
-    pkill -KILL -f 'aavc_gcs[.]py' 2>/dev/null
+# Anchored to a python argv[0]: a bare 'aavc_gcs[.]py' also matched the SHELL
+# that launched this script whenever its command line mentioned the file
+# (2026-08-28 16:10 — it killed the operator's own terminal command).
+_CONSOLE_RE='^[^ ]*python3 [^ ]*aavc_gcs[.]py'
+if pgrep -f "$_CONSOLE_RE" >/dev/null 2>&1; then
+    pkill -TERM -f "$_CONSOLE_RE" 2>/dev/null
+    for _ in $(seq 1 10); do pgrep -f "$_CONSOLE_RE" >/dev/null 2>&1 || break; sleep 0.5; done
+    pkill -KILL -f "$_CONSOLE_RE" 2>/dev/null
 fi
 for _ in $(seq 1 10); do
     ss -ltn 2>/dev/null | grep -q ":$PORT " || break

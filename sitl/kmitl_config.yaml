@@ -156,6 +156,7 @@ transit_route:
 #                  E 125.6-266 / N 42-75.3 (the whole search-area width east
 #                  of the building, below the north strip)
 #   east band      the whole east end of the search area, E 219.8-266 / N 42-116
+#   trees          18 m trees in the west field, E 80-96 / N 70-110 (15:20)
 #   (the rules' orange block, E 219-255 / N -14..40 south of the search area,
 #    still stands — it is outside anything the plan flies)
 # DELIBERATELY NOT ARMED as watchdog polygons (operator's standing rule,
@@ -191,7 +192,21 @@ routing:
   keepout_zones:
     - [[13.730998, 100.788607], [13.730998, 100.789906], [13.730699, 100.789906], [13.730699, 100.788607]]   # building band  E 125.6-266 / N 42-75.3
     - [[13.731362, 100.789479], [13.731362, 100.789906], [13.730699, 100.789906], [13.730699, 100.789479]]   # east band      E 219.8-266 / N 42-116
-  gateway: [13.731068, 100.788509]   # ENU 115 E / 83 N — off the building band's NW corner
+    # 18 m TREES in the west field (operator, 15:20 after the trial: "ให้
+    # ต้นไม้เป็น nofly zone") — drawn E 80-96 / N 70-110, kept with an 8 m
+    # margin because the 15 m sweep flies BELOW the canopy top: E 72-104 /
+    # N 62-118. Never overflown, never a decode-visit target.
+    - [[13.731382, 100.788112], [13.731382, 100.788408], [13.730879, 100.788408], [13.730879, 100.788112]]   # trees (18 m)   E 72-104 / N 62-118 incl. margin
+  # Via-points. mission.py::_goto_routed finds the SHORTEST chain of these
+  # whose every segment stays out of the keep-outs (Dijkstra over
+  # {here, gateways, target}), so a hop from the west column to the north
+  # strip goes SW → SE → NE around the trees and the building, and the
+  # egress from the west column goes SW → P3'. Each one sits in a lane that
+  # sees its neighbours in a straight line:
+  gateways:
+    - [13.731068, 100.788509]   # NE  ENU 115 / 83 — off the building band's NW corner
+    - [13.730843, 100.788482]   # SE  ENU 112 / 58 — the lane between the trees and the building
+    - [13.730843, 100.788001]   # SW  ENU  60 / 58 — south of the trees, west field
 
 # Ground operations — the Launch & Recovery point: on the pitch long axis,
 # field-frame s=+24 (6 m in from the SE airspace edge, inside the penalty
@@ -236,59 +251,68 @@ search:
   # candidate safe. ⚠ A FALSE candidate on the building's roof would be
   # visited at 10.5 m too — the safety pilot watches every descent that starts
   # over the building. Laid out BY HAND for the
-  # L-shaped area (sweep_waypoints_enu below; the generated pattern would run
-  # through the building band). At 20 m (swath 30.3): 4 legs, 556 m of
-  # legs+turns, ~206 s; marker 16.9 px, pad 42 px. At 12 m the same
-  # area would need ~8 legs (swath 18.2) and decode in the sweep.
+  # L-shaped area minus the tree block (sweep_waypoints_enu below; the
+  # generated pattern would run through the building band and the trees).
+  # At 15 m (swath 22.7): 7 legs, 426 m of legs+turns at 3.5 m/s, ~167 s;
+  # marker 22.6 px, pad 56 px (the trial at 20 m / 17 px decoded 20-33 % of
+  # frames per pass — 15 m is the altitude that turns that into a margin).
   # ⚠ NOT YET FLOWN: the 28-Aug trial slot is the one test — pass = every
   # placed pad becomes a white-pad candidate on the sweep AND decodes on its
   # visit.
   # (History: 8.0 -> 12.0 on 2026-08-22, review F1 — 8.0 was a KMUTNB number
   # under the practice 10 m ceiling and sat below the rules' 10 m floor.)
-  sweep_alt_m: 20.0        # was 12.0 until 2026-08-28; see the table above.
-                           # LEGAL BAND HERE: sweep >= 10 m (rules), <= 30 m
-                           # (briefing 2026-08-28; was 20). The profile's
-                           # ceiling clamps it with min() — never upward.
+  sweep_alt_m: 15.0        # 20 -> 15 at 15:40 on 2026-08-28 (operator, once
+                           # the trees became a keep-out: "ดังนั้นสามารถบิน
+                           # sweep ที่ 15 m ได้"): marker 22.6 px instead of
+                           # 16.9 — the trial decoded 20-33 % of frames per
+                           # pass at 17 px, and every frame at >= 2 m. What
+                           # remains under the legs at 15 m: the small display
+                           # aircraft at ENU (111, 99) (tail ~5 m) and the round
+                           # structure at (189, 99); the building and the trees
+                           # are keep-outs. (12.0 until the morning; 20.0 for
+                           # the trial.) LEGAL BAND HERE: >= 10 m (rules),
+                           # <= 30 m (briefing). The profile's ceiling clamps it
+                           # with min() — never upward.
   # The sweep itself, laid out BY HAND (2026-08-28) as [east, north] metres
   # from L&R (ground_operation.launch_recovery — the frame every ENU number
   # in this file uses). Read by orchestrator/main.py::_build_spec →
   # mission_brain/search_pattern.py::build_explicit_pattern; when this key is
-  # present the polygon planner is bypassed. FOUR E-W legs at the 20 m swath
-  # (30.3 m), 16 / 18 / 21 m apart — the operator's call at noon: the first
-  # cut had three legs 30 m apart (leg 1 at N 58, leg 2 at N 88, forced by
-  # the building band's top at N 75.3), i.e. ZERO overlap; on a 2 m grid of
-  # the L that left 6 % of the area unseen at a realistic 13 m usable
-  # half-swath (a pad must sit wholly inside the frame) and 15 % at 11 m
-  # (GPS bias + tilt) — all of it along the N ~73 seam. Four legs bring
-  # that to 0.6 % / 2.6 % for ~52 s more sweep. The heading held is
-  # sweep_axis_deg (87) minus the camera mount, as always. Flown in order:
-  #   1  (112,52) → (46,52)    west field, N 37-67 — starts 14 m from the
-  #                            corridor gate P3' (123.7, 43.8); ends at
-  #                            E 112 so the footprint reaches E ~127, the
-  #                            building band's edge, and no further
-  #   2  (46,68) → (112,68)    west field, N 53-83 — 7 m under the band's
-  #                            top (75.3); east end as leg 1
-  #   3  (46,86) → (205,86)    west field + north strip, N 71-101; 10.7 m
-  #                            above the band's top; ends at E 205 so the
-  #                            footprint reaches the east band's edge
-  #   4  (205,107) → (46,100)  along the tilted north edge (102 at E 46 →
-  #                            112 at E 205), N 85-122 — 5-10 m inside the
-  #                            geofence's north edge (110.8 → 113.6)
-  # Coverage is pinned by tests/test_keepout_routing.py (every 2 m grid
-  # point of the L within 13 m of a leg, bar a corner against the gate). The
-  # transitions (E 46 north-bound, E 112 → (46,86) diagonal across the west
-  # field, E 205 north-bound), the entry and the exit never cross a keep-out
-  # polygon; the exit from leg 4's west end to P3' is a 96 m straight line
-  # through the west field. Re-run the test after ANY edit.
+  # present the polygon planner is bypassed. SEVEN E-W legs at the 15 m swath
+  # (22.7 m; legs 14-16 m apart = the validated 0.30 overlap), flown at
+  # search.speed_mps in this order. Redrawn 15:40 after the trial: the
+  # operator marked an 18 m TREE BLOCK in the west field (E 80-96 / N 70-110)
+  # as a keep-out — routing.keepout_zones[2], carried with an 8 m margin
+  # because at 15 m the aircraft flies BELOW the canopy top — so no leg or
+  # transition enters E 72-104 / N 62-118; the west column (E 46-66) gets
+  # three short legs reached from the south, the north strip (E 110-205)
+  # two, reached from the corridor gate. Held heading = sweep_axis_deg (87)
+  # minus the camera mount, as always.
+  #   N1  (116,86) → (208,86)   north strip, N 76-96 (10 m usable half-swath);
+  #                             starts 10 m east of the tree margin, ends 15 m short of the east band
+  #   N2  (208,102) → (116,102)   north strip, N 92-112 (north edge 106-112 there)
+  #   ↓   (116,102) → (116,53)    the lane between the trees (margin E 104) and the building (E 125.6)
+  #   L1  (116,53) → (46,53)    lower band, N 43-63 (9 m south of the tree margin)
+  #   W1  (46,72) → (66,72)     west column, N 62-82; ends 6 m short of the margin
+  #   W2  (66,86) → (46,86)     west column, N 76-96
+  #   W3  (46,100) → (66,100)   west column, N 90-110
+  # The exit from W3's end to P3' crosses the tree box in a straight line, so
+  # the egress goto routes itself through routing.gateways (SW → gate).
+  # Coverage is pinned by tests/test_keepout_routing.py: every 2 m grid point
+  # of the L outside the keep-outs (+3 m) within 10 m of a leg (a realistic
+  # usable half-swath at 15 m). Re-run it after ANY edit.
   sweep_waypoints_enu:
-    - [112.0, 52.0]
-    - [46.0, 52.0]
-    - [46.0, 68.0]
-    - [112.0, 68.0]
+    - [116.0, 86.0]
+    - [208.0, 86.0]
+    - [208.0, 102.0]
+    - [116.0, 102.0]
+    - [116.0, 53.0]
+    - [46.0, 53.0]
+    - [46.0, 72.0]
+    - [66.0, 72.0]
+    - [66.0, 86.0]
     - [46.0, 86.0]
-    - [205.0, 86.0]
-    - [205.0, 107.0]
     - [46.0, 100.0]
+    - [66.0, 100.0]
   # ✅ 0.44 -> 0.30 on 2026-08-24, after the SITL test the operator asked for.
   # 0.44 was belt-and-braces for an UNMEASURED camera mount: if the wide image
   # axis did not lie across track the real swath was the 720 px axis and 0.30
@@ -324,10 +348,15 @@ search:
                            # came from the OLD brief; the expanded KMUTNB field
                            # (L&R at the NW running track) should give far more
                            # room, and these insets want re-deriving from it.
-  speed_mps: 3.0           # = MPC_XY_CRUISE (accuracy-over-speed retune). It is
-                           # not a command — goto sends no speed, so PX4 flies
-                           # MPC_XY_CRUISE regardless; this number only feeds the
-                           # plan's duration estimate and the leg timeouts.
+  speed_mps: 3.5           # The SWEEP's cruise speed — since 2026-08-28 it IS
+                           # commanded: mission.py writes it to MPC_XY_CRUISE for
+                           # the sweep legs and hands the px4_tuning pin (5.0)
+                           # back afterwards, so transit and pad hops run at 5.
+                           # 3.5 (not 5): the 20 m decode rate over a pad was
+                           # 20-33 % of frames at 2.7 m/s on the trial — fast
+                           # enough for confirm_votes 2 at 3.5, marginal at 5.
+                           # Also feeds the plan's duration estimate + leg
+                           # timeouts.
                            # 9.5 m footprint -> 3.2 s -> ~10 frames @3.3 Hz
   # Field-frame sweep axis (NEW, read by orchestrator/main.py _build_spec ->
   # mission_brain/search_pattern.py): true heading of the pitch long axis. The
@@ -361,50 +390,37 @@ search:
   serve_dedupe_m: 6.0      # served-pad dedupe radius (default 12 would swallow
                            # a neighbouring pad at the new 14.5 m separation)
   decode_dwell_s: 4.0      # hover time over an unidentified candidate to decode its ID
-  serve_cost_s: 105.0      # time budget: align + land-ON + release + climb out.
-                           # 80 -> 105 on 2026-08-28: the pad hop and the
-                           # climb-out now happen at the 20 m sweep altitude
-                           # (mission.py::_climb_out_to_hop_alt), i.e. 8 m more
-                           # descent at MPC_Z_V_AUTO_DN 0.4 (+20 s) and 8 m
-                           # more climb at MPC_Z_VEL_MAX_UP 1.5 (+5 s) per egg.
-                           # The practice field measured 45-50 s from an 8 m
-                           # hop (2026-08-27), so this is conservative.
+  serve_cost_s: 90.0       # time budget: align + land-ON + release + climb out.
+                           # 105 -> 90 on 2026-08-28 evening: the ladder ends at
+                           # 2 m (no 1.5 m rung), the climb-out runs at 2.5 m/s
+                           # and the per-rung descent speeds (3/3/1.5/0.8/0.5)
+                           # should now actually land on the board (their param
+                           # sets timed out on the throttled link). Still
+                           # conservative against the trial's measured pieces.
   # ⚠ All three were KMUTNB-sized numbers left in a KMITL file (review F5,
   # 2026-08-22). The gate that decides whether another flight/delivery fits
   # the window was computing against a field a third of the size, so it
   # approved work it could not finish — and the per-delivery abort gate reads
   # the same numbers, so it could not catch it either.
-  sortie_cost_s: 985.0     # FULL-SWEEP 4-EGG sortie, rebuilt 2026-08-28 for the
-                           # L-shaped area + 4-leg 20 m sweep + decode visits:
-                           # takeoff 17 (G4' measured) + ingress 53 (160 m of
-                           # new corridor at 3 m/s) + 5 to leg 1 + sweep 206
-                           # (556 m of legs+turns) + 4 decode visits x 47 = 188
-                           # + 4 x serve_cost_s 105 = 420 + 32 from leg 4's end
-                           # to P3' + egress 53 + land 35 = 1009 s (six visits:
-                           # 1103). Egg 4's gate then runs with 416 s left
-                           # against its 300 s floor.
-                           # ⚠ CAPPED at 985, not 1009: the launch gate
-                           # (TimePolicy.can_start_sortie) stacks reserve_s
-                           # 180 + this + margin 30 on top of a cost that
-                           # already contains the egress and the landing, so
-                           # the honest 1009 would REFUSE the first GO of a
-                           # fresh 1200 s window (1219 > 1200) — and the RC-GO
-                           # headless gate has no FORCE. 985 keeps the first
-                           # flight launchable (1195 <= 1200); the END of the
-                           # flight is owned by the per-delivery gate
-                           # (delivery_reserve_s 300), the discovery gate
-                           # (serve_cost_s / visit_cost_s) and the 30 %
-                           # battery egress — none of which read this number.
-                           # (2026-08-24 history: 900 = 17 + 57 + 407 + 320 +
-                           # 57 + 35 at the 12 m sweep of the FULL polygon,
-                           # cross-checked against the 536 s SITL run.)
-  known_sortie_cost_s: 280.0  # registry-known sortie, no search. 2026-08-28: the
-                           # far corner of the L (E 205 / N 107) is 263 m by
-                           # way of the corridor = 88 s each way at MPC_XY_CRUISE
-                           # 3.0 (routing via the gateway adds < 10 m), plus one
-                           # serve (105 from the 20 m hop) = 281. (Before: 291 m
-                           # straight-line to the far end of the full polygon +
-                           # an 80 s serve. 140 was the KMUTNB number.)
+  sortie_cost_s: 820.0     # FULL-SWEEP 4-EGG sortie, rebuilt 2026-08-28 evening
+                           # (7 legs at 15 m around the trees, sweep 3.5 m/s,
+                           # transit/hops 5 m/s): takeoff 17 + ingress 32 (160 m
+                           # at 5) + 12 to leg N1 + sweep 152 (418 m of
+                           # legs+turns at 3.5) + 2 decode visits x 40 = 80 (at
+                           # 22.6 px most pads decode IN the sweep) + 4 x
+                           # serve_cost_s 90 = 360 + 22 exit via the SW gateway
+                           # + egress 32 + land 35 = 745 s. Egg 4's gate runs with
+                           # 634 s left against its 300 s floor; the launch gate
+                           # stacks 180 + this + 30 = 1030 <= 1200.
+                           # (Earlier today: 985 capped for the 4-leg 3 m/s plan;
+                           # 2026-08-24: 900 at the 12 m sweep of the full
+                           # polygon, cross-checked against the 536 s SITL run.)
+  known_sortie_cost_s: 200.0  # registry-known sortie, no search. 2026-08-28
+                           # evening: the far corner of the L (the west column,
+                           # via the SW gateway) is 268 m by way of the
+                           # corridor = 54 s each way at MPC_XY_CRUISE 5, plus
+                           # one serve (90) = 197. (Before: 280 at 3 m/s;
+                           # 140 was the KMUTNB number.)
   rth_reserve_s: 120.0     # egress + land at L&R from the FAR side. Measured:
                            # the far corner of the search polygon is 291 m out,
                            # ~97 s of flight before the wheels touch — the old
@@ -697,7 +713,15 @@ px4_tuning:
   MPC_XY_VEL_MAX: 5.0       # horizontal speed ceiling (m/s). KMUTNB: the longest
                             # leg is ~52 m and accuracy is the goal — 10 m/s
                             # buys nothing on this field and doubles overshoot.
-  MPC_XY_CRUISE: 3.0        # auto cruise speed (m/s). Accuracy-over-speed brief:
+  MPC_XY_CRUISE: 5.0        # auto cruise speed (m/s) for TRANSIT and pad HOPS.
+                            # 3 -> 5 on 2026-08-28 (operator, after the trial:
+                            # "บินช้าเกินไป เปลืองพลังงาน"): the whole flight
+                            # drains ~13 gauge points a minute at ~44 A, so
+                            # every second airborne is the budget — the trial
+                            # flew 2.7 m/s average and ran out at 20 % with no
+                            # egg delivered. The sweep runs slower
+                            # (search.speed_mps, set live). = MPC_XY_VEL_MAX.
+                            # (Old note, KMUTNB accuracy-over-speed brief:
                             # slower sweep = more frames per pad = reliable
                             # decode + tight leg tracking. 20-min window has
                             # ~4x margin at this speed on the small field.
@@ -715,7 +739,9 @@ px4_tuning:
   # the mission's horizontal accel cap, not a manual-only knob.
   # Ceiling for the hexa: a = g*tan(MPC_TILTMAX_AIR 30 deg) = 5.66 m/s^2, so the
   # quad's 8.0 would demand more tilt than the anti-flip cap allows.
-  MPC_ACC_HOR: 2.0          # AUTO horizontal accel cap (m/s^2). KMUTNB: 3 -> 2 —
+  MPC_ACC_HOR: 3.0          # AUTO horizontal accel cap (m/s^2). 2 -> 3 on
+                            # 2026-08-28 with the 5 m/s cruise (reaches it in
+                            # 1.7 s; the 2026-07 validated value). KMUTNB had 3 -> 2 —
                             # legs are 10-52 m, so gentle accel costs a second
                             # per leg and buys smoother frames + less leg-end
                             # overshoot on the small field.
@@ -765,7 +791,10 @@ px4_tuning:
   # real 6X descend 4x faster than anything ever tested. mission.py raises it to
   # 2.5 for the L&R staged descent ONLY and hands it straight back.
   MPC_Z_V_AUTO_DN: 0.4      # AUTO descent speed (m/s); PX4 default 1.5
-  MPC_Z_VEL_MAX_UP: 1.5     # cap AUTO climb speed (m/s; PX4 default 3). KMUTNB:
+  MPC_Z_VEL_MAX_UP: 2.5     # cap AUTO climb speed (m/s; PX4 default 3). 1.5 -> 2.5
+                            # on 2026-08-28: four 18 m climb-outs per flight at
+                            # 1.5 = 48 s; at 2.5 = 29 s, overshoot ~0.6 m under a
+                            # 30 m ceiling is nothing. KMUTNB note, ceiling 10:
                             # 2 -> 1.5 — climb overshoot scales ~v², and the
                             # ceiling is only 1 m above transit now, so the
                             # 2.0-tuned overshoot (~0.3 m at 20 m) must shrink

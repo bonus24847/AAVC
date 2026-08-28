@@ -779,16 +779,24 @@ async def run(args: argparse.Namespace) -> int:
     rt = cfg.get("routing", {}) or {}
     keepout_zones = [[(float(v[0]), float(v[1])) for v in poly]
                      for poly in (rt.get("keepout_zones") or []) if len(poly) >= 3]
-    gw_cfg = rt.get("gateway")
-    gateway: tuple[float, float] | None = (
-        (float(gw_cfg[0]), float(gw_cfg[1])) if gw_cfg else None)
+    # `gateways:` (a list, 2026-08-28 — the tree block split the west field
+    # from the corridor gate, so one via-point no longer reaches everything;
+    # mission.py finds the shortest clear chain) or the older single `gateway:`.
+    gw_cfg = rt.get("gateways") or ([rt["gateway"]] if rt.get("gateway") else [])
+    gateways: list[tuple[float, float]] = [(float(g[0]), float(g[1])) for g in gw_cfg]
     if keepout_zones:
-        if gateway is None:
-            logger.error("[main] routing.keepout_zones set but no routing.gateway — "
+        if not gateways:
+            logger.error("[main] routing.keepout_zones set but no routing.gateways — "
                          "a crossing goto has nowhere to detour to")
             return 2
         logger.info(f"[main] routing: {len(keepout_zones)} keep-out polygon(s), "
-                    f"gateway=({gateway[0]:.6f},{gateway[1]:.6f})")
+                    f"{len(gateways)} gateway(s)")
+    # The sweep flies its OWN cruise speed (search.speed_mps) and hands the
+    # pinned MPC_XY_CRUISE back afterwards — transit and pad hops run at the
+    # pin (2026-08-28: 5 m/s; the sweep stays slower for the decode rate).
+    tune = cfg.get("px4_tuning", {}) or {}
+    cruise_pin = (float(tune["MPC_XY_CRUISE"]) if tune.get("MPC_XY_CRUISE") is not None
+                  else None)
     spec = _build_spec(search_area, placeholder_home, sc, profile.altitude_ceiling_m,
                        origin=site_origin)
     tracker = _build_tracker(sc)
@@ -1140,7 +1148,8 @@ async def run(args: argparse.Namespace) -> int:
                     profile=profile, align=align, policy=policy,
                     max_pads=int(sc.get("max_pads", 6)),
                     decode_dwell_s=float(sc.get("decode_dwell_s", 4.0)),
-                    keepout_zones=keepout_zones, gateway=gateway,
+                    keepout_zones=keepout_zones, gateways=gateways,
+                    cruise_pin_mps=cruise_pin,
                     on_drop_prediction=on_drop_prediction,
                     on_plan_update=on_plan_update,
                     refresh_energy=lambda: _evaluate_energy(state, energy_policy),
@@ -1210,7 +1219,7 @@ def _rungs_for(profile: Any) -> tuple[float, ...]:
     are positional, sized for the 6-rung KMITL ladder)."""
     ceil = profile.altitude_ceiling_m
     if ceil <= 6.0:
-        return (min(4.0, ceil - 1.0), 3.0, 2.0, 1.5)
+        return (min(4.0, ceil - 1.0), 3.0, 2.0)
     # ⚠ THE TOP RUNG MUST KEEP CEILING MARGIN (2026-08-21 review). This used to
     # be min(12.0, ceil), which is fine at the 20 m KMITL ceiling but becomes
     # ceil EXACTLY once the ceiling drops to 12 or below — and the KMUTNB
@@ -1225,7 +1234,9 @@ def _rungs_for(profile: Any) -> tuple[float, ...]:
     # sweep already uses so the ladder can never be the thing that busts the
     # ceiling.
     top = min(12.0, ceil - _CEILING_MARGIN_M)
-    rungs = tuple(r for r in (top, 8.0, 5.0, 3.0, 2.0, 1.5) if r <= top)
+    # 1.5 m dropped 2026-08-28 (KMITL trial: the real 400 mm marker leaves the
+    # frame at 1.5 m — see AlignParams.rungs); the ladder ends at 2 m.
+    rungs = tuple(r for r in (top, 8.0, 5.0, 3.0, 2.0) if r <= top)
     return rungs or (min(5.0, max(1.5, ceil - _CEILING_MARGIN_M)),)
 
 
@@ -1291,8 +1302,8 @@ def _align_for(profile: Any, frame_max_age_s: float,
     if profile.altitude_ceiling_m <= 6.0:
         return AlignParams(
             rungs=rungs,
-            rung_tol_m=(1.0, 0.6, 0.35, 0.2),
-            rung_descent_mps=(1.5, 0.8, 0.5, 0.4),
+            rung_tol_m=(1.0, 0.6, 0.35),
+            rung_descent_mps=(1.5, 0.8, 0.5),
             accept_radius_m=accept,
             frame_max_age_s=frame_max_age_s,
             **tune,
