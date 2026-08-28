@@ -148,35 +148,44 @@ the 13:00-18:00 trial slot is the single test.
   the main building, the display aircraft and the tree line. Not higher: PX4's
   in-flight home-alt drift (+4.65 m measured) would put 30 at a real 34.65.
 - **Corridor moved west, off the main building.** The PDF's P2→P3 leg ended ON
-  the building's roof. The new leg turns north 13.8 m earlier (**P2′
-  13.730389, 100.788567**, ENU 121.2 E / 7.5 N) and enters the search area
-  22.8 m west of the old P3 (**P3′ 13.730716, 100.788544**, ENU 118.7 E /
-  43.9 N), up the grass strip between the display aircraft and the building's
-  west wall; P1 = L&R unchanged. Georeferenced from the committee's slide
-  (SIFT+ECC against the GCS's cached Esri z19 tiles, ±5 m —
-  `docs/evidence/briefing_corridor_2026-08-28.md`). **Committee coordinates,
-  if published, replace ours** in BOTH `kmitl_config.yaml` and
-  `aavc-gcs/aavc_field.yaml` (same digits there).
-- **Three NO-FLY bands (operator's marked-up field photo `IMG_0550.jpg`,
-  georeferenced ±5 m): the main building (ENU E 122-186 / N 25-84), the whole
-  east end of the search area (E 215-256 / N 37-116) and the rules' orange
-  block south of it (E 219-255 / N -14..40).** The building box sits in the
-  MIDDLE of the rules' search polygon and every move the mission makes is a
-  straight goto (pad hops, decode visits, the egress to P3′, a failsafe RTL),
-  so a pad found east of it could only be reached through the box. Hence:
-  **the flown `search_area` is now the rules' polygon CUT at E 110 m — the
-  open field WEST of the building** (the rules' full polygon is kept as
-  `search_area_rules`, documentation only). From there every straight line —
-  hops, egress, RTL to P1 — stays west of E 110. ⚠ Pads placed east of the
-  building are NOT searched; ask the committee where the pads go. Routing
-  around the box is day-2 work. `no_fly_zones` stays `[]` on purpose (the
-  operator's 2026-08-27 rule: no approximate polygon in the watchdog); the
-  building box could never be armed anyway — the committee's corridor hugs
-  its west edge at 2-4 m. Paste-ready polygons for the two eastern bands sit
-  in the config comment.
+  the building's roof. The new leg runs DUE NORTH at **E 123.7 m** from L&R —
+  the line the operator drew on the 20 m-gridded satellite map at noon (an
+  earlier version of this bullet carried a ±5 m georeference of the
+  committee's slide; the operator's own line replaced it): **P2′ 13.730390,
+  100.788590** (ENU 123.7 / 7.6) → **P3′ 13.730715, 100.788590** (ENU 123.7 /
+  43.8), 2 m west of the building band he marked. P1 = L&R unchanged.
+  **Committee coordinates, if published, replace ours** in BOTH
+  `kmitl_config.yaml` and `aavc-gcs/aavc_field.yaml` (same digits there).
+- **Two NO-FLY bands, marked by the operator on the gridded map (noon):
+  the building band — the main building AND the courtyard east of it, ENU
+  E 125.6-266 / N 42-75.3 — and the east band, E 219.8-266 / N 42-116**
+  (the rules' orange block south of the search area still stands, outside
+  anything the plan flies). The building band sits in the MIDDLE of the
+  rules' search polygon, so the flown **`search_area` is an L**: the west
+  field (E 41-125, full height) + the strip north of the building (E 125-220,
+  N 75-112); the rules' polygon is kept as `search_area_rules`. Two pieces of
+  flight-core code, both OFF unless configured (`tests/test_keepout_routing.py`):
+  **(1) `search.sweep_waypoints_enu`** — the sweep is laid out BY HAND in ENU
+  metres about L&R (`search_pattern.py::build_explicit_pattern`, chosen by
+  `main.py::_build_spec` when the key is present) because the polygon
+  planner sweeps a bounding box and would run every leg through the band:
+  3 E-W legs at 20 m — C (112,58)→(46,58) · A (46,88)→(205,88) ·
+  B (205,107)→(46,100) — 433 m / ~159 s, coverage checked on a 2 m grid.
+  **(2) `routing.keepout_zones` + `routing.gateway`** — every goto the mission
+  makes (sweep legs, decode visits, the hop to a pad, the egress to P3′)
+  goes through `mission.py::_goto_routed`: if the straight line from the
+  current fix crosses a keep-out polygon it flies to the gateway (ENU
+  115/83, off the band's NW corner — a clear straight line to every point of
+  the L and to P3′) first; candidates/claimed pads inside a band (+3 m) are
+  refused (`decode visit skipped` / `DELIVERY k REFUSED`). Not a failsafe —
+  nothing here RTHs; `no_fly_zones` stays `[]` (operator's 2026-08-27 rule,
+  and the corridor runs 2 m from the band's edge). ⚠ What it cannot route:
+  **PX4's own failsafe RTL** (straight line home) — from the north strip
+  east of E ~130 that line crosses the building band; safety-pilot brief.
 - **Sweep 12 → 20 m** (operator: "survey at 20 m" — obstacle clearance over
-  the display aircraft; "25 m clears everything"). On the cut polygon: **3
-  legs / 216 m / 87 s** (12 m would be 5 / 344 / 142 and decode in-flight).
+  the display aircraft; "25 m clears everything"). On the L: **3 hand-laid
+  legs / 433 m / ~159 s** (at 12 m the same L would need ~6 legs and would
+  decode in the sweep).
   The marker is 16.9 px at 20 m — under the validated 18 px floor — so the
   sweep is a **white-pad finder** (pad 42 px, blob floor 18) and ids are read
   on the EXISTING decode visits at 10.5 m (`mission.py::_decode_visits`,
@@ -185,9 +194,10 @@ the 13:00-18:00 trial slot is the single test.
   drawn box edge, so the roof is never in view. Knock-ons:
   `max_fix_ground_dist_m` 15 → 20 (the half-swath is 15.1 m now),
   `serve_cost_s` 80 → 105 (the hop is at 20 m: +8 m down at 0.4 m/s),
-  `sortie_cost_s` stays 900 (rebuilt: 17 + 53 + 24 + 87 + 188 + 420 + 17 +
-  53 + 35 = 894; egg 4's gate runs with 516 s left), `known_sortie_cost_s`
-  280 (rebuilt: 255 m via the corridor each way + a 105 s serve).
+  `sortie_cost_s` 900 → 970 (rebuilt: 17 + 53 + 6 + 159 + 188 + 420 + 32 +
+  53 + 35 = 963; egg 4's gate runs with 462 s left; launch gate 1180 ≤ 1200),
+  `known_sortie_cost_s` 280 (rebuilt: 263 m via the corridor each way + a
+  105 s serve).
 - Still open from the briefing: the committee's OWN corridor / no-fly
   coordinates (ours are ±5 m from photos) and WHERE the pads are placed. The
   GCS label now reads "เพดาน 30 m"; the printed KMITL checklist

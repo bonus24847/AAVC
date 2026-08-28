@@ -44,7 +44,7 @@ from mission_brain.flights import budgeted_flights_for, chunk_flights, remaining
 from mission_brain.live_plan import render_live_plan
 from mission_brain.profile import load_profile
 from mission_brain.schemas import CommandKind, Coordinate, MissionPhase
-from mission_brain.search_pattern import build_search_pattern
+from mission_brain.search_pattern import build_explicit_pattern, build_search_pattern
 from vision.detectors.aruco import VALID_MARKER_IDS
 from vision.projection import configure_cameras
 
@@ -772,7 +772,25 @@ async def run(args: argparse.Namespace) -> int:
                        "(rules publish 3) — flying it as configured")
     sc = cfg.get("search", {}) or {}
     mc = cfg.get("mission", {}) or {}
-    spec = _build_spec(search_area, placeholder_home, sc, profile.altitude_ceiling_m)
+    # Plan-level keep-out routing (2026-08-28, KMITL): polygons a straight
+    # goto must never cross + the one via-point that detours around them.
+    # NOT the watchdog (no_fly_zones) — nothing here RTHs; it only changes
+    # the path a goto takes. Empty = every goto is the straight line it was.
+    rt = cfg.get("routing", {}) or {}
+    keepout_zones = [[(float(v[0]), float(v[1])) for v in poly]
+                     for poly in (rt.get("keepout_zones") or []) if len(poly) >= 3]
+    gw_cfg = rt.get("gateway")
+    gateway: tuple[float, float] | None = (
+        (float(gw_cfg[0]), float(gw_cfg[1])) if gw_cfg else None)
+    if keepout_zones:
+        if gateway is None:
+            logger.error("[main] routing.keepout_zones set but no routing.gateway — "
+                         "a crossing goto has nowhere to detour to")
+            return 2
+        logger.info(f"[main] routing: {len(keepout_zones)} keep-out polygon(s), "
+                    f"gateway=({gateway[0]:.6f},{gateway[1]:.6f})")
+    spec = _build_spec(search_area, placeholder_home, sc, profile.altitude_ceiling_m,
+                       origin=site_origin)
     tracker = _build_tracker(sc)
     plan = render_live_plan(placeholder_home, spec, discovered=[], profile=profile,
                             transit_route=transit_route)
@@ -871,7 +889,8 @@ async def run(args: argparse.Namespace) -> int:
         # the search pattern about the true home now that GPS is known. The sweep
         # covers the SEARCH AREA polygon (the geofence is the airspace boundary).
         home = Coordinate(lat=state.telemetry.lat, lon=state.telemetry.lon)
-        spec = _build_spec(search_area, home, sc, profile.altitude_ceiling_m)
+        spec = _build_spec(search_area, home, sc, profile.altitude_ceiling_m,
+                           origin=site_origin)
         state.plan = render_live_plan(home, spec, discovered=[], profile=profile,
                                       transit_route=transit_route)
         logger.info(f"[main] home=({home.lat:.7f},{home.lon:.7f}); search area "
@@ -1121,6 +1140,7 @@ async def run(args: argparse.Namespace) -> int:
                     profile=profile, align=align, policy=policy,
                     max_pads=int(sc.get("max_pads", 6)),
                     decode_dwell_s=float(sc.get("decode_dwell_s", 4.0)),
+                    keepout_zones=keepout_zones, gateway=gateway,
                     on_drop_prediction=on_drop_prediction,
                     on_plan_update=on_plan_update,
                     refresh_energy=lambda: _evaluate_energy(state, energy_policy),
@@ -1282,9 +1302,28 @@ def _align_for(profile: Any, frame_max_age_s: float,
 
 
 def _build_spec(area: list[tuple[float, ...]], home: Coordinate,
-                sc: dict[str, Any], ceiling_m: float) -> Any:
-    """Boustrophedon sweep of the SEARCH AREA polygon + the `search:` config."""
+                sc: dict[str, Any], ceiling_m: float, *,
+                origin: tuple[float, float] | None = None) -> Any:
+    """Boustrophedon sweep of the SEARCH AREA polygon + the `search:` config —
+    or, when the config carries ``search.sweep_waypoints_enu`` (2026-08-28:
+    the KMITL search area is an L around a no-fly building, which a
+    bounding-box sweep cannot avoid), that hand-laid list, in ENU metres
+    about ``origin`` = the site origin (ground_operation.launch_recovery)."""
     axis = sc.get("sweep_axis_deg")
+    explicit = sc.get("sweep_waypoints_enu")
+    if explicit:
+        if origin is None:
+            raise ValueError("search.sweep_waypoints_enu needs the site origin "
+                             "(ground_operation.launch_recovery) to place it")
+        return build_explicit_pattern(
+            [(float(p[0]), float(p[1])) for p in explicit],
+            Coordinate(lat=float(origin[0]), lon=float(origin[1])),
+            sweep_alt_m=float(sc.get("sweep_alt_m", 12.0)),
+            overlap_frac=float(sc.get("overlap_frac", 0.4)),
+            speed_mps=float(sc.get("speed_mps", 10.0)),
+            ceiling_m=ceiling_m,
+            leg_bearing_deg=float(axis) if axis is not None else 90.0,
+        )
     return build_search_pattern(
         area, home,
         sweep_alt_m=float(sc.get("sweep_alt_m", 12.0)),

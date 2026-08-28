@@ -77,3 +77,28 @@ new corridor, grey = PDF corridor, green = sweep legs, red = no-fly bands),
 `briefing_corridor_2026-08-28_zoom.jpg` (the slide's sketch over the Esri
 imagery, 4x: green = sketch, yellow = PDF P1-P2-P3, orange = the slide's own
 drawn route).
+
+## Update, 28-Aug noon — the operator's own layout supersedes the slide georeference
+
+After seeing the plan the operator drew the corridor and the no-fly areas
+himself on the 20 m-gridded Esri map (`~/Desktop/KMITL_map_rules_geometry.jpg`
+→ `KMITL_map_rules_geometrygooo.jpg`), which reads back with no fit at all
+(the grid IS the georeference; ±3 m from the stroke width):
+
+* corridor = a due-north green line at **E 123.7 m** → P2′ 13.730390,
+  100.788590 (ENU 123.7 / 7.6, on the P1-P2 line) · P3′ 13.730715, 100.788590
+  (ENU 123.7 / 43.8, on the search-area south edge). Replaces the slide-derived
+  P2′/P3′ above (121.2/7.5 · 118.7/43.9 — 2-5 m west of his line).
+* no-fly **building band** E 125.6-266 / N 42-75.3 (the building AND the
+  courtyard east of it, down to the search-area south edge) and **east band**
+  E 219.8-266 / N 42-116. These replace the IMG_0550 boxes above for planning.
+
+Consequences (all in `sitl/kmitl_config.yaml`, tests in
+`tests/test_keepout_routing.py`): the flown search area is the L left over
+(west field + the strip north of the building, N ≥ 75.3); the sweep is laid
+by hand (`search.sweep_waypoints_enu`: C (112,58)→(46,58), A (46,88)→(205,88),
+B (205,107)→(46,100); 433 m, ~159 s; 2 m-grid coverage check: only a few
+metres in the corner against the corridor gate are uncovered); every goto is
+routed around the bands through the gateway ENU (115, 83) = 13.731068,
+100.788509 (`routing:`); candidates and pads inside a band (+3 m) are refused.
+Image of the plan: `~/Desktop/KMITL_flight_path_L_2026-08-28.jpg`.

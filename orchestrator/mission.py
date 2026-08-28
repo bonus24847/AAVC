@@ -53,7 +53,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 
 from loguru import logger
@@ -208,6 +208,89 @@ PlanUpdateCb = Callable[[MissionPlan, int], None]
 FlightGate = Callable[[int], Awaitable[list[int] | None]]
 
 
+# ── keep-out geometry (2026-08-28) ──────────────────────────────────────────
+# The mission moves between waypoints in STRAIGHT gotos. At KMITL the main
+# building became a no-fly band sitting in the middle of the search area, so
+# a straight line from the north strip to the corridor gate, to a pad in the
+# west field or to the next decode candidate would cross it. These helpers
+# answer "does this segment cross a keep-out?" and "is this point inside (or
+# within a margin of) one?". Intersection and containment are affine
+# invariants, so they are evaluated directly in (lat, lon); the metre margin
+# is applied in a local ENU frame about the polygon's first vertex.
+def _orient(ax: float, ay: float, bx: float, by: float, cx: float, cy: float) -> float:
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+
+def _segments_intersect(p1: tuple[float, float], p2: tuple[float, float],
+                        p3: tuple[float, float], p4: tuple[float, float]) -> bool:
+    d1 = _orient(*p3, *p4, *p1)
+    d2 = _orient(*p3, *p4, *p2)
+    d3 = _orient(*p1, *p2, *p3)
+    d4 = _orient(*p1, *p2, *p4)
+    if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)) and d1 * d2 < 0 and d3 * d4 < 0:
+        return True
+
+    def _on(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> bool:
+        return (min(a[0], b[0]) <= c[0] <= max(a[0], b[0])
+                and min(a[1], b[1]) <= c[1] <= max(a[1], b[1]))
+    return ((d1 == 0 and _on(p3, p4, p1)) or (d2 == 0 and _on(p3, p4, p2))
+            or (d3 == 0 and _on(p1, p2, p3)) or (d4 == 0 and _on(p1, p2, p4)))
+
+
+def _point_in_polygon(x: float, y: float, poly: Sequence[tuple[float, float]]) -> bool:
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 > y) != (y2 > y):
+            xi = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+            if x < xi:
+                inside = not inside
+    return inside
+
+
+def _segment_crosses_polygon(a: tuple[float, float], b: tuple[float, float],
+                             poly: Sequence[tuple[float, float]]) -> bool:
+    """True if the straight segment a→b enters ``poly`` (either end inside, or
+    the segment cuts an edge). Points/polygon in the same (lat, lon) frame."""
+    if len(poly) < 3:
+        return False
+    if _point_in_polygon(a[0], a[1], poly) or _point_in_polygon(b[0], b[1], poly):
+        return True
+    n = len(poly)
+    return any(_segments_intersect(a, b, poly[i], poly[(i + 1) % n]) for i in range(n))
+
+
+def _point_near_polygon_m(lat: float, lon: float,
+                          poly: Sequence[tuple[float, float]], margin_m: float) -> bool:
+    """Inside ``poly`` or within ``margin_m`` metres of one of its edges."""
+    if len(poly) < 3:
+        return False
+    lat0, lon0 = poly[0]
+    k = _R_EARTH_M * math.cos(math.radians(lat0))
+
+    def enu(p: tuple[float, float]) -> tuple[float, float]:
+        return (math.radians(p[1] - lon0) * k, math.radians(p[0] - lat0) * _R_EARTH_M)
+    pe = [enu(v) for v in poly]
+    x, y = enu((lat, lon))
+    if _point_in_polygon(x, y, pe):
+        return True
+    n = len(pe)
+    for i in range(n):
+        ax, ay = pe[i]
+        bx, by = pe[(i + 1) % n]
+        L2 = (bx - ax) ** 2 + (by - ay) ** 2
+        dot = (x - ax) * (bx - ax) + (y - ay) * (by - ay)
+        t = 0.0 if L2 == 0 else max(0.0, min(1.0, dot / L2))
+        if math.hypot(x - (ax + t * (bx - ax)), y - (ay + t * (by - ay))) <= margin_m:
+            return True
+    return False
+
+
+_KEEPOUT_MARGIN_M = 3.0   # a "pad" this close to a no-fly edge is a false hit
+
+
 def _latlon_dist_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dn = math.radians(lat2 - lat1) * _R_EARTH_M
     de = math.radians(lon2 - lon1) * _R_EARTH_M * math.cos(math.radians(lat1))
@@ -228,6 +311,8 @@ async def run_delivery_mission(
     policy: TimePolicy | None = None,
     max_pads: int = 6,  # SIX pads in the field; a 4 truncates the sweep at 4/6
     decode_dwell_s: float = 4.0,
+    keepout_zones: Sequence[Sequence[tuple[float, float]]] | None = None,
+    gateway: tuple[float, float] | None = None,
     on_phase: Callable[[MissionPhase], None] | None = None,
     on_drop_prediction: DropPredCb | None = None,
     on_plan_update: PlanUpdateCb | None = None,
@@ -481,6 +566,49 @@ async def run_delivery_mission(
             await asyncio.sleep(_LOOKOUT_POLL_S)
         return False
 
+    keepouts: list[list[tuple[float, float]]] = [
+        [(float(v[0]), float(v[1])) for v in poly]
+        for poly in (keepout_zones or []) if len(poly) >= 3]
+    gw: tuple[float, float] | None = (
+        (float(gateway[0]), float(gateway[1])) if gateway is not None else None)
+
+    def _in_keepout(lat: float, lon: float) -> bool:
+        """Inside a keep-out polygon, or within _KEEPOUT_MARGIN_M of its edge.
+        A candidate or a claimed pad there is a false detection: the committee
+        places pads in the open, never in a no-fly band — and a decode visit
+        or a landing there would put the aircraft INSIDE the band."""
+        return any(_point_near_polygon_m(lat, lon, poly, _KEEPOUT_MARGIN_M)
+                   for poly in keepouts)
+
+    async def _goto_routed(lat: float, lon: float, alt: float, *,
+                           yaw_deg: float = float("nan")) -> None:
+        """``commander.goto`` that refuses to fly THROUGH a keep-out polygon:
+        when the straight line from the current fix to the target crosses one,
+        fly to the configured gateway first (and wait to get there), then on to
+        the target. One gateway is enough for the KMITL L (2026-08-28): it sits
+        off the building's NW corner, where every point of the west field, the
+        north strip and the corridor gate has a clear straight line to it. The
+        second hop is checked too; if it still crosses (a target that is
+        itself in a band — the keep-out filters above should have caught it),
+        the crossing is logged and flown rather than stranding the mission."""
+        cur = _cur_latlon()
+        if keepouts and gw is not None and cur is not None and any(
+                _segment_crosses_polygon(cur, (lat, lon), poly) for poly in keepouts):
+            state.record_audit(
+                f"t={state.time_elapsed_s():.1f}s ROUTE via gateway "
+                f"({gw[0]:.6f},{gw[1]:.6f}): straight line to ({lat:.6f},{lon:.6f}) "
+                "crosses a keep-out zone")
+            logger.info(f"[mission] goto ({lat:.6f},{lon:.6f}) crosses a keep-out zone "
+                        f"— routing via the gateway ({gw[0]:.6f},{gw[1]:.6f})")
+            await commander.goto(gw[0], gw[1], alt, yaw_deg=yaw_deg)
+            d = _latlon_dist_m(cur[0], cur[1], gw[0], gw[1])
+            await _wait_arrival(gw, timeout_s=2.0 * d / max(spec.speed_mps, 0.1) + _WAIT_PAD_S)
+            if any(_segment_crosses_polygon(gw, (lat, lon), poly) for poly in keepouts):
+                logger.warning(f"[mission] gateway → ({lat:.6f},{lon:.6f}) STILL crosses "
+                               "a keep-out zone — target inside a band? flying it")
+                state.record_anomaly("keepout_crossing_unavoidable")
+        await commander.goto(lat, lon, alt, yaw_deg=yaw_deg)
+
     async def _fly_transit(flight: int, *, egress: bool) -> None:
         """Fly the mandatory transit corridor in order (scored per point).
         Every pass/miss is audited — the judges score each coordinate. The
@@ -496,7 +624,7 @@ async def run_delivery_mission(
             n = (n_route - k + 1) if egress else k        # P-number as published
             state.command_pointer = pointer_for(
                 state.plan, transit_index=k, egress=egress)
-            await commander.goto(p.lat, p.lon, transit_alt)
+            await _goto_routed(p.lat, p.lon, transit_alt)
             cur = _cur_latlon()
             dist = _latlon_dist_m(cur[0], cur[1], p.lat, p.lon) if cur else 200.0
             ok = await _wait_arrival(
@@ -600,8 +728,8 @@ async def run_delivery_mission(
             # cap. The camera is bolted to the body, so that was 1 of 457
             # frames decodable. The value also places the WIDE image axis
             # across track, which is the footprint search_pattern budgets for.
-            await commander.goto(wp.lat, wp.lon, sweep_alt,
-                                 yaw_deg=spec.sweep_yaw_deg)
+            await _goto_routed(wp.lat, wp.lon, sweep_alt,
+                               yaw_deg=spec.sweep_yaw_deg)
             cur = _cur_latlon()
             leg_len = _latlon_dist_m(cur[0], cur[1], wp.lat, wp.lon) if cur else 0.0
             leg_timeout = 2.0 * leg_len / max(spec.speed_mps, 0.1) + _WAIT_PAD_S
@@ -641,6 +769,14 @@ async def run_delivery_mission(
             if not _running() or (assigned > 0 and
                                   tracker.confirmed_by_marker(assigned) is not None):
                 return
+            if _in_keepout(cand.lat, cand.lon):
+                state.record_audit(
+                    f"t={state.time_elapsed_s():.1f}s decode visit skipped: candidate "
+                    f"#{cand.target_id} ({cand.lat:.7f},{cand.lon:.7f}) inside a "
+                    "keep-out zone")
+                logger.warning(f"[mission] candidate #{cand.target_id} sits in a "
+                               "keep-out zone — not visiting it")
+                continue
             # Fund every delivery this flight still OWES, not just one. The
             # old can_start_serve guard sized discovery for a single serve —
             # correct when a flight was one delivery, but a 4-egg flight could
@@ -655,8 +791,8 @@ async def run_delivery_mission(
             _phase(MissionPhase.SEARCH)
             logger.info(f"[mission] decode visit → candidate #{cand.target_id} "
                         f"({cand.lat:.7f},{cand.lon:.7f}) @ {decode_alt:.0f} m")
-            await commander.goto(cand.lat, cand.lon, decode_alt,
-                                 yaw_deg=spec.sweep_yaw_deg)
+            await _goto_routed(cand.lat, cand.lon, decode_alt,
+                               yaw_deg=spec.sweep_yaw_deg)
             await _wait_arrival((cand.lat, cand.lon), timeout_s=60.0)
             t0 = state.now()
             while _running() and (state.now() - t0) < decode_dwell_s:
@@ -749,6 +885,14 @@ async def run_delivery_mission(
             _drain_tracker()
             if claimed is None:
                 return False
+            if _in_keepout(claimed.lat, claimed.lon):
+                state.record_audit(
+                    f"t={state.time_elapsed_s():.1f}s DELIVERY {delivery_index} REFUSED "
+                    f"pad={assigned} ({claimed.lat:.7f},{claimed.lon:.7f}) inside a "
+                    "keep-out zone — not landing there")
+                logger.error(f"[mission] pad {assigned} registered inside a keep-out "
+                             "zone — refusing the delivery")
+                return False
             # I7: on the retry (attempt 2) this is where align's non-blocking
             # defer climb gets finished off before the hop is flown — see
             # _climb_out_to_hop_alt's docstring. No-op on attempt 1.
@@ -773,8 +917,8 @@ async def run_delivery_mission(
             cur0 = _cur_latlon()
             d0 = (_latlon_dist_m(cur0[0], cur0[1], claimed.lat, claimed.lon)
                   if cur0 else 200.0)
-            await commander.goto(claimed.lat, claimed.lon, sweep_alt,
-                                 yaw_deg=spec.sweep_yaw_deg)
+            await _goto_routed(claimed.lat, claimed.lon, sweep_alt,
+                               yaw_deg=spec.sweep_yaw_deg)
             await _wait_arrival(
                 (claimed.lat, claimed.lon),
                 timeout_s=2.0 * d0 / max(spec.speed_mps, 0.1) + _WAIT_PAD_S)
