@@ -65,6 +65,7 @@ def test_egg_release_servo_config_is_locked() -> None:
     assert c.drop_servo_channel == 1
     assert c.drop_servo_pwm_release == 1900
     assert c.drop_servo_pwm_hold == 1100
+    assert c.drop_servo_relatch is False         # latch stays open after release (2026-08-28)
     assert c.drop_payload_count == 1             # one release mechanism → payload_id 0
     # Empty map = the historical base+offset progression; the shipped config
     # (below) supplies the real rack's as-wired order.
@@ -142,3 +143,18 @@ def test_shared_envelope_constants() -> None:
     # KMUTNB: breach band 1.5 (RTH at ceiling+1.5 = 6.5 m on the 5 m field —
     # proportionate to the small band; 2.0 tolerated a 40%-over hold).
     assert CEILING_BREACH_M == 1.5
+
+
+def test_field_configs_keep_the_latch_open_after_release() -> None:
+    """Both field configs spell the 2026-08-28 decision out, and the loader
+    honours the key (a typo'd key would silently keep the dataclass default —
+    which happens to be the same value today, so pin the config text too)."""
+    import yaml
+
+    from orchestrator.main import _build_connection
+    for path in ("sitl/kmitl_config.yaml", "sitl/aavc_config.yaml"):
+        cfg = yaml.safe_load(open(path, encoding="utf-8"))
+        assert cfg["connection"]["drop_servo_relatch"] is False, path
+        assert _build_connection(cfg["connection"], None).drop_servo_relatch is False
+    assert _build_connection({"drop_servo_relatch": True}, None).drop_servo_relatch is True
+

@@ -222,6 +222,8 @@ def _build_connection(cc: dict[str, Any], connect_override: str | None) -> Conne
         kw["drop_servo_channels"] = tuple(int(c) for c in cc["drop_servo_channels"])
     if "drop_fallback_endpoint" in cc:
         kw["drop_fallback_endpoint"] = str(cc["drop_fallback_endpoint"])
+    if "drop_servo_relatch" in cc:
+        kw["drop_servo_relatch"] = bool(cc["drop_servo_relatch"])
     for key in ("connect_timeout_s", "arming_timeout_s"):
         if key in cc:
             kw[key] = float(cc[key])

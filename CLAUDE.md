@@ -328,7 +328,11 @@ single sortie" is history, not current design.)
   the mission releases in that diagonal order, so
   `connection.drop_servo_channels: [4, 1, 2, 3]` maps `payload_id` → channel
   (`ConnectionConfig.actuator_index`; empty list = the old
-  `drop_servo_channel + payload_id` progression). `drop_payload_count=4`;
+  `drop_servo_channel + payload_id` progression). **The latch stays OPEN
+  after the release (operator 2026-08-28, after the 17:28 flight):**
+  `drop_servo_relatch: false` drops the −0.8 re-latch pulse that used to
+  follow the release 0.6 s later; PX4's `PWM_AUX_DISn=1100` closes every pin
+  at disarm, so the rack is closed again at L&R by itself. `drop_payload_count=4`;
   a single latch was the `eggs_aboard=1` case. ⚠ A **RECOVERY flight**
   (index past the queue's positional chunks, same rule as
   `main.py::_chunk_for`) serves from the **unfired latches** instead of
@@ -573,7 +577,16 @@ single sortie" is history, not current design.)
   **motors run from a SEPARATE board the FC cannot sense**. So any current the
   FC reads (~0.7 A via the PM02D) is avionics draw, not the ~35-43 A of
   flight, and a current-fused gauge on that wiring fails OPTIMISTIC and
-  silently — the PM02D's current output must NEVER feed coulomb counting. The switch to the voltage
+  silently — the PM02D's current output must NEVER feed coulomb counting.
+  ⚠ **SUPERSEDED BY MEASUREMENT 2026-08-28 (ULogs `08_05_29` + `10_28_22`):
+  the PM02D now reads the WHOLE pack current** — 0.7-0.9 A parked or idling
+  on a pad, **36-39 A in flight** (hover 38.2 / 38.9 A at ~23 V, transit at
+  5 m/s 38.7 A, peaks 75 A), 3096 mAh counted over the 5.2-min 17:28 flight
+  (4065 mAh over the 6-min trial). The wiring evidently changed with the
+  PM02D on 08-20; `BAT1_A_PER_V` is still the board default (-1) and is
+  unverified against a charger — the voltage-only gauge meanwhile read
+  96 → 34 % ("10.6 Ah") for a flight the counter puts at 3.1 Ah, i.e. the
+  % floors fire ~3x early. Decision pending the charger's returned mAh. The switch to the voltage
   branch is **`BAT1_CAPACITY=-1`** (`lib/battery/battery.cpp`
   `estimateStateOfCharge` takes the voltage-only `else` only when capacity
   <= 0) — **NOT** `BAT1_I_CHANNEL=-1`, which is a no-op: -1 means "board

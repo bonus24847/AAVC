@@ -396,6 +396,12 @@ connection:
   drop_servo_channels: [4, 1, 2, 3]
   drop_servo_pwm_release: 1900   # us -> +0.8 normalized, egg-release position
   drop_servo_pwm_hold: 1100      # us -> -0.8 normalized, closed/hold position
+  # 2026-08-28 (operator, after the 17:28 KMITL flight — 2/2 delivered, latch
+  # re-closed 0.6 s after each release): the latch now stays OPEN after the
+  # release for the rest of the flight. PX4 drives every AUX pin to
+  # PWM_AUX_DISn (1100 = closed) at DISARM, so the rack closes itself at L&R
+  # for the resupply crew. true = the old release -> 0.6 s -> hold pulse.
+  drop_servo_relatch: false
   # Four INDEPENDENT release mechanisms (briefing override: all four eggs fly
   # in one flight; rules §7 permits multiple cargo only with independent
   # release mechanisms, never simultaneous).

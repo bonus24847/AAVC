@@ -690,3 +690,43 @@ def test_land_and_rth_record_the_mode_they_ask_for_and_goto_clears_it() -> None:
     _a.run(c.goto(13.7, 100.7, 8.0))
     assert c.expected_mode is None
     assert calls == ["land", "goto"]
+
+
+# ── drop_payload: the latch stays OPEN after the release (operator 2026-08-28) ──
+
+class _RecordingAction:
+    """Records every set_actuator(index, value) the commander sends."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, float]] = []
+
+    async def set_actuator(self, index: int, value: float) -> None:
+        self.calls.append((index, value))
+
+
+def _drop_commander(**cfg) -> tuple[DroneCommander, _RecordingAction]:
+    from mavlink_adapter.commands import ConnectionConfig
+    action = _RecordingAction()
+    c = _commander_with(action)  # type: ignore[arg-type]
+    c.config = ConnectionConfig(drop_payload_count=4,
+                                drop_servo_channels=(4, 1, 2, 3), **cfg)
+    return c, action
+
+
+def test_drop_payload_leaves_the_latch_open_by_default():
+    """2026-08-28, after the 17:28 KMITL flight (ULog: +0.8 then -0.8 on the
+    same AUX pin 0.6 s apart): the operator wants the latch to stay OPEN once
+    the egg is released — no re-latch pulse. PX4 closes every AUX pin at
+    disarm (PWM_AUX_DISn) so the rack is closed again for the resupply."""
+    c, action = _drop_commander()
+    asyncio.run(c.drop_payload(0))
+    assert action.calls == [(4, pytest.approx(0.8))], action.calls
+
+
+def test_drop_payload_relatch_is_opt_in():
+    c, action = _drop_commander(drop_servo_relatch=True)
+    asyncio.run(c.drop_payload(1))
+    assert [i for i, _ in action.calls] == [1, 1]
+    assert action.calls[0][1] == pytest.approx(0.8)
+    assert action.calls[1][1] == pytest.approx(-0.8)
+
