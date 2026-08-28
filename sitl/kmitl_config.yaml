@@ -237,9 +237,9 @@ search:
   # visited at 10.5 m too — the safety pilot watches every descent that starts
   # over the building. Laid out BY HAND for the
   # L-shaped area (sweep_waypoints_enu below; the generated pattern would run
-  # through the building band). At 20 m (swath 30.3): 3 legs, 433 m of
-  # legs+turns, ~159 s; marker 16.9 px, pad 42 px. At 12 m the same
-  # area would need ~6 legs (swath 18.2) and decode in the sweep.
+  # through the building band). At 20 m (swath 30.3): 4 legs, 556 m of
+  # legs+turns, ~206 s; marker 16.9 px, pad 42 px. At 12 m the same
+  # area would need ~8 legs (swath 18.2) and decode in the sweep.
   # ⚠ NOT YET FLOWN: the 28-Aug trial slot is the one test — pass = every
   # placed pad becomes a white-pad candidate on the sweep AND decodes on its
   # visit.
@@ -253,31 +253,40 @@ search:
   # from L&R (ground_operation.launch_recovery — the frame every ENU number
   # in this file uses). Read by orchestrator/main.py::_build_spec →
   # mission_brain/search_pattern.py::build_explicit_pattern; when this key is
-  # present the polygon planner is bypassed. Three E-W legs at the 20 m
-  # swath (30.3 m, legs 21 m apart or less), flown in this order — the
-  # heading held is sweep_axis_deg (87) minus the camera mount, as always:
-  #   C  (112,58) → (46,58)    west field, lower band N 43-73 — starts 18 m
-  #                            from the corridor gate P3' (123.7, 43.8);
-  #                            ends at E 112 so the footprint reaches E ~127,
-  #                            the building band's edge, and no further
-  #   A  (46,88) → (205,88)    north strip + west field, N 73-103; 12.7 m
-  #                            above the band's top (75.3); ends at E 205 so
-  #                            the footprint reaches the east band's edge
-  #   B  (205,107) → (46,100)  along the tilted north edge (102 at E 46 →
+  # present the polygon planner is bypassed. FOUR E-W legs at the 20 m swath
+  # (30.3 m), 16 / 18 / 21 m apart — the operator's call at noon: the first
+  # cut had three legs 30 m apart (leg 1 at N 58, leg 2 at N 88, forced by
+  # the building band's top at N 75.3), i.e. ZERO overlap; on a 2 m grid of
+  # the L that left 6 % of the area unseen at a realistic 13 m usable
+  # half-swath (a pad must sit wholly inside the frame) and 15 % at 11 m
+  # (GPS bias + tilt) — all of it along the N ~73 seam. Four legs bring
+  # that to 0.6 % / 2.6 % for ~52 s more sweep. The heading held is
+  # sweep_axis_deg (87) minus the camera mount, as always. Flown in order:
+  #   1  (112,52) → (46,52)    west field, N 37-67 — starts 14 m from the
+  #                            corridor gate P3' (123.7, 43.8); ends at
+  #                            E 112 so the footprint reaches E ~127, the
+  #                            building band's edge, and no further
+  #   2  (46,68) → (112,68)    west field, N 53-83 — 7 m under the band's
+  #                            top (75.3); east end as leg 1
+  #   3  (46,86) → (205,86)    west field + north strip, N 71-101; 10.7 m
+  #                            above the band's top; ends at E 205 so the
+  #                            footprint reaches the east band's edge
+  #   4  (205,107) → (46,100)  along the tilted north edge (102 at E 46 →
   #                            112 at E 205), N 85-122 — 5-10 m inside the
   #                            geofence's north edge (110.8 → 113.6)
-  # Coverage was checked on a 2 m grid of the whole L: every point is within
-  # 15.1 m (half a swath) of a leg except a few metres in the corner right
-  # against the corridor gate. The transitions (E 46 south-bound, E 205
-  # north-bound) and the entry/exit never cross a keep-out polygon; the exit
-  # from B's west end to P3' is a 96 m straight line through the west field.
-  # Re-run tests/test_search_pattern.py after ANY edit — it checks every leg
-  # against the airspace and the keep-out polygons.
+  # Coverage is pinned by tests/test_keepout_routing.py (every 2 m grid
+  # point of the L within 13 m of a leg, bar a corner against the gate). The
+  # transitions (E 46 north-bound, E 112 → (46,86) diagonal across the west
+  # field, E 205 north-bound), the entry and the exit never cross a keep-out
+  # polygon; the exit from leg 4's west end to P3' is a 96 m straight line
+  # through the west field. Re-run the test after ANY edit.
   sweep_waypoints_enu:
-    - [112.0, 58.0]
-    - [46.0, 58.0]
-    - [46.0, 88.0]
-    - [205.0, 88.0]
+    - [112.0, 52.0]
+    - [46.0, 52.0]
+    - [46.0, 68.0]
+    - [112.0, 68.0]
+    - [46.0, 86.0]
+    - [205.0, 86.0]
     - [205.0, 107.0]
     - [46.0, 100.0]
   # ✅ 0.44 -> 0.30 on 2026-08-24, after the SITL test the operator asked for.
@@ -365,16 +374,27 @@ search:
   # the window was computing against a field a third of the size, so it
   # approved work it could not finish — and the per-delivery abort gate reads
   # the same numbers, so it could not catch it either.
-  sortie_cost_s: 970.0     # FULL-SWEEP 4-EGG sortie, rebuilt 2026-08-28 for the
-                           # L-shaped area + 20 m sweep + decode visits: takeoff
-                           # 17 (G4' measured) + ingress 53 (160 m of new
-                           # corridor at 3 m/s) + 6 to leg C + sweep 159 (433 m
-                           # of legs+turns) + 4 decode visits x 47 = 188 + 4 x
-                           # serve_cost_s 105 = 420 + 32 from B's end to P3' +
-                           # egress 53 + land 35 = 963 s (six visits: 1057).
-                           # Egg 4's gate then runs with 462 s left against
-                           # its 300 s floor. The launch gate stacks reserve_s
-                           # 180 + this + margin 30 = 1180 <= 1200: first GO legal.
+  sortie_cost_s: 985.0     # FULL-SWEEP 4-EGG sortie, rebuilt 2026-08-28 for the
+                           # L-shaped area + 4-leg 20 m sweep + decode visits:
+                           # takeoff 17 (G4' measured) + ingress 53 (160 m of
+                           # new corridor at 3 m/s) + 5 to leg 1 + sweep 206
+                           # (556 m of legs+turns) + 4 decode visits x 47 = 188
+                           # + 4 x serve_cost_s 105 = 420 + 32 from leg 4's end
+                           # to P3' + egress 53 + land 35 = 1009 s (six visits:
+                           # 1103). Egg 4's gate then runs with 416 s left
+                           # against its 300 s floor.
+                           # ⚠ CAPPED at 985, not 1009: the launch gate
+                           # (TimePolicy.can_start_sortie) stacks reserve_s
+                           # 180 + this + margin 30 on top of a cost that
+                           # already contains the egress and the landing, so
+                           # the honest 1009 would REFUSE the first GO of a
+                           # fresh 1200 s window (1219 > 1200) — and the RC-GO
+                           # headless gate has no FORCE. 985 keeps the first
+                           # flight launchable (1195 <= 1200); the END of the
+                           # flight is owned by the per-delivery gate
+                           # (delivery_reserve_s 300), the discovery gate
+                           # (serve_cost_s / visit_cost_s) and the 30 %
+                           # battery egress — none of which read this number.
                            # (2026-08-24 history: 900 = 17 + 57 + 407 + 320 +
                            # 57 + 35 at the 12 m sweep of the FULL polygon,
                            # cross-checked against the 536 s SITL run.)

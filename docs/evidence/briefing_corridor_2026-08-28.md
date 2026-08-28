@@ -102,3 +102,16 @@ metres in the corner against the corridor gate are uncovered); every goto is
 routed around the bands through the gateway ENU (115, 83) = 13.731068,
 100.788509 (`routing:`); candidates and pads inside a band (+3 m) are refused.
 Image of the plan: `~/Desktop/KMITL_flight_path_L_2026-08-28.jpg`.
+
+### 4 legs, not 3 (operator, right after seeing the plan)
+
+The three-leg cut had leg 1 at N 58 and leg 2 at N 88 — 30 m apart, exactly
+one 20 m swath, zero overlap — because the strip leg had to clear the band's
+top at N 75.3. Grid check (2 m, the whole L, points within 3 m of a band
+excluded): unseen 0.7 % at the full 15.1 m half-swath, **5.9 % at a realistic
+13 m** (a pad must sit wholly in the frame), **15.3 % at 11 m** (GPS bias +
+tilt) — all along the N ≈ 73 seam. Four legs — 1 (112,52)→(46,52),
+2 (46,68)→(112,68), 3 (46,86)→(205,86), 4 (205,107)→(46,100); spacings
+16 / 18 / 21 m — bring that to 0 % / 0.6 % / 2.6 %; cost ~50 s of sweep
+(556 m incl. transitions, ~206 s). Pinned by
+`tests/test_keepout_routing.py::test_the_kmitl_sweep_covers_the_L_with_overlap`.
