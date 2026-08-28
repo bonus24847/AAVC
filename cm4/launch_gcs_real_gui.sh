@@ -310,6 +310,22 @@ if [ -f "$PIDFILE" ]; then
     rm -f "$PIDFILE"
     sleep 1
 fi
+# 2026-08-28 (KMITL, 14:46): a console that was NOT started by this script — one
+# relaunched by hand with the previous argv — is not in the PIDFILE, survived the
+# loop above, kept port 8000, and the console this script then started (on the
+# freshly plugged NOMAD radio) died at bind with "Address already in use". The
+# operator saw "no signal" + red lidar + no camera for 10 minutes while the
+# leftover console listened to a silent UDP port. Kill ANY console by pattern
+# before starting ours, and wait for the port to actually free up.
+if pgrep -f 'aavc_gcs[.]py' >/dev/null 2>&1; then
+    pkill -TERM -f 'aavc_gcs[.]py' 2>/dev/null
+    for _ in $(seq 1 10); do pgrep -f 'aavc_gcs[.]py' >/dev/null 2>&1 || break; sleep 0.5; done
+    pkill -KILL -f 'aavc_gcs[.]py' 2>/dev/null
+fi
+for _ in $(seq 1 10); do
+    ss -ltn 2>/dev/null | grep -q ":$PORT " || break
+    sleep 0.5
+done
 
 # ── 5. เปิด console (background, ไม่ต้องมี terminal) ──────────────────────
 # status_sync (ตัวดึง captures/ + เฟรมกล้องผ่าน WiFi) ถูกถอดออก 2026-08-18
