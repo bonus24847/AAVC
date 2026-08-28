@@ -66,6 +66,42 @@ transit_waypoints:
   - {id: 2, lat: 13.730390, lon: 100.788590}   # P2' — turn north (E 123.7 / N 7.6 m; 11.3 m W of the PDF's P2)
   - {id: 3, lat: 13.730715, lon: 100.788590}   # P3' — search-area ingress/egress (E 123.7 / N 43.8 m)
 
+# ── The PLANNED route, drawn on the map (2026-08-28, operator: "แสดง path ที่บิน").
+# Static, from this file — the console shows where the aircraft WILL go before
+# any link to it exists. Digit-for-digit the flight config's
+# (aavc-comp sitl/kmitl_config.yaml): `sweep` = search.sweep_waypoints_enu
+# converted to lat/lon (4 E-W legs at 20 m, flown in this order, 16/18/21 m
+# apart), `gateway` = routing.gateway (the one via-point every goto detours
+# through when its straight line would cross a keep-out polygon).
+planned_path:
+  sweep:                              # [lat, lon], flying order; pairs = legs 1..4
+    - [13.730789, 100.788482]
+    - [13.730789, 100.787871]
+    - [13.730933, 100.787871]
+    - [13.730933, 100.788482]
+    - [13.731095, 100.787871]
+    - [13.731095, 100.789342]
+    - [13.731283, 100.789342]
+    - [13.731220, 100.787871]
+  gateway: [13.731068, 100.788509]   # ENU 115 E / 83 N — off the building band's NW corner
+
+# Plan-level keep-out polygons (= flight config routing.keepout_zones) — the
+# no-fly bands the operator marked on the gridded map at the 28-Aug briefing:
+# the main building + the courtyard east of it, and the whole east end of the
+# search area. Drawn red. NOT the FMU/companion no-fly failsafe (that stays
+# unarmed — see the flight config); the mission plans AROUND these instead.
+keepout_zones:
+  - # building band  ENU E 125.6-266 / N 42-75.3
+    - [13.730998, 100.788607]
+    - [13.730998, 100.789906]
+    - [13.730699, 100.789906]
+    - [13.730699, 100.788607]
+  - # east band      ENU E 219.8-266 / N 42-116
+    - [13.731362, 100.789479]
+    - [13.731362, 100.789906]
+    - [13.730699, 100.789906]
+    - [13.730699, 100.789479]
+
 # Payload-release servos — the manual "ปล่อย servo" buttons on the GCS.
 # IDENTICAL to the practice field file: FOUR independent latch servos, outputs
 # are ACTUATOR-SET indices 1..4 (MAV_CMD_DO_SET_ACTUATOR param1..4 / PX4

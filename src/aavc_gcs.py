@@ -312,11 +312,29 @@ def _en_to_ll(e, n, lat0, lon0):
 
 def load_zones():
     """Rulebook GPS polygons (controlled_airspace + search_area) + home P1 from the field
-    yaml. Corners angle-ordered around the centroid so they form a clean quad on the map."""
+    yaml. Corners angle-ordered around the centroid so they form a clean quad on the map.
+
+    2026-08-28 (operator: "แสดง path ที่บินเลย"): also the PLANNED route — the transit
+    corridor (root-level ``transit_waypoints`` as ``{id, lat, lon}`` rows, which is how
+    both field files have always written it; the old reader only looked inside
+    ``geofence:`` for bare pairs, so the corridor never drew), the hand-laid sweep
+    legs (``planned_path.sweep``), the routing gateway (``planned_path.gateway``) and
+    the plan-level keep-out polygons (``keepout_zones``). All static, from the field
+    file — the map shows where the aircraft WILL go before any link to it exists."""
     try:
-        gf = (yaml.safe_load(open(AAVC_FIELD)) or {}).get("geofence", {})
+        doc = yaml.safe_load(open(AAVC_FIELD)) or {}
+        gf = doc.get("geofence", {}) or {}
     except Exception:
         return None
+
+    def pairs(rows):
+        out = []
+        for r in rows or []:
+            if isinstance(r, dict):
+                out.append([float(r["lat"]), float(r["lon"])])
+            else:
+                out.append([float(r[0]), float(r[1])])
+        return out
 
     def poly(key):
         pts = [[float(a), float(b)] for a, b in gf.get(key, [])]
@@ -327,10 +345,21 @@ def load_zones():
         return pts
 
     out = {"airspace": poly("controlled_airspace"), "search": poly("search_area")}
-    if gf.get("transit_waypoints"):
-        out["transit"] = [[float(a), float(b)] for a, b in gf["transit_waypoints"]]
+    transit = pairs(gf.get("transit_waypoints") or doc.get("transit_waypoints"))
+    if transit:
+        out["transit"] = transit
     if gf.get("local_origin"):
         out["home"] = [float(gf["local_origin"][0]), float(gf["local_origin"][1])]
+    pp = doc.get("planned_path") or {}
+    sweep = pairs(pp.get("sweep"))
+    if len(sweep) >= 2:
+        out["sweep"] = sweep
+    if pp.get("gateway"):
+        out["gateway"] = [float(pp["gateway"][0]), float(pp["gateway"][1])]
+    keep = [pairs(z) for z in (doc.get("keepout_zones") or [])]
+    keep = [z for z in keep if len(z) >= 3]
+    if keep:
+        out["keepout"] = keep
     return out
 
 
@@ -3111,6 +3140,8 @@ body.side-collapsed .colside{width:0;padding:0;border-right:none;overflow:hidden
 .padicon{background:transparent;border:0}
 /* Fix 3 (2026-08-21): mission-plan waypoint numbers — where is it going NEXT */
 .planicon{background:transparent;border:0}
+.sweepseq{width:20px;height:20px;border-radius:50%;background:#2dd4bf;color:#062a27;
+ font:700 12px/20px system-ui,sans-serif;text-align:center;border:2px solid #fff;box-sizing:border-box}
 .planseq{width:18px;height:18px;border-radius:50%;background:#a371f7;color:#fff;
  font-size:11px;font-weight:700;line-height:18px;text-align:center;
  box-shadow:0 1px 3px rgba(0,0,0,.5)}
@@ -4163,14 +4194,29 @@ function aavcMap(s){
  if(!mapReady||typeof L==='undefined')return;
  var z=s.zones||{};
  // redraw when the field CHANGES (map editor save/clear), not just once
- var zsig=JSON.stringify([z.airspace,z.search,z.transit,z.home]);
+ var zsig=JSON.stringify([z.airspace,z.search,z.transit,z.home,z.sweep,z.gateway,z.keepout]);
  if(window.ZSIG!==zsig&&(z.airspace||z.search)){
   window.ZSIG=zsig;
   for(var zi=0;zi<lzones.length;zi++)lmap.removeLayer(lzones[zi]);lzones=[];
   if(lhomeMarker){lmap.removeLayer(lhomeMarker);lhomeMarker=null;}
   if(z.airspace&&z.airspace.length>=3)lzones.push(L.polygon(z.airspace,{color:'#f85149',weight:2,fill:false,dashArray:'8 6'}).addTo(lmap).bindTooltip('controlled airspace'));
   if(z.search&&z.search.length>=3)lzones.push(L.polygon(z.search,{color:'#f0d000',weight:2,fill:false}).addTo(lmap).bindTooltip('search area'));
-  if(z.transit&&z.transit.length>=1)lzones.push(L.polyline(z.transit,{color:'#58a6ff',weight:2,dashArray:'2 6'}).addTo(lmap).bindTooltip('transit P1→P3'));
+  // 2026-08-28: the PLANNED route from the field file (static — no link needed).
+  // keep-outs first so the route draws over them.
+  var kz=z.keepout||[];
+  for(var ki=0;ki<kz.length;ki++)lzones.push(L.polygon(kz[ki],{color:'#f85149',weight:2,fillColor:'#f85149',fillOpacity:.18}).addTo(lmap).bindTooltip('ห้ามบิน — แผนอ้อมผ่าน gateway'));
+  if(z.transit&&z.transit.length>=1)lzones.push(L.polyline(z.transit,{color:'#ff7a2f',weight:4,opacity:.9}).addTo(lmap).bindTooltip('corridor P1→P2′→P3′ (20 m, ไป-กลับ)'));
+  if(z.sweep&&z.sweep.length>=2){
+   var sw=z.sweep,gate=(z.transit&&z.transit.length)?z.transit[z.transit.length-1]:null;
+   if(gate){lzones.push(L.polyline([gate,sw[0]],{color:'#2dd4bf',weight:2,dashArray:'2 6'}).addTo(lmap).bindTooltip('P3′ → sweep'));
+            lzones.push(L.polyline([sw[sw.length-1],gate],{color:'#2dd4bf',weight:2,dashArray:'2 6'}).addTo(lmap).bindTooltip('sweep → P3′ (egress)'));}
+   lzones.push(L.polyline(sw,{color:'#2dd4bf',weight:3,opacity:.95}).addTo(lmap).bindTooltip('sweep 20 m'));
+   for(var si=0;si+1<sw.length;si+=2){
+    var a=sw[si],b=sw[si+1],mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];
+    lzones.push(L.marker(mid,{icon:L.divIcon({className:'planicon',html:'<div class="sweepseq">'+(si/2+1)+'</div>',iconSize:[20,20],iconAnchor:[10,10]}),zIndexOffset:-150}).addTo(lmap).bindTooltip('sweep leg '+(si/2+1),{direction:'top'}));
+   }
+  }
+  if(z.gateway)lzones.push(L.circleMarker(z.gateway,{radius:6,color:'#111',fillColor:'#ffd23f',fillOpacity:1,weight:2}).addTo(lmap).bindTooltip('gateway — จุดอ้อมเมื่อเส้นตรงตัดกล่องห้ามบิน'));
   if(z.home)lhomeMarker=L.circleMarker(z.home,{radius:6,color:'#fff',fillColor:'#2ea043',fillOpacity:1,weight:2}).addTo(lmap).bindTooltip('HOME / L&R');
   // template switch: pan the map to the newly selected field
   if(window.ZFIT&&z.airspace&&z.airspace.length>=3){window.ZFIT=false;
