@@ -46,9 +46,9 @@ def test_competition_profile_is_locked() -> None:
 def test_align_params_competition_defaults_are_locked() -> None:
     a = AlignParams()
     # Descend rungs high→low; the FINAL tolerance is 0.2 m (0.35 is the 3 m rung).
-    assert a.rungs == (12.0, 8.0, 5.0, 3.0, 2.0, 1.5)
-    assert a.rung_tol_m == (1.5, 1.0, 0.6, 0.35, 0.25, 0.2)
-    assert a.rung_tol_m[-1] == 0.2
+    assert a.rungs == (12.0, 8.0, 5.0, 3.0, 2.0)   # 1.5 m dropped 2026-08-28 (KMITL trial)
+    assert a.rung_tol_m == (1.5, 1.0, 0.6, 0.35, 0.25)
+    assert a.rung_tol_m[-1] == 0.25
     assert a.settle_after_land_s == 2.0          # gentle post-touchdown pause
     assert a.land_alt_threshold_m == 1.5         # touchdown-confirm altitude
     assert a.gps_fallback is False               # defer, never land blind

@@ -1042,7 +1042,10 @@ def test_delivery_battery_margin_does_not_refuse_a_flight_it_can_finish(
     silently costs deliveries the pack can finish, which is exactly what
     leaving _DELIVERY_BATT_MARGIN_PCT at its 7.5 Ah value would have done once
     the pack doubled."""
-    boundary = COMPETITION.rth_battery_pct + mission_mod._DELIVERY_BATT_MARGIN_PCT
+    # Two arms since 2026-08-28: the failsafe margin (rth + margin) and the
+    # planned egress floor + one delivery's cost. The binding one is the max.
+    boundary = max(COMPETITION.rth_battery_pct + mission_mod._DELIVERY_BATT_MARGIN_PCT,
+                   COMPETITION.egress_battery_pct + mission_mod._DELIVERY_COST_PCT)
     calls, _state, _cmd = _flight_leaving_battery_at(monkeypatch, boundary + 10.0)
     assert len(calls) >= 2, (
         f"a delivery was refused at {boundary + 10:.0f} %, a full 10 points "
@@ -1962,7 +1965,11 @@ def test_delivery_gate_refuses_below_the_egress_floor(monkeypatch):
     drains the pack below it; the second must be refused and the flight must
     egress via the corridor with that egg still aboard."""
     state = _state()
-    state.telemetry.battery_percent = COMPETITION.egress_battery_pct + 2.0
+    # 2026-08-28: a delivery must be affordable — floor + its own cost — so
+    # start 2 points above THAT; the 5-point drain of the first delivery then
+    # puts the pack under it for the second.
+    state.telemetry.battery_percent = (COMPETITION.egress_battery_pct
+                                       + mission_mod._DELIVERY_COST_PCT + 2.0)
     tracker = TargetTracker()
     _preload_pad(tracker, PAD3, 3)
     _preload_pad(tracker, PAD1, 1)

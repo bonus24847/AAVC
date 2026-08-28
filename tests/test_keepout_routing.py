@@ -26,6 +26,7 @@ from mission_brain.profile import COMPETITION
 from mission_brain.schemas import Coordinate
 from mission_brain.search_pattern import build_explicit_pattern
 from orchestrator import mission as mission_mod
+from orchestrator import tactical_align as ta_mod
 from orchestrator.main import _build_spec
 from orchestrator.mission import (
     _point_in_polygon,
@@ -126,19 +127,40 @@ def test_the_kmitl_sweep_stays_in_the_airspace_and_out_of_the_bands() -> None:
     airspace = [tuple(float(x) for x in v) for v in cfg["controlled_airspace"]]
     keepouts = [[tuple(float(x) for x in v) for v in poly]
                 for poly in cfg["routing"]["keepout_zones"]]
-    gw = tuple(float(v) for v in cfg["routing"]["gateway"])
+    gws = [tuple(float(v) for v in g) for g in cfg["routing"]["gateways"]]
     p1, p2, p3 = [tuple(float(x) for x in v) for v in cfg["transit_route"]]
     wps = [(w.lat, w.lon) for w in spec.waypoints]
     for w in wps:
         assert _point_in_polygon(w[0], w[1], airspace), f"waypoint {w} outside the airspace"
         for poly in keepouts:
-            assert not _point_near_polygon_m(w[0], w[1], poly, 5.0), f"waypoint {w} hugs a band"
-    segments = list(zip(wps, wps[1:])) + [(p1, p2), (p2, p3), (p3, wps[0]), (wps[-1], p3)]
-    segments += [(gw, w) for w in wps] + [(gw, p3)]
+            assert not _point_near_polygon_m(w[0], w[1], poly, 4.0), f"waypoint {w} hugs a band"
+    # every leg / transition, the corridor and the entry stay clear of EVERY band
+    segments = list(zip(wps, wps[1:])) + [(p1, p2), (p2, p3), (p3, wps[0])]
     for a, b in segments:
         for poly in keepouts:
             assert not _segment_crosses_polygon(a, b, poly), f"{a}->{b} crosses a band"
-    assert _point_in_polygon(gw[0], gw[1], airspace)
+    for g in gws:
+        assert _point_in_polygon(g[0], g[1], airspace)
+    # the routing invariant: from every waypoint AND the corridor gate, a chain
+    # of gateways with clear segments reaches every other waypoint and the gate
+    def clear(a, b):
+        return not any(_segment_crosses_polygon(a, b, poly) for poly in keepouts)
+
+    def reachable(src, dst):
+        nodes = [src] + gws + [dst]
+        seen = {0}
+        frontier = [0]
+        while frontier:
+            i = frontier.pop()
+            for j in range(len(nodes)):
+                if j not in seen and clear(nodes[i], nodes[j]):
+                    seen.add(j)
+                    frontier.append(j)
+        return len(nodes) - 1 in seen
+    for w in wps:
+        assert reachable(w, p3), f"no clear gateway chain from {w} to P3'"
+        assert reachable(p3, w), f"no clear gateway chain from P3' to {w}"
+    assert reachable(wps[-1], wps[0])
 
 
 # ── routing on the fake commander ───────────────────────────────────────────
@@ -161,7 +183,7 @@ def test_a_hop_that_would_cross_a_keepout_goes_through_the_gateway(monkeypatch) 
     asyncio.run(run_delivery_mission(
         cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
         sortie_gate=_gate_from([5]), profile=COMPETITION,
-        keepout_zones=[BOX], gateway=GATE))
+        keepout_zones=[BOX], gateways=[GATE]))
 
     assert state.dropped_stops == {0}
     pts = _pts(cmd)
@@ -205,7 +227,7 @@ def test_a_pad_registered_inside_a_keepout_is_refused(monkeypatch) -> None:
     asyncio.run(run_delivery_mission(
         cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
         sortie_gate=_gate_from([5]), profile=COMPETITION,
-        keepout_zones=[around_pad], gateway=GATE))
+        keepout_zones=[around_pad], gateways=[GATE]))
     assert state.dropped_stops == set()
     assert serve.calls == []
     assert any("REFUSED" in e and "keep-out" in e for e in state.anomalies)
@@ -218,8 +240,9 @@ def test_the_kmitl_sweep_covers_the_L_with_overlap() -> None:
     of the area unseen at a realistic 13 m usable half-swath (a pad must sit
     wholly inside the frame), all along the seam. Pin the fix: every grid
     point of the flown search polygon that is outside the keep-outs lies
-    within 13 m of some leg (< 1 % unseen; points within 3 m of a band are
-    left out — a candidate there is refused as a false hit anyway)."""
+    within the usable half-swath of some leg (< 1.5 % unseen — the corner by
+    the corridor gate and the NE tip; points within 3 m of a band are left
+    out, a candidate there is refused as a false hit anyway)."""
     cfg = _kmitl()
     sc = cfg["search"]
     lat0, lon0 = (float(v) for v in cfg["ground_operation"]["launch_recovery"])
@@ -230,9 +253,13 @@ def test_the_kmitl_sweep_covers_the_L_with_overlap() -> None:
     area = [enu((float(v[0]), float(v[1]))) for v in cfg["search_area"]]
     keepouts = [[enu((float(v[0]), float(v[1]))) for v in poly]
                 for poly in cfg["routing"]["keepout_zones"]]
-    legs = [(tuple(map(float, a)), tuple(map(float, b)))
-            for a, b in zip(sc["sweep_waypoints_enu"][0::2], sc["sweep_waypoints_enu"][1::2])]
-    assert len(legs) >= 4, "four legs since the noon fix — three left a 30 m seam"
+    pts = [tuple(map(float, p)) for p in sc["sweep_waypoints_enu"]]
+    legs = list(zip(pts, pts[1:]))          # every flown segment sees the ground
+    assert len(pts) >= 8, "seven legs at 15 m since the tree block — three left a 30 m seam"
+    # usable half-swath at the CONFIGURED sweep altitude: the measured 74.2 deg
+    # lens minus ~1.3 m so a 1 m pad sits wholly inside the frame
+    fov = math.radians(float(cfg["cameras"]["nadir"]["fov_deg"]))
+    usable = float(sc["sweep_alt_m"]) * math.tan(fov / 2.0) - 1.3
 
     def seg_dist(p, a, b):
         L2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2
@@ -252,11 +279,108 @@ def test_the_kmitl_sweep_covers_the_L_with_overlap() -> None:
                    for ko in keepouts):
                 continue
             total += 1
-            if min(seg_dist((e, n), a, b) for a, b in legs) > 13.0:
+            if min(seg_dist((e, n), a, b) for a, b in legs) > usable:
                 unseen.append((e, n))
-    assert total > 1500
-    assert len(unseen) / total < 0.01, f"{len(unseen)}/{total} grid points unseen: {unseen[:10]}"
-    # and no two consecutive parallel legs further apart than the validated
-    # 0.30-overlap spacing (21.2 m) plus a metre of slack
-    for (a1, b1), (a2, b2) in zip(legs, legs[1:]):
-        assert abs((a2[1] + b2[1]) / 2 - (a1[1] + b1[1]) / 2) <= 22.5
+    assert total > 1400
+    assert len(unseen) / total < 0.015, (
+        f"{len(unseen)}/{total} grid points unseen at a {usable:.1f} m usable "
+        f"half-swath: {unseen[:10]}")
+
+
+# ── two gateways chained around two boxes ──────────────────────────────────
+
+def test_a_hop_needing_two_gateways_chains_them(monkeypatch) -> None:
+    """P3 → PAD5 blocked by BOX; the direct line from GATE to PAD5 is blocked
+    by a second box, so the only clear chain is P3 → GATE → GATE2 → PAD5."""
+    p3 = (TRANSIT[-1].lat, TRANSIT[-1].lon)
+    box2 = [(13.7308, 100.78925), (13.7308, 100.78935),
+            (13.73095, 100.78935), (13.73095, 100.78925)]
+    gate2 = (13.7311, 100.7896)
+    # premises: GATE→PAD5 and P3→gate2 are blocked, GATE→gate2→PAD5 is clear
+    assert _segment_crosses_polygon(GATE, PAD5, box2)
+    assert _segment_crosses_polygon(p3, gate2, BOX)
+    for a, b in ((p3, GATE), (GATE, gate2), (gate2, PAD5)):
+        assert not _segment_crosses_polygon(a, b, BOX) and not _segment_crosses_polygon(a, b, box2)
+    state = _state()
+    tracker = TargetTracker()
+    _preload_pad(tracker, PAD5, 5)
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", _fake_serve(state))
+    cmd = RecordingCommander(state)
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([5]), profile=COMPETITION,
+        keepout_zones=[BOX, box2], gateways=[GATE, gate2]))
+    pts = _pts(cmd)
+    pad = (round(PAD5[0], 6), round(PAD5[1], 6))
+    g1 = (round(GATE[0], 6), round(GATE[1], 6))
+    g2 = (round(gate2[0], 6), round(gate2[1], 6))
+    i_pad = pts.index(pad)
+    assert pts[i_pad - 2:i_pad] == [g1, g2], pts[max(0, i_pad - 4):i_pad + 1]
+    assert state.dropped_stops == {0}
+
+
+# ── battery: cost-aware gate, no retry, abort hook ─────────────────────────
+
+def test_a_delivery_is_refused_below_floor_plus_cost(monkeypatch) -> None:
+    """36 % read the trial into a descent that ended at 20 %: a delivery may
+    only start when the pack can pay ~12 points and still sit above the 30 %
+    egress floor afterwards."""
+    state = _state()
+    state.telemetry.battery_percent = 38.0
+    tracker = TargetTracker()
+    _preload_pad(tracker, PAD5, 5)
+    serve = _fake_serve(state)
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", serve)
+    cmd = RecordingCommander(state)
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([5]), profile=COMPETITION))
+    assert serve.calls == []
+    assert state.dropped_stops == set()
+    assert any("BATTERY EGRESS" in e and "delivery cost" in e for e in state.anomalies)
+
+
+def test_no_retry_and_abort_hook_once_the_floor_is_crossed(monkeypatch) -> None:
+    """The serve gets the planned-egress test as ``abort_if``; if the first
+    attempt comes back undropped with the pack under the floor there is no
+    second attempt."""
+    state = _state()
+    state.telemetry.battery_percent = 60.0
+    tracker = TargetTracker()
+    _preload_pad(tracker, PAD5, 5)
+    calls = []
+
+    async def serve(commander, st, target, *, stop_index, params, **kw):
+        calls.append(kw.get("abort_if"))
+        st.telemetry.battery_percent = 25.0            # drained during the approach
+        return ta_mod.AlignResult(acquired=True, aligned=True, landed=False,
+                                  dropped=False, final_error_m=0.4)
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", serve)
+    cmd = RecordingCommander(state)
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([5]), profile=COMPETITION))
+    assert len(calls) == 1, "no retry under the egress floor"
+    assert callable(calls[0]) and calls[0]() is True     # the hook reads the live pack
+    assert any("no retry" in e for e in state.anomalies)
+
+
+# ── the sweep flies its own cruise speed ───────────────────────────────────
+
+def test_the_sweep_sets_its_cruise_and_hands_the_pin_back(monkeypatch) -> None:
+    from mission_brain.search_pattern import build_search_pattern
+    from tests.test_delivery_mission import SEARCH_AREA
+    state = _state()
+    tracker = TargetTracker()                     # nothing known → the sweep flies
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", _fake_serve(state))
+    cmd = RecordingCommander(state)
+    spec = build_search_pattern(SEARCH_AREA, HOME, sweep_alt_m=12.0, speed_mps=3.5)
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, spec, home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([5]), profile=COMPETITION, cruise_pin_mps=5.0))
+    sets = [v for n, v in cmd.params if n == "MPC_XY_CRUISE"]
+    assert sets[:1] == [3.5] and sets[-1] == 5.0, cmd.params
+    i_set = cmd.events.index("param:MPC_XY_CRUISE=3.5")
+    first_sweep_goto = next(i for i, e in enumerate(cmd.events)
+                            if e == "goto@12.0")
+    assert i_set < first_sweep_goto

@@ -77,19 +77,34 @@ class AlignParams:
     # Descend rungs (m AGL), high → low. First is the cruise/approach altitude;
     # the last is the final hover before LAND. All ≤ profile ceiling (20 m).
     # Only this descent may sink below the 10 m search floor (rules carve-out).
-    rungs: tuple[float, ...] = (12.0, 8.0, 5.0, 3.0, 2.0, 1.5)
+    # ⚠ The 1.5 m rung is GONE (2026-08-28, KMITL trial): with the real 400 mm
+    # marker the pad fills the 720-row axis at 1.5 m (half-height 0.64 m), so a
+    # 0.3 m hover offset pushes the marker out of frame — attempt 1 decoded
+    # 0/30 frames there, attempt 2 23/39 (59 %), and the 9-consecutive-cycle
+    # lock never formed while the fix error itself read 0.08-0.18 m. At 2 m
+    # and above the same flight decoded 29/29. Two attempts cost 93 s and
+    # ~20 gauge points and no egg. The ladder now ends at 2 m (tol 0.25 —
+    # the value every KMUTNB egg landed with) and PX4 LAND does the last 2 m
+    # at MPC_LAND_SPEED.
+    rungs: tuple[float, ...] = (12.0, 8.0, 5.0, 3.0, 2.0)
     # Horizontal lock tolerance (m) required to descend FROM each rung. Tighter
     # as we get lower (the footprint shrinks so the same px error is fewer m).
     # The final 0.35 m is the land-ON precision driver: touchdown must put the
     # gear on a 1 m pad, so centre within ~a third of a metre before LAND.
-    rung_tol_m: tuple[float, ...] = (1.5, 1.0, 0.6, 0.35, 0.25, 0.2)
+    rung_tol_m: tuple[float, ...] = (1.5, 1.0, 0.6, 0.35, 0.25)
     # Per-rung DESCENT speed cap (m/s), paralleling ``rungs`` high → low: descend
     # FAST up high, ease off near the ground (operator request). Applied by setting
     # MPC_Z_VEL_MAX_DN before descending INTO each rung; index 0 also caps the
     # acquire descent to the cruise rung. The FINAL touchdown is PX4's MPC_LAND_SPEED
     # crawl, not this. Indexed defensively (min(i, len-1)) so a shorter ``rungs``
     # (low ceiling) still maps cleanly.
-    rung_descent_mps: tuple[float, ...] = (3.0, 3.0, 1.5, 0.8, 0.5, 0.4)
+    rung_descent_mps: tuple[float, ...] = (3.0, 3.0, 1.5, 0.8, 0.5)
+    # Battery-egress abort (2026-08-28): ``acquire_and_land_drop(abort_if=…)``
+    # is polled at the top of every rung AT OR ABOVE this altitude; once the
+    # aircraft is below it, finishing the landing costs seconds and delivers
+    # the egg, so the descent is committed. The trial started its second
+    # delivery on a 30-s-stale 36 % and the pilot had to LAND it at 20 %.
+    abort_above_m: float = 5.0
     # ⚠ cycle_hz, lock_cycles and max_lost_cycles are ONE setting in three
     # numbers: the last two are counted in CYCLES, so changing the rate alone
     # silently rescales how long the loop confirms a lock and how long it
@@ -306,8 +321,15 @@ async def acquire_and_land_drop(
     params: AlignParams = AlignParams(),
     on_phase: PhaseCb | None = None,
     on_drop_prediction: DropPredCb | None = None,
+    abort_if: Callable[[], bool] | None = None,
 ) -> AlignResult:
     """Fly the full vision-guided land-ON-pad + release for ONE sortie.
+
+    ``abort_if`` (2026-08-28): polled at the top of every rung at or above
+    ``params.abort_above_m``; when it returns True the approach is abandoned
+    — climb back to the top rung and hand the (undropped) result to the
+    mission, which owns the egress. The mission wires the planned battery
+    egress floor into it.
 
     Returns an :class:`AlignResult`. Honours the safety watchdog: if
     ``state.terminal`` leaves RUNNING (RTH/abort) the routine returns early so
@@ -517,6 +539,17 @@ async def acquire_and_land_drop(
     final_locked = False
     for rung_i, rung_alt in enumerate(params.rungs):
         tol = params.rung_tol_m[min(rung_i, len(params.rung_tol_m) - 1)]
+        if (abort_if is not None and rung_alt >= params.abort_above_m
+                and abort_if()):
+            logger.warning(
+                f"[align] sortie #{stop_index}: abort requested above the "
+                f"{rung_alt:.0f} m rung (battery egress) — NOT descending; "
+                "climbing to defer")
+            state.record_anomaly("delivery_aborted_battery_egress")
+            res.notes.append(f"battery-egress abort at {rung_alt:.0f} m → climb")
+            await _restore_descent_cap()
+            await _goto(best_latlon[0], best_latlon[1], params.rungs[0])
+            return res
         # Descend INTO this rung at its scheduled speed (fast high → slow low).
         await _set_descent_cap(
             params.rung_descent_mps[min(rung_i, len(params.rung_descent_mps) - 1)])

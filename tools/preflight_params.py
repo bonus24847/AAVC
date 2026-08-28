@@ -95,6 +95,14 @@ BOARD: dict[str, float] = {
     "BAT1_V_CHARGED": 4.18,
     "BAT1_V_EMPTY": 3.77,
     "SENS_TFMINI_CFG": 103,           # TFmini-S on TELEM3
+    # TELEM2 -> CM4 byte budget. 1200 B/s (the PX4 default) starves the
+    # onboard stream set: PX4 scales EVERY stream down to fit, and on the
+    # 2026-08-28 KMITL trial the battery reading reached the mission every
+    # ~30 s (36 % held on the companion while the FC read 27 %), raw_gps
+    # time arrived every 13-20 s, and per-rung MPC_Z_V_AUTO_DN param sets
+    # timed out. 0 = "half the baud rate" (46 KB/s at 921600) — the value
+    # PX4 documents for a companion link. REBOOT REQUIRED after setting.
+    "MAV_1_RATE": 0,
     # The MAVLink PORT MAP — which instance serves which physical port. Nothing
     # in the flight stack writes these, and wrong they cost the whole day:
     # 2026-08-26 the board held ``MAV_0_CONFIG=0`` (TELEM1 disabled) and

@@ -194,10 +194,37 @@ own Python built the spec from the deployed config: 4 legs / 8 waypoints @
   that at deploy time: "RTL 25 m is high enough to clear everything"** — the
   band is an obstacle/people band, and a 25 m failsafe return over it is
   the intended behaviour, not a breach to fight.
-- **Sweep 12 → 20 m** (operator: "survey at 20 m" — obstacle clearance over
-  the display aircraft; "25 m clears everything"). On the L: **4 hand-laid
-  legs / 556 m / ~206 s** (at 12 m the same L would need ~8 legs and would
-  decode in the sweep).
+- **TRIAL FLOWN 15:05-15:11 (ULog `2026-08-28/08_05_29`, audit + 1412
+  frames pulled to the laptop).** Corridor 3/3, sweep at 20 m confirmed both
+  assigned pads (5, 6) IN the sweep (marker 15-18 px decoded on 20-33 % of
+  frames per pass; blob cue 0 hits), then: **(a)** two landing attempts on
+  pad 6 refused at the 1.5 m rung — the real 400 mm marker leaves the frame
+  there (0/30 frames decoded on attempt 1, 23/39 on attempt 2; the lock needs 9
+  consecutive) while every frame at ≥ 2 m decoded → **the ladder now ends at
+  2 m** (`AlignParams.rungs`, `_rungs_for`); **(b)** the pack reading reached
+  the mission every ~30 s — the board's `MAV_1_RATE=1200` B/s throttles the
+  whole TELEM2 stream set (also the sparse raw_gps clock from 08-26 and the
+  per-rung `MPC_Z_V_AUTO_DN` sets timing out) → **BOARD check `MAV_1_RATE=0`**
+  (`tools/board_param.py set MAV_1_RATE 0`, reboot) + `set_rate_battery(1 Hz)`;
+  **(c)** delivery 2 started on a stale 36 % and the pilot LANDed at 20 % →
+  a delivery now needs `egress floor + _DELIVERY_COST_PCT (12)`, the align
+  takes `abort_if` (polled above 5 m) and there is no retry under the floor;
+  **(d)** 2.7 m/s average was too slow for a pack that drains ~13 gauge
+  points/min → `MPC_XY_CRUISE` 5 (transit/hops), the sweep sets its own
+  `search.speed_mps` 3.5 live (`cruise_pin_mps`), `MPC_ACC_HOR` 3,
+  `MPC_Z_VEL_MAX_UP` 2.5.
+- **Sweep now 15 m, 7 hand-laid legs around an 18 m TREE BLOCK** (operator,
+  15:20-15:40: the trees at ENU E 80-96 / N 70-110 are a keep-out — "ให้
+  ต้นไม้เป็น nofly zone" — and with them out of the way "sweep ที่ 15 m ได้").
+  Marker 22.6 px. Legs: N1 (116,86)→(208,86) · N2 (208,102)→(116,102) · the
+  lane (116,102)→(116,53) between the trees (margin E 104) and the building
+  (E 125.6) · L1 (116,53)→(46,53) · W1 (46,72)→(66,72) · W2 (66,86)→(46,86) ·
+  W3 (46,100)→(66,100); 426 m, ~167 s at 3.5 m/s; coverage 0.4 % unseen at a
+  10 m usable half-swath (test). The tree keep-out carries an **8 m** margin
+  (the sweep flies BELOW the canopy top). Routing became a **gateway graph**
+  (`routing.gateways`: NE 115/83 · SE 112/58 · SW 60/58; Dijkstra over clear
+  segments in `mission.py::_route`) because the trees cut the west column off
+  from the corridor gate.
   The marker is 16.9 px at 20 m — under the validated 18 px floor — so the
   sweep is a **white-pad finder** (pad 42 px, blob floor 18) and ids are read
   on the EXISTING decode visits at 10.5 m (`mission.py::_decode_visits`,
@@ -206,9 +233,9 @@ own Python built the spec from the deployed config: 4 legs / 8 waypoints @
   drawn box edge, so the roof is never in view. Knock-ons:
   `max_fix_ground_dist_m` 15 → 20 (the half-swath is 15.1 m now),
   `serve_cost_s` 80 → 105 (the hop is at 20 m: +8 m down at 0.4 m/s),
-  `sortie_cost_s` 900 → **985, capped** (honest: 17 + 53 + 5 + 206 + 188 +
-  420 + 32 + 53 + 35 = 1009; egg 4's gate runs with 416 s left; the launch
-  gate stacks 210 s on top and would refuse the first GO at 1009),
+  `sortie_cost_s` 820 (evening rebuild: 17 + 32 + 12 + 167 + 80 + 360 + 22 +
+  32 + 35 = 745 with the 5 m/s transit and the 2 m ladder; egg 4's gate runs
+  with ~630 s left), `serve_cost_s` 90,
   `known_sortie_cost_s` 280 (rebuilt: 263 m via the corridor each way + a
   105 s serve).
 - Still open from the briefing: the committee's OWN corridor / no-fly

@@ -143,6 +143,13 @@ _PAD_DESCENT_MPS = 0.4        # validated pad-approach descent (m/s)
 # thrust — the safe direction. Do not "fix" that by shrinking this margin;
 # start missions on a charged pack instead.
 _DELIVERY_BATT_MARGIN_PCT = 8.0
+# What ONE delivery costs on the voltage-only gauge, measured 2026-08-28 at
+# KMITL: 55 → 36 % across two attempts (93 s) at ~44 A, i.e. ~10-12 points
+# for a single 20 m approach + land + climb-out. A delivery may only START
+# when the pack can pay for it AND still be above the planned egress floor
+# afterwards — the trial started one at a (stale) 36 % and the pilot had to
+# LAND it at 20 %.
+_DELIVERY_COST_PCT = 12.0
 
 
 class _ProgressGuard:
@@ -313,6 +320,8 @@ async def run_delivery_mission(
     decode_dwell_s: float = 4.0,
     keepout_zones: Sequence[Sequence[tuple[float, float]]] | None = None,
     gateway: tuple[float, float] | None = None,
+    gateways: Sequence[tuple[float, float]] | None = None,
+    cruise_pin_mps: float | None = None,
     on_phase: Callable[[MissionPhase], None] | None = None,
     on_drop_prediction: DropPredCb | None = None,
     on_plan_update: PlanUpdateCb | None = None,
@@ -569,8 +578,50 @@ async def run_delivery_mission(
     keepouts: list[list[tuple[float, float]]] = [
         [(float(v[0]), float(v[1])) for v in poly]
         for poly in (keepout_zones or []) if len(poly) >= 3]
-    gw: tuple[float, float] | None = (
-        (float(gateway[0]), float(gateway[1])) if gateway is not None else None)
+    gws: list[tuple[float, float]] = [
+        (float(g[0]), float(g[1])) for g in (gateways or [])]
+    if gateway is not None and not gws:
+        gws = [(float(gateway[0]), float(gateway[1]))]
+
+    def _clear(a: tuple[float, float], b: tuple[float, float]) -> bool:
+        return not any(_segment_crosses_polygon(a, b, poly) for poly in keepouts)
+
+    def _route(cur: tuple[float, float],
+               tgt: tuple[float, float]) -> list[tuple[float, float]] | None:
+        """Via-points from ``cur`` to ``tgt`` that keep every straight segment
+        out of the keep-out polygons: the shortest path over the gateway
+        graph (Dijkstra on {cur, gateways, tgt}, edges = clear segments).
+        [] = the straight line is already clear; None = no clear chain."""
+        if _clear(cur, tgt):
+            return []
+        nodes = [cur] + gws + [tgt]
+        n = len(nodes)
+        dist_ = [math.inf] * n
+        prev: list[int | None] = [None] * n
+        dist_[0] = 0.0
+        done = [False] * n
+        for _ in range(n):
+            u = min((i for i in range(n) if not done[i]), key=lambda i: dist_[i],
+                    default=None)
+            if u is None or dist_[u] == math.inf:
+                break
+            done[u] = True
+            for v in range(n):
+                if done[v] or not _clear(nodes[u], nodes[v]):
+                    continue
+                d = dist_[u] + _latlon_dist_m(nodes[u][0], nodes[u][1],
+                                              nodes[v][0], nodes[v][1])
+                if d < dist_[v]:
+                    dist_[v] = d
+                    prev[v] = u
+        if dist_[n - 1] == math.inf:
+            return None
+        chain: list[int] = []
+        i: int | None = n - 1
+        while i is not None and i != 0:
+            chain.append(i)
+            i = prev[i]
+        return [nodes[k] for k in reversed(chain) if k != n - 1]
 
     def _in_keepout(lat: float, lon: float) -> bool:
         """Inside a keep-out polygon, or within _KEEPOUT_MARGIN_M of its edge.
@@ -592,21 +643,26 @@ async def run_delivery_mission(
         itself in a band — the keep-out filters above should have caught it),
         the crossing is logged and flown rather than stranding the mission."""
         cur = _cur_latlon()
-        if keepouts and gw is not None and cur is not None and any(
-                _segment_crosses_polygon(cur, (lat, lon), poly) for poly in keepouts):
+        vias: list[tuple[float, float]] = []
+        if keepouts and gws and cur is not None:
+            found = _route(cur, (lat, lon))
+            if found is None:
+                logger.warning(f"[mission] no clear gateway chain to ({lat:.6f},{lon:.6f}) "
+                               "— target inside a band? flying the straight line")
+                state.record_anomaly("keepout_crossing_unavoidable")
+            else:
+                vias = found
+        for gw in vias:
             state.record_audit(
                 f"t={state.time_elapsed_s():.1f}s ROUTE via gateway "
                 f"({gw[0]:.6f},{gw[1]:.6f}): straight line to ({lat:.6f},{lon:.6f}) "
                 "crosses a keep-out zone")
             logger.info(f"[mission] goto ({lat:.6f},{lon:.6f}) crosses a keep-out zone "
                         f"— routing via the gateway ({gw[0]:.6f},{gw[1]:.6f})")
+            here = _cur_latlon() or cur or gw
             await commander.goto(gw[0], gw[1], alt, yaw_deg=yaw_deg)
-            d = _latlon_dist_m(cur[0], cur[1], gw[0], gw[1])
+            d = _latlon_dist_m(here[0], here[1], gw[0], gw[1])
             await _wait_arrival(gw, timeout_s=2.0 * d / max(spec.speed_mps, 0.1) + _WAIT_PAD_S)
-            if any(_segment_crosses_polygon(gw, (lat, lon), poly) for poly in keepouts):
-                logger.warning(f"[mission] gateway → ({lat:.6f},{lon:.6f}) STILL crosses "
-                               "a keep-out zone — target inside a band? flying it")
-                state.record_anomaly("keepout_crossing_unavoidable")
         await commander.goto(lat, lon, alt, yaw_deg=yaw_deg)
 
     async def _fly_transit(flight: int, *, egress: bool) -> None:
@@ -705,6 +761,27 @@ async def run_delivery_mission(
                 return True
             return False
 
+        # The sweep flies search.speed_mps (2026-08-28: 3.5 — the 20 m decode
+        # rate is 20-33 % of frames per pass at 2.7 m/s, so the sweep cannot
+        # go as fast as the transit); the pinned MPC_XY_CRUISE (5) is handed
+        # back for the hops and the egress. Non-fatal if the set fails.
+        cruise_pin: float | None = None
+        if cruise_pin_mps is not None and abs(spec.speed_mps - cruise_pin_mps) > 1e-6:
+            try:
+                await commander.set_param_float("MPC_XY_CRUISE", float(spec.speed_mps))
+                cruise_pin = float(cruise_pin_mps)
+            except Exception as e:
+                logger.warning(f"[mission] MPC_XY_CRUISE={spec.speed_mps} set failed: {e}")
+        try:
+            await _sweep_legs(flight, _done)
+        finally:
+            if cruise_pin is not None:
+                try:
+                    await commander.set_param_float("MPC_XY_CRUISE", cruise_pin)
+                except Exception as e:
+                    logger.warning(f"[mission] MPC_XY_CRUISE restore failed: {e}")
+
+    async def _sweep_legs(flight: int, _done: Callable[[], bool]) -> None:
         for orig_i, wp in enumerate(spec.waypoints):
             if not _running():
                 return
@@ -878,6 +955,14 @@ async def run_delivery_mission(
         for attempt in (1, 2):
             if not _running():
                 return False
+            if attempt > 1 and _battery_egress_due():
+                # 2026-08-28: a retry from 20 m is another ~12 gauge points;
+                # under the planned floor the egg goes home instead.
+                state.record_audit(
+                    f"t={state.time_elapsed_s():.1f}s DELIVERY {delivery_index} no "
+                    f"retry: batt={state.telemetry.battery_percent:.0f}% < "
+                    f"{prof.egress_battery_pct:.0f}% egress floor")
+                break
             known = tracker.confirmed_by_marker(assigned)
             if known is None:
                 return False
@@ -929,7 +1014,8 @@ async def run_delivery_mission(
                 commander, state, Coordinate(lat=claimed.lat, lon=claimed.lon),
                 stop_index=stop_index, payload_id=payload_id,
                 delivery_index=delivery_index, params=serve_params,
-                on_phase=on_phase, on_drop_prediction=on_drop_prediction)
+                on_phase=on_phase, on_drop_prediction=on_drop_prediction,
+                abort_if=_battery_egress_due)
             if res.dropped:
                 tracker.mark_served(claimed.target_id)
                 # I5: explicit delivered-ids ledger the recovery-flight gate
@@ -1215,12 +1301,16 @@ async def run_delivery_mission(
                 # egress_battery_pct nothing new starts — the flight goes home
                 # through the corridor to swap the pack). Latched for the
                 # flight once crossed, like the sweep's own check.
+                # 2026-08-28: the floor is applied to what the pack will read
+                # AFTER the delivery, not before it — a 20 m approach costs
+                # ~_DELIVERY_COST_PCT points on this gauge.
                 if not batt_egress and not math.isnan(pct) \
-                        and pct < prof.egress_battery_pct:
+                        and pct < prof.egress_battery_pct + _DELIVERY_COST_PCT:
                     batt_egress = True
                     state.record_audit(
                         f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} BATTERY "
                         f"EGRESS batt={pct:.0f}% < {prof.egress_battery_pct:.0f}% "
+                        f"floor + {_DELIVERY_COST_PCT:.0f}% delivery cost "
                         "before a delivery — returning via the corridor for "
                         "resupply")
                 batt_ok = (math.isnan(pct)

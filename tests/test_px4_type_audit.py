@@ -127,5 +127,6 @@ def test_the_real_repo_hardcodes_the_expected_failsafe_setters() -> None:
 
     assert set(collect_hardcoded_setters(_REPO)) == {
         "COM_DL_LOSS_T", "COM_LOW_BAT_ACT", "COM_RCL_EXCEPT", "GF_ACTION",
+        "MPC_XY_CRUISE",      # the sweep's own cruise (mission.py, 2026-08-28)
         "MPC_Z_V_AUTO_DN", "NAV_DLL_ACT", "NAV_RCL_ACT", "RTL_LAND_DELAY",
     }

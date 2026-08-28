@@ -115,3 +115,35 @@ tilt) — all along the N ≈ 73 seam. Four legs — 1 (112,52)→(46,52),
 16 / 18 / 21 m — bring that to 0 % / 0.6 % / 2.6 %; cost ~50 s of sweep
 (556 m incl. transitions, ~206 s). Pinned by
 `tests/test_keepout_routing.py::test_the_kmitl_sweep_covers_the_L_with_overlap`.
+
+## Trial flight 15:05-15:11 (ULog `2026-08-28/08_05_29.ulg`) — what changed after it
+
+Two eggs assigned (ids 5, 6), none delivered; pack 97 → 20 % in 352 s at ~44 A.
+Transit 3/3 (≤ 1.9 m off each point). The 20 m sweep confirmed both pads IN
+the sweep (marker 15-18 px, decoded on 33 % / 21 % of the frames of each pass;
+the white-pad blob cue fired on 0 of 1412 frames). Then:
+
+* **Pad 6 refused twice at the 1.5 m rung.** Frames at ≤ 2.3 m: attempt 1
+  decoded 0/30 (the marker sits cut off at the frame's bottom edge), attempt 2
+  23/39; the lock wants 9 consecutive in-tolerance cycles, so it never formed
+  although the fix error read 0.08-0.18 m. Frames at 2-5 m: 29/29 decoded.
+  → the ladder ends at 2 m (`AlignParams.rungs`, `_rungs_for`).
+* **Battery reading 30 s stale on the companion** (36 % held t 272-309 while
+  the FC read 34 → 27 %). Board `MAV_1_RATE = 1200` B/s on TELEM2 → PX4 scaled
+  every stream down (also the sparse `raw_gps` time of 08-26 and the per-rung
+  `MPC_Z_V_AUTO_DN` sets that timed out). → BOARD check `MAV_1_RATE = 0`,
+  `set_rate_battery(1 Hz)`.
+* **Delivery 2 started at a stale 36 %**, the pilot LANDed it at 20 % (mode
+  slot 6 at t 352.8 — not an FC failsafe; PX4 warned at 25 %, crit is 15 %).
+  → a delivery needs `egress floor + _DELIVERY_COST_PCT (12)`, the align
+  polls `abort_if` above 5 m, no retry under the floor.
+* **2.7 m/s average.** → `MPC_XY_CRUISE` 5 for transit/hops, the sweep sets
+  its own 3.5 (`cruise_pin_mps`), `MPC_ACC_HOR` 3, `MPC_Z_VEL_MAX_UP` 2.5.
+* **18 m trees** at ENU E 80-96 / N 70-110 (operator's blue box on the map,
+  15:20) became a keep-out with an 8 m margin, and the sweep moved to **15 m**
+  (marker 22.6 px), seven hand-laid legs around trees and building (see the
+  config's `sweep_waypoints_enu` comment); routing became a gateway graph
+  (`routing.gateways`, shortest clear chain). Coverage check: 0.1 % unseen at
+  the full 11.3 m half-swath, 0.4 % at a 10 m usable one.
+
+Frames: `~/Desktop/KMITL_trial_frames_2026-08-28.jpg` (contact sheet).
