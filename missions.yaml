@@ -24,7 +24,7 @@ missions:
       # ⇒ ไอคอนซ้อมจึงต้องส่งสนามซ้อมมาทับเอง ไม่ใช่ "ไม่ส่งอะไรแล้วหวังว่าจะถูก"
       entry: "REAL=1 AAVC_PROFILE=kmutnb_skyfield AAVC_CONFIG=sitl/aavc_config.yaml ~/mission/sitl/run_mission.sh {ids}"
   aavc:
-    label: "AAVC สนามแข่ง KMITL (เพดาน 20 m)"
+    label: "AAVC สนามแข่ง KMITL (เพดาน 30 m — briefing 28 ส.ค.)"
     # REDIRECTED 2026-08-19 to the aavc-comp repo (a clone of the practice repo
     # reconfigured for KMITL via .aavc_site: AAVC_PROFILE=competition +
     # sitl/kmitl_config.yaml). The old mission_AAVC repo was retired the same day.
@@ -66,7 +66,7 @@ missions:
       # .aavc_site. That file decides one case only: someone ssh'ing in and
       # typing run_mission.sh by hand. On 2026-08-25 the drone's default was
       # moved to the COMPETITION field so that case fails SAFE at KMITL
-      # (ceiling 20 / transit 20, the rules envelope) instead of silently
+      # (ceiling 30 since the 28-Aug briefing / transit 20, the rules envelope) instead of silently
       # flying the practice 10 m / 9 m. deploy.sh gained --exclude '.aavc_site'
       # the same day so a routine code deploy can never push the laptop's
       # practice marker back over it.
