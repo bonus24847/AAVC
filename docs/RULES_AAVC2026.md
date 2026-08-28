@@ -68,6 +68,33 @@ one-egg-per-flight model (still fully supported and regression-tested —
 `mission_brain/flights.py`, `tests/test_flights.py`). See `CLAUDE.md` §2 for
 the FLIGHT ⊃ DELIVERY model and §5 for the resulting audit grammar.
 
+## Event-briefing override (2026-08-28, competition-day briefing)
+
+At the 09:00 briefing on 28 Aug the committee amended the envelope and the
+corridor. The operator relayed the amendments from the field the same
+morning, with the new corridor sketched by hand on the committee's slide
+(page 3 of 18, "transit route (yellow) and emergency egress"); the slide
+carries the corridor as a picture, so the P2'/P3' coordinates below are
+OURS — georeferenced from that sketch, ±5 m — not the committee's. Same
+standing as the 2026-07-24 section: the briefing governs over the PDF and
+the PDF text below is marked superseded, not deleted.
+
+| PDF said | Briefing says | Config key / module |
+|---|---|---|
+| §6: ceiling **20 m** AGL; search-area band 10–20 m | Ceiling **30 m** AGL; search band **10–30 m**. The 10 m floor and the pad-only descent below it are unchanged | `mission_brain/profile.py` COMPETITION `altitude_ceiling_m=30` — the companion watchdog rides on it (warn 30.5 / RTH 31.5, `orchestrator/constants.py`); `sitl/kmitl_config.yaml` `mission.altitude_ceiling_m: 30` (the line `tools/verify_flight.py` reads) |
+| Table 1: P2 13.730397, 100.788694 · P3 13.730712, 100.788755 — the north leg ends ON the main building's west wing | The north leg moves **~14–23 m west**, off the building, up the grass strip between the display aircraft and the building's west wall: **P2′ 13.730389, 100.788567** (ENU 121.2 E, 7.5 N) · **P3′ 13.730716, 100.788544** (ENU 118.7 E, 43.9 N). P1 = L&R unchanged; still mandatory both ways, still 20 m | `transit_route` in `sitl/kmitl_config.yaml`; `aavc-gcs/aavc_field.yaml` `transit_waypoints` (same digits). ⚠ Committee-published coordinates, if any, replace ours in BOTH files |
+| §3: pads anywhere in the search area | Pads are placed **in the open only** — never on the building roof, never beside an obstacle | No key. It is what makes a decode visit at 10.5 m (`orchestrator/mission.py::_decode_visits`) over a white-pad candidate safe, and why the sweep can fly at 20 m (`search.sweep_alt_m`) and leave the reading of ids to the visit |
+| (nothing) | "**25 m clears everything** on the field" — the obstacle-height statement | `px4_tuning.RTL_RETURN_ALT: 25.0` (was 19.5): a failsafe RTL is a straight line home over the building, the display aircraft and the tree line; 25 clears them and leaves 5 m under the ceiling for PX4's in-flight home-alt drift |
+| Figure 1: ONE no-fly block (orange, south of the search area's east end, no coordinates) | **Three no-fly bands** (operator's marked-up field photo `IMG_0550.jpg`, red boxes): the **main building** (ENU E 122–186 / N 25–84 from L&R), the **whole east end of the search area** (E 215–256 / N 37–116) and the orange block (E 219–255 / N −14..40). Georeferenced ±5 m | The flown `search_area` is the rules' polygon **cut at E 110 m — west of the building only** (every mission move is a straight goto, and the box sits mid-polygon); the full polygon is kept as `search_area_rules`. `no_fly_zones` stays `[]` (no approximate polygon in the watchdog — operator 2026-08-27; the corridor hugs the building box at 2–4 m); paste-ready polygons for the two eastern bands are in the config comment. ⚠ Pads east of the building are not searched |
+
+Unchanged by the briefing as relayed: transit altitude **20 m** (Table 1
+was not restated — `profile.transit_alt_m` is the one line to change if it
+was), the 10 m search floor, P1 = L&R, the corridor being mandatory in both
+directions and scored per point. **Still open from the same briefing:** the
+committee's OWN coordinates for the corridor and the no-fly bands (ours are
+±5 m from photos), and **where the pads are placed** — the plan searches
+only west of the building.
+
 ## 1. Event
 
 - **28–30 Aug 2026**, International Academy of Aviation Industry (IAAI),
@@ -138,8 +165,8 @@ GO / `--assigned-ids`.
 | Controlled airspace (geofence, ~296×167 m) | 13.731312,100.787175 · 13.731359,100.789916 · 13.729994,100.789841 · 13.729806,100.787228 | `controlled_airspace` |
 | Search area (~210–227 × 57–74 m) | 13.731239,100.787824 · 13.731359,100.789916 · 13.730703,100.789776 · 13.730723,100.787840 | `search_area` |
 | Transit P1 (initial/final + RTH hold) | 13.730322, 100.787446 | `transit_route[0]` |
-| Transit P2 (intermediate) | 13.730397, 100.788694 | `transit_route[1]` |
-| Transit P3 (search ingress/egress) | 13.730712, 100.788755 | `transit_route[2]` |
+| Transit P2 (intermediate) | 13.730397, 100.788694 — **superseded 2026-08-28 → P2′ 13.730389, 100.788567** (see the 2026-08-28 override) | `transit_route[1]` |
+| Transit P3 (search ingress/egress) | 13.730712, 100.788755 — **superseded 2026-08-28 → P3′ 13.730716, 100.788544** | `transit_route[2]` |
 | Launch & Recovery (**APPROXIMATE** — purple area in fig. 1/2, not published as coordinates) | ≈ 13.730250, 100.787300 | `ground_operation.launch_recovery`, `site.center` |
 | No-fly zone (**APPROXIMATE** — red block in fig. 1, figure-only) | ≈ lat 13.7302–13.7307, lon 100.7891–100.7897 | `no_fly_zones[0]` |
 
@@ -153,16 +180,20 @@ GO / `--assigned-ids`.
 - **The transit route is mandatory** to enter and leave the search area.
 - **Transit altitude strictly 20 m.** In the search area: **minimum 10 m
   AGL**; **descending below 10 m is allowed ONLY for the delivery on the
-  landing pad**; maximum in the search area **20 m AGL**.
+  landing pad**; maximum in the search area **20 m AGL** — **superseded
+  2026-08-28: the ceiling is 30 m AGL** (search band 10–30; see the
+  2026-08-28 override above).
 - Leaving the controlled airspace (geofence) or entering a no-fly area is
   strictly prohibited.
 - No RC/telemetry transmission while in the standby area. PPE for flight-line
   crew.
 
 → software: `profile.transit_alt_m=20`, `search_floor_m=10`,
-`altitude_ceiling_m=20`; `SafetyWatchdog` ceiling/no-fly/floor + geofence;
-`RTL_RETURN_ALT=20` keeps failsafe returns legal; the align descent
-(LOCALIZE/DROP/LAND phases) is the only sub-10 m flight.
+`altitude_ceiling_m=30` (20 until 2026-08-28); `SafetyWatchdog`
+ceiling/no-fly/floor + geofence; `RTL_RETURN_ALT=25` at KMITL (19.5 under
+the old ceiling) keeps failsafe returns legal AND above the obstacles; the
+align descent (LOCALIZE/DROP/LAND phases) and the 10.5 m decode visits are
+the only flight under 20 m inside the search area.
 
 ## 7. System restrictions
 

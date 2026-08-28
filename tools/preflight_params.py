@@ -139,9 +139,10 @@ BOARD: dict[str, float] = {
 # ── pushed by orchestrator/main.py at mission start; bench values are fine ──
 PINNED: dict[str, float] = {
     # ⚠ PER-FIELD: 9.0 is the KMUTNB value (ceiling 10). The KMITL config pins
-    # 19.5 (ceiling 20, floor 10), so this line reads "wrong" on a competition
-    # board — PINNED is informational, so it prints rather than stops, but do
-    # not "fix" the board to match it at KMITL.
+    # 25.0 (ceiling 30 / transit 20 / floor 10 since the 28-Aug-2026 briefing;
+    # it was 19.5 under the 20 m ceiling), so this line reads "wrong" on a
+    # competition board — PINNED is informational, so it prints rather than
+    # stops, but do not "fix" the board to match it at KMITL.
     "RTL_RETURN_ALT": 9.0,
     # gross-runaway net only — PX4 1.17 moves home.alt in flight (2026-08-26)
     "GF_MAX_VER_DIST": 50.0,

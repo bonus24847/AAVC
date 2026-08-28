@@ -75,7 +75,7 @@
 
 \begin{tabular}{@{}p{2.4cm}p{5.6cm}p{2.6cm}p{5.6cm}@{}}
 \textbf{อากาศยาน} & EFT X6100 hexacopter · AUW 7.2 kg & \textbf{FC / Companion} & Pixhawk 6X (PX4 1.17) + Raspberry Pi CM4\\
-\textbf{Profile} & \hl{\code{competition} (\code{kmitl_config.yaml})} & \textbf{Envelope} & transit \textbf{20 m} · ceiling 20 · floor 10 · sweep 12 m\\
+\textbf{Profile} & \hl{\code{competition} (\code{kmitl_config.yaml})} & \textbf{Envelope} & transit \textbf{20 m} · ceiling \textbf{30} (briefing 28 ส.ค.) · floor 10 · sweep \textbf{20 m} · RTH 25 m\\
 \textbf{แบตเตอรี่} & 6S 17000 mAh (เต็ม 25.1 V) + สำรอง 15000 & \textbf{Window} & \textbf{20 นาที} นับจาก GO แรก · 4 ไข่ ใน 1 เที่ยว\\
 \end{tabular}
 
@@ -131,8 +131,8 @@ PIC & \underline{\hspace{3.6cm}} & OP & \underline{\hspace{3.0cm}} & ids & \unde
 \item \who{ENG} โครงสร้าง: แขน/ใบพัด/น็อตแน่น · ไม่มีสายหลวม · สายแบต XT90 + สายกล้อง/TFmini/NOMAD จัดเรียบร้อย · ID ทีมติดที่ลำ
 \item \who{ENG} \textbf{payload}: latch 4 ตัว (AUX 4/1/2/3) เปิด-ปิดครบ · กล่องหัวใจใส่-ล็อกได้ · ไม่มีอะไรหล่นได้เอง
 \item \who{PIC} \textbf{kill switch สาธิตได้} (props off) · \textbf{RC failsafe}: ปิด TX แล้ว FC เข้า Return (\code{NAV_RCL_ACT}) — \hl{ยังไม่เคยซ้อมจริง (F-06) ต้องทำที่ bench ก่อนตรวจ}
-\item \who{OP} \textbf{geofence + ceiling}: อธิบายได้ว่า \code{GF_ACTION = 3 (Return)} verify แล้ว · เพดาน 20 m ที่ companion บน AGL ที่ latch ตอน arm · \code{GF_MAX_VER_DIST = 50} เป็นตาข่ายใหญ่ (home ของ PX4 เลื่อนกลางอากาศ)
-\item \who{OP} \textbf{แบต}: เกจ voltage-only อ่าน conservative · floor RTH 30\% / LAND 20\% · energy gate ปฏิเสธไม่เริ่มถ้าไม่พอ
+\item \who{OP} \textbf{geofence + ceiling}: อธิบายได้ว่า \code{GF_ACTION = 3 (Return)} verify แล้ว · เพดาน \textbf{30 m} (briefing 28 ส.ค.; เดิม 20) ที่ companion บน AGL ที่ latch ตอน arm · \code{GF_MAX_VER_DIST = 50} เป็นตาข่ายใหญ่ (home ของ PX4 เลื่อนกลางอากาศ)
+\item \who{OP} \textbf{แบต}: เกจ voltage-only อ่าน conservative · floor: egress 30\% (กลับทาง corridor ปกติ) · RTH 15\% / LAND 10\% (failsafe) · energy gate ปฏิเสธไม่เริ่มถ้าไม่พอ
 \item \who{LEAD} \textbf{emergency procedure} พูดได้ใน 30 วิ: POSCTL = นักบินยึดคืน → companion stand down · FC failsafe: geofence/datalink/RC-loss → Return · kill switch เป็นทางสุดท้าย
 \item \who{LEAD} \textbf{ไม่มี internet/4G บนอากาศยาน} — ระบบ offline ทั้งหมด (ผิดกติกา = DQ)
 \end{cl}
@@ -155,7 +155,7 @@ PIC & \underline{\hspace{3.6cm}} & OP & \underline{\hspace{3.0cm}} & ids & \unde
 \code{MAV_0_CONFIG} / \code{MAV_1_CONFIG} / \code{MAV_1_FORWARD} & ตาม config & TELEM2 ตาย = อาการเหมือน ``กล้องตาย''\\
 \code{SYS_HITL} & 0 & ห้ามเป็น firmware HIL\\
 \code{MPC_THR_HOVER} & 0.58 & hover ของลำนี้ (bench 21 ส.ค.)\\
-\code{RTL_RETURN_ALT} / \code{GF_MAX_VER_DIST} / \code{GF_ACTION} & 19.5 / 50 / 3 & Return ที่เพดาน · ตาข่ายใหญ่ · \textbf{3 = Return} (ห้าม 2 = Hold)\\
+\code{RTL_RETURN_ALT} / \code{GF_MAX_VER_DIST} / \code{GF_ACTION} & \textbf{25} / 50 / 3 & Return ที่ 25 m ใต้เพดาน 30 (เดิม 19.5) · ตาข่ายใหญ่ · \textbf{3 = Return} (ห้าม 2 = Hold)\\
 \code{MPC_Z_V_AUTO_DN} / \code{MPC_YAW_MODE} / \code{COM_DISARM_LAND} & 0.4 / 5 / $-1$ & ลง pad ช้า · ถือหัวทิศ · ลง pad กลางภารกิจไม่ disarm\\
 \bottomrule
 \end{tabular}
@@ -172,7 +172,7 @@ PIC & \underline{\hspace{3.6cm}} & OP & \underline{\hspace{3.0cm}} & ids & \unde
 \item \who{OP} \textbf{กล้อง}: chip เขียว ~15 วิ หลัง GCS ต่อ CM4 · \hl{\code{CAM_AE=highlight} (auto)} — ถ้ามีเวลาก่อน trial: \code{tools/hover_decode.py} กับ pad พิมพ์กลางแดด ผ่านเมื่อ ขาวของ pad ~200 และ decode ได้ที่ 28 px
 \item \who{OP} รอ \textbf{GPS 3D fix + HDOP $\leq$ 2} (ที่โล่ง) · chip ``ในรั้ว'' เขียว · TFmini บนพื้นอ่านขยะ = ปกติ (ต่ำกว่า 0.4 m)
 \item \who{OP} \textbf{ตำแหน่ง L\&R ใน config = จุดที่วางเครื่องจริง} — \code{main.py} จะ ERROR ถ้า \code{site.center} ≠ \code{launch_recovery}
-\item \who{OP} ดูบรรทัดเริ่มของ orchestrator: \hl{\code{transit 3 pts @ 20 m, sweep 5 legs @ 12 m}} — ถ้าเป็น 9 m / 10 m = profile ผิด (practice) \hlr{หยุด แก้ก่อน}
+\item \who{OP} ดูบรรทัดเริ่มของ orchestrator: \hl{\code{transit 3 pts @ 20 m, sweep 3 legs @ 20 m}} — ถ้าเป็น 9 m / 10 m = profile ผิด (practice); ถ้า \code{5 legs @ 12 m} = config ก่อน briefing 28 ส.ค. \hlr{หยุด แก้ก่อน}
 \end{cl}
 
 % ===================== 6 GO =====================
@@ -223,7 +223,7 @@ PIC & \underline{\hspace{3.6cm}} & OP & \underline{\hspace{3.0cm}} & ids & \unde
 % ===================== 10 TRIAL SLOT PLAN =====================
 \section{แผน trial slot 28 ส.ค. (13:00–18:00, 15 นาที/slot)}
 \begin{cl}
-\item \textbf{Slot 1 — ภารกิจเต็มบนสนามจริง}: profile competition · เก็บ: decode ที่ 12 m ได้ไหม (ต้องเห็น \code{target_confirmed} ครบ 6) · AGL นิ่ง · transit 3/3 · เวลา sweep จริง vs 407 s
+\item \textbf{Slot 1 — ภารกิจเต็มบนสนามจริง}: profile competition · เก็บ: sweep 20 m เห็นแผ่นขาวครบทุกใบไหม (candidate) · decode-visit ที่ 10.5 m อ่าน id ได้ไหม (\code{target_confirmed}) · corridor ใหม่ P2$'$/P3$'$ ผ่าน 3/3 · AGL นิ่ง · เวลา sweep จริง vs 247 s
 \item ถ้า decode ไม่ได้ที่ 12 m: ดู \code{AE hi=} (ขาวต้อง 190–225) → ปรับ \code{--ae-max-100us} / \code{CAM_EXPOSURE} แล้วใช้ slot 2 — \hlr{ห้ามลด sweep ต่ำกว่า 12 m ถ้ายังไม่รู้สาเหตุ} (floor 10 m คือเส้นกติกา)
 \item \textbf{Slot 2 — ซ้อมเต็มพร้อมไข่ซ้อม + จับเวลา 20 นาที} = dress rehearsal (G8) · ซ้อม POSCTL takeover 1 ครั้งตอนจบ
 \item หลัง trial: ประชุม 10 นาที — อะไรจะเปลี่ยนก่อนพรุ่งนี้ (ถ้าไม่จำเป็น \textbf{ไม่เปลี่ยน})

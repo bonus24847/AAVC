@@ -93,7 +93,9 @@ egg.
   warning in this file: SITL and `CameraModel` **no longer share** the mounting
   assumption, so a future mount error shows up in sim instead of at the field.
 - **F-03 KMITL asks the decoder for a SMALLER marker than the flight that already
-  failed.** KMUTNB sweeps at 8 m = 42 px = 7.1 px/module and decoded 2 of 6.
+  failed.** *(Superseded 2026-08-28, §0c: the sweep now flies 20 m as a
+  white-pad finder and the ids are read on 10.5 m decode visits at 32 px.)*
+  KMUTNB sweeps at 8 m = 42 px = 7.1 px/module and decoded 2 of 6.
   KMITL must sweep at 12 m = 28 px = **4.7 px/module**. Flying lower does not
   rescue it: the rules floor the search at 10 m AGL, which is still only
   5.6 px/module. The bench decodes to 14 m statically, so this is the in-flight
@@ -130,6 +132,70 @@ matches the flight config; the two repos' flight cores are identical; KMITL need
 
 ---
 
+## 0c. Competition-day briefing, 28 Aug 2026 — ceiling 30, corridor moved, sweep 20
+
+Relayed by the operator from the 09:00 briefing (`docs/RULES_AAVC2026.md`
+"Event-briefing override (2026-08-28)"; branch
+`rules/2026-08-28-briefing-ceiling-30`). Everything here is **UNFLOWN** —
+the 13:00-18:00 trial slot is the single test.
+
+- **Ceiling 20 → 30 m.** `profile.py` COMPETITION `altitude_ceiling_m=30`; the
+  companion watchdog follows automatically (warn 30.5 / RTH 31.5). Transit
+  stays **20 m** — Table 1 was not restated; `transit_alt_m` is the one line to
+  change if the committee said 25. Search band is 10–30 m.
+- **RTH failsafe at 25 m** (`kmitl_config.yaml` `RTL_RETURN_ALT: 25.0`, was
+  19.5): the committee's "25 m clears everything"; a straight-line RTL crosses
+  the main building, the display aircraft and the tree line. Not higher: PX4's
+  in-flight home-alt drift (+4.65 m measured) would put 30 at a real 34.65.
+- **Corridor moved west, off the main building.** The PDF's P2→P3 leg ended ON
+  the building's roof. The new leg turns north 13.8 m earlier (**P2′
+  13.730389, 100.788567**, ENU 121.2 E / 7.5 N) and enters the search area
+  22.8 m west of the old P3 (**P3′ 13.730716, 100.788544**, ENU 118.7 E /
+  43.9 N), up the grass strip between the display aircraft and the building's
+  west wall; P1 = L&R unchanged. Georeferenced from the committee's slide
+  (SIFT+ECC against the GCS's cached Esri z19 tiles, ±5 m —
+  `docs/evidence/briefing_corridor_2026-08-28.md`). **Committee coordinates,
+  if published, replace ours** in BOTH `kmitl_config.yaml` and
+  `aavc-gcs/aavc_field.yaml` (same digits there).
+- **Three NO-FLY bands (operator's marked-up field photo `IMG_0550.jpg`,
+  georeferenced ±5 m): the main building (ENU E 122-186 / N 25-84), the whole
+  east end of the search area (E 215-256 / N 37-116) and the rules' orange
+  block south of it (E 219-255 / N -14..40).** The building box sits in the
+  MIDDLE of the rules' search polygon and every move the mission makes is a
+  straight goto (pad hops, decode visits, the egress to P3′, a failsafe RTL),
+  so a pad found east of it could only be reached through the box. Hence:
+  **the flown `search_area` is now the rules' polygon CUT at E 110 m — the
+  open field WEST of the building** (the rules' full polygon is kept as
+  `search_area_rules`, documentation only). From there every straight line —
+  hops, egress, RTL to P1 — stays west of E 110. ⚠ Pads placed east of the
+  building are NOT searched; ask the committee where the pads go. Routing
+  around the box is day-2 work. `no_fly_zones` stays `[]` on purpose (the
+  operator's 2026-08-27 rule: no approximate polygon in the watchdog); the
+  building box could never be armed anyway — the committee's corridor hugs
+  its west edge at 2-4 m. Paste-ready polygons for the two eastern bands sit
+  in the config comment.
+- **Sweep 12 → 20 m** (operator: "survey at 20 m" — obstacle clearance over
+  the display aircraft; "25 m clears everything"). On the cut polygon: **3
+  legs / 216 m / 87 s** (12 m would be 5 / 344 / 142 and decode in-flight).
+  The marker is 16.9 px at 20 m — under the validated 18 px floor — so the
+  sweep is a **white-pad finder** (pad 42 px, blob floor 18) and ids are read
+  on the EXISTING decode visits at 10.5 m (`mission.py::_decode_visits`,
+  marker 32 px — inside the 25-35 px band proven in flight on 08-27), ~47 s
+  each. The 20 m footprint from the legs' east ends reaches E ~123 = the
+  drawn box edge, so the roof is never in view. Knock-ons:
+  `max_fix_ground_dist_m` 15 → 20 (the half-swath is 15.1 m now),
+  `serve_cost_s` 80 → 105 (the hop is at 20 m: +8 m down at 0.4 m/s),
+  `sortie_cost_s` stays 900 (rebuilt: 17 + 53 + 24 + 87 + 188 + 420 + 17 +
+  53 + 35 = 894; egg 4's gate runs with 516 s left), `known_sortie_cost_s`
+  280 (rebuilt: 255 m via the corridor each way + a 105 s serve).
+- Still open from the briefing: the committee's OWN corridor / no-fly
+  coordinates (ours are ±5 m from photos) and WHERE the pads are placed. The
+  GCS label now reads "เพดาน 30 m"; the printed KMITL checklist
+  (`docs/AAVC_Checklist_Competition_KMITL.*`) was rebuilt with the new
+  envelope line (`transit 3 pts @ 20 m, sweep 3 legs @ 20 m`).
+
+---
+
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 
 An autonomous **PX4 hexacopter** (EFT X6100 frame; Pixhawk 6X + Raspberry Pi CM4
@@ -147,14 +213,16 @@ four assigned eggs in ONE flight (`eggs_aboard=1` is the pre-briefing
 one-egg-per-flight model, still a fully supported one-integer rollback).
 Each assigned pad is its own **DELIVERY**, scored independently. Per
 flight: takeoff at the Launch & Recovery site → **mandatory transit
-P1→P2→P3 at 20 m** (scored per point, both directions) → search the **search
-area** (10–20 m band; the assigned ids are entered by the operator at each
+P1→P2→P3 at 20 m** (scored per point, both directions; the points moved west
+on 2026-08-28 — §0c) → search the **search
+area** (10–30 m band since 28 Aug; the assigned ids are entered by the operator at each
 GO) → for each assigned id in turn: **land ON the pad** → **release that
 delivery's egg after touchdown** (`payload_id` 0..3 → latch servo on
 **AUX 4/1/2/3** as wired) → egress transit → land at L&R → **disarm** → resupply → next
 flight (≤4 flights inside the **20-minute operation window** — the briefing
-default needs only ONE; per-minute penalty after). Ceiling **20 m AGL**;
-below **10 m only** for the delivery descent over the pad.
+default needs only ONE; per-minute penalty after). Ceiling **30 m AGL since
+the 28-Aug-2026 briefing (20 in the PDF — §0c)**; below **10 m only** for the
+delivery descent over the pad.
 Fast-but-safe. Full rules digest: `docs/RULES_AAVC2026.md` (source:
 `AAVC2026_RulesAndRegulation_V1.3_140769.pdf` in the repo root — V1.3 is
 editorial-only over V1.1: no flight-rule value changed; it adds DMS coordinates,
@@ -243,9 +311,11 @@ single sortie" is history, not current design.)
   P1→P2→P3 at **strictly 20 m** outbound and P3→P2→P1 back — scored per
   coordinate passed, so each pass/miss is audited (`TRANSIT_PASS`/`_MISS`).
   The final approach home is an **explicit goto + land, NOT RTL** (kept from
-  2026-06-11: PX4 re-captures home at every re-arm). `RTL_RETURN_ALT=20` is
-  pinned so any FAILSAFE RTL (geofence/datalink/watchdog) stays at the ceiling
-  — PX4's default 60 m would bust it.
+  2026-06-11: PX4 re-captures home at every re-arm). `RTL_RETURN_ALT` is
+  pinned per field (KMITL **25** under the 30 m ceiling since 2026-08-28 —
+  §0c; the commander default is 20) so any FAILSAFE RTL
+  (geofence/datalink/watchdog) stays legal and above the obstacles — PX4's
+  default 60 m would bust the ceiling.
 - **Blind visual search + cross-flight pad registry** (2026-06-11, reshaped
   2026-07-03, chunked per flight 2026-07-24): pad coordinates are **unknown
   at takeoff** — the committee only assigns marker ids, up to `eggs_aboard`
