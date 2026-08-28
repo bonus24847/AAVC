@@ -169,8 +169,14 @@ the 13:00-18:00 trial slot is the single test.
   metres about L&R (`search_pattern.py::build_explicit_pattern`, chosen by
   `main.py::_build_spec` when the key is present) because the polygon
   planner sweeps a bounding box and would run every leg through the band:
-  3 E-W legs at 20 m — C (112,58)→(46,58) · A (46,88)→(205,88) ·
-  B (205,107)→(46,100) — 433 m / ~159 s, coverage checked on a 2 m grid.
+  4 E-W legs at 20 m — 1 (112,52)→(46,52) · 2 (46,68)→(112,68) ·
+  3 (46,86)→(205,86) · 4 (205,107)→(46,100) — 556 m incl. transitions /
+  ~206 s, spacings 16 / 18 / 21 m. The first cut had THREE legs with a 30 m
+  seam (= one swath, zero overlap) between the west-field leg and the strip
+  leg, forced by the band's top at N 75.3; the operator caught it ("กลัว
+  scan ไม่ครบ") — on a 2 m grid 6 % of the L was unseen at a 13 m usable
+  half-swath, 15 % at 11 m. `test_the_kmitl_sweep_covers_the_L_with_overlap`
+  now pins every grid point within 13 m of a leg (+ ≤ 22.5 m leg spacing).
   **(2) `routing.keepout_zones` + `routing.gateway`** — every goto the mission
   makes (sweep legs, decode visits, the hop to a pad, the egress to P3′)
   goes through `mission.py::_goto_routed`: if the straight line from the
@@ -183,8 +189,8 @@ the 13:00-18:00 trial slot is the single test.
   **PX4's own failsafe RTL** (straight line home) — from the north strip
   east of E ~130 that line crosses the building band; safety-pilot brief.
 - **Sweep 12 → 20 m** (operator: "survey at 20 m" — obstacle clearance over
-  the display aircraft; "25 m clears everything"). On the L: **3 hand-laid
-  legs / 433 m / ~159 s** (at 12 m the same L would need ~6 legs and would
+  the display aircraft; "25 m clears everything"). On the L: **4 hand-laid
+  legs / 556 m / ~206 s** (at 12 m the same L would need ~8 legs and would
   decode in the sweep).
   The marker is 16.9 px at 20 m — under the validated 18 px floor — so the
   sweep is a **white-pad finder** (pad 42 px, blob floor 18) and ids are read
@@ -194,8 +200,9 @@ the 13:00-18:00 trial slot is the single test.
   drawn box edge, so the roof is never in view. Knock-ons:
   `max_fix_ground_dist_m` 15 → 20 (the half-swath is 15.1 m now),
   `serve_cost_s` 80 → 105 (the hop is at 20 m: +8 m down at 0.4 m/s),
-  `sortie_cost_s` 900 → 970 (rebuilt: 17 + 53 + 6 + 159 + 188 + 420 + 32 +
-  53 + 35 = 963; egg 4's gate runs with 462 s left; launch gate 1180 ≤ 1200),
+  `sortie_cost_s` 900 → **985, capped** (honest: 17 + 53 + 5 + 206 + 188 +
+  420 + 32 + 53 + 35 = 1009; egg 4's gate runs with 416 s left; the launch
+  gate stacks 210 s on top and would refuse the first GO at 1009),
   `known_sortie_cost_s` 280 (rebuilt: 263 m via the corridor each way + a
   105 s serve).
 - Still open from the briefing: the committee's OWN corridor / no-fly

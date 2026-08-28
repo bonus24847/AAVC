@@ -210,3 +210,53 @@ def test_a_pad_registered_inside_a_keepout_is_refused(monkeypatch) -> None:
     assert serve.calls == []
     assert any("REFUSED" in e and "keep-out" in e for e in state.anomalies)
     assert (round(PAD5[0], 6), round(PAD5[1], 6)) not in _pts(cmd)
+
+
+def test_the_kmitl_sweep_covers_the_L_with_overlap() -> None:
+    """The operator's 28-Aug-noon call: the first cut had two legs 30 m apart —
+    exactly one 20 m swath, zero overlap — and a 2 m grid of the L showed 6 %
+    of the area unseen at a realistic 13 m usable half-swath (a pad must sit
+    wholly inside the frame), all along the seam. Pin the fix: every grid
+    point of the flown search polygon that is outside the keep-outs lies
+    within 13 m of some leg (< 1 % unseen; points within 3 m of a band are
+    left out — a candidate there is refused as a false hit anyway)."""
+    cfg = _kmitl()
+    sc = cfg["search"]
+    lat0, lon0 = (float(v) for v in cfg["ground_operation"]["launch_recovery"])
+    k = _R * math.cos(math.radians(lat0))
+
+    def enu(p: tuple[float, float]) -> tuple[float, float]:
+        return (math.radians(p[1] - lon0) * k, math.radians(p[0] - lat0) * _R)
+    area = [enu((float(v[0]), float(v[1]))) for v in cfg["search_area"]]
+    keepouts = [[enu((float(v[0]), float(v[1]))) for v in poly]
+                for poly in cfg["routing"]["keepout_zones"]]
+    legs = [(tuple(map(float, a)), tuple(map(float, b)))
+            for a, b in zip(sc["sweep_waypoints_enu"][0::2], sc["sweep_waypoints_enu"][1::2])]
+    assert len(legs) >= 4, "four legs since the noon fix — three left a 30 m seam"
+
+    def seg_dist(p, a, b):
+        L2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2
+        t = max(0.0, min(1.0, ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / L2))
+        return math.hypot(p[0] - (a[0] + t * (b[0] - a[0])), p[1] - (a[1] + t * (b[1] - a[1])))
+    es = [v[0] for v in area]
+    ns = [v[1] for v in area]
+    total = 0
+    unseen = []
+    for e in range(int(min(es)) + 2, int(max(es)), 2):
+        for n in range(int(min(ns)) + 2, int(max(ns)), 2):
+            if not _point_in_polygon(e, n, area):
+                continue
+            # a pad within _KEEPOUT_MARGIN_M of a band is refused anyway
+            if any(min(x for x, _ in ko) - 3.0 <= e <= max(x for x, _ in ko) + 3.0
+                   and min(y for _, y in ko) - 3.0 <= n <= max(y for _, y in ko) + 3.0
+                   for ko in keepouts):
+                continue
+            total += 1
+            if min(seg_dist((e, n), a, b) for a, b in legs) > 13.0:
+                unseen.append((e, n))
+    assert total > 1500
+    assert len(unseen) / total < 0.01, f"{len(unseen)}/{total} grid points unseen: {unseen[:10]}"
+    # and no two consecutive parallel legs further apart than the validated
+    # 0.30-overlap spacing (21.2 m) plus a metre of slack
+    for (a1, b1), (a2, b2) in zip(legs, legs[1:]):
+        assert abs((a2[1] + b2[1]) / 2 - (a1[1] + b1[1]) / 2) <= 22.5
