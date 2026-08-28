@@ -714,7 +714,9 @@ async def run_delivery_mission(
         pct = state.telemetry.battery_percent
         return not math.isnan(pct) and pct < prof.egress_battery_pct
 
-    async def _sweep_for(flight: int) -> None:
+    async def _sweep_for(flight: int, *,
+                         on_found: Callable[[], Awaitable[str | None]] | None = None,
+                         all_handled: Callable[[], bool] | None = None) -> None:
         """Fly the FULL boustrophedon sweep (finish-sweep-then-serve, operator
         decision 2026-07-03): discovery only, feeding every decoded pad into
         the cross-flight registry. Early-stop only once there is nothing more
@@ -736,10 +738,17 @@ async def run_delivery_mission(
             #      pad it serves.
             if len(tracker.distinct_confirmed_ids()) >= max_pads:
                 return True
-            wanted = set(state.flight_ids)
-            if bool(wanted) and all(
-                    tracker.confirmed_by_marker(a) is not None for a in wanted):
-                return True
+            if all_handled is not None:
+                # Deliver-when-found (operator 2026-08-28 evening): a confirmed
+                # id is served by on_found the moment it appears, so the sweep
+                # ends when every entry has been ATTEMPTED, not merely seen.
+                if all_handled():
+                    return True
+            else:
+                wanted = set(state.flight_ids)
+                if bool(wanted) and all(
+                        tracker.confirmed_by_marker(a) is not None for a in wanted):
+                    return True
             #  (c) the pack is below the planned egress floor (operator
             #      2026-08-27): the sweep is the mission's biggest single
             #      consumer (6.6 min at KMITL) and used to run down to the
@@ -773,7 +782,7 @@ async def run_delivery_mission(
             except Exception as e:
                 logger.warning(f"[mission] MPC_XY_CRUISE={spec.speed_mps} set failed: {e}")
         try:
-            await _sweep_legs(flight, _done)
+            await _sweep_legs(flight, _done, on_found)
         finally:
             if cruise_pin is not None:
                 try:
@@ -781,9 +790,12 @@ async def run_delivery_mission(
                 except Exception as e:
                     logger.warning(f"[mission] MPC_XY_CRUISE restore failed: {e}")
 
-    async def _sweep_legs(flight: int, _done: Callable[[], bool]) -> None:
+    async def _sweep_legs(flight: int, _done: Callable[[], bool],
+                          on_found: Callable[[], Awaitable[str | None]] | None) -> None:
         for orig_i, wp in enumerate(spec.waypoints):
             if not _running():
+                return
+            if on_found is not None and await on_found() == "stop":
                 return
             if _done():
                 logger.info(f"[mission] flight {flight}: every pad this flight "
@@ -815,6 +827,32 @@ async def run_delivery_mission(
             guard = _ProgressGuard(leg_timeout, clock=state.now)
             while _running():
                 _drain_tracker()
+                if on_found is not None:
+                    outcome = await on_found()
+                    if outcome == "stop":
+                        return
+                    if outcome == "resume":
+                        # A delivery was flown from mid-leg: the aircraft is on
+                        # (or just above) the pad. Climb back to the sweep
+                        # altitude, re-acquire this leg's waypoint (routed) and
+                        # start a fresh progress guard for what is left of it.
+                        if _done():
+                            return
+                        state.record_audit(
+                            f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} SWEEP "
+                            f"resumed at wp {orig_i}")
+                        await _climb_out_to_hop_alt()
+                        _phase(MissionPhase.SEARCH)
+                        state.command_pointer = pointer_for(state.plan, wp_index=orig_i)
+                        await _goto_routed(wp.lat, wp.lon, sweep_alt,
+                                           yaw_deg=spec.sweep_yaw_deg)
+                        cur = _cur_latlon()
+                        leg_len = (_latlon_dist_m(cur[0], cur[1], wp.lat, wp.lon)
+                                   if cur else 0.0)
+                        guard = _ProgressGuard(
+                            2.0 * leg_len / max(spec.speed_mps, 0.1) + _WAIT_PAD_S,
+                            clock=state.now)
+                        continue
                 if _done():
                     return
                 cur = _cur_latlon()
@@ -1140,11 +1178,177 @@ async def run_delivery_mission(
             await commander.arm_and_takeoff(climb_alt)
             await _fly_transit(flight, egress=False)
 
-            # Find every missing id BEFORE serving any of them
-            # (finish-sweep-then-serve). This is the original per-sortie
-            # discovery ladder generalised over the flight's ids, so
-            # eggs_aboard=1 is behaviourally identical: vote top-up → full
-            # sweep → per-id decode visits → opportunistic registry completion.
+            # ── deliveries ────────────────────────────────────────────────
+            # DELIVER-WHEN-FOUND (operator 2026-08-28 evening, after the trial:
+            # "เมื่อเจอ payload ให้ทำการ drop เลย"). A delivery no longer waits
+            # for the sweep: the sweep pauses the moment an assigned id is
+            # CONFIRMED, the pad is served from where the aircraft is (hop →
+            # ladder → land → release → climb back to the sweep altitude) and
+            # the sweep resumes at the leg it left. Whatever is still owed when
+            # the sweep runs out goes through the decode visits and the
+            # post-sweep pass below, as before. Every delivery — mid-sweep or
+            # after — is _deliver_entry, so the budget gate, the not-found rule
+            # and the latch ledger are one piece of code.
+            # Physical release slot = the NEXT latch that still holds an egg:
+            # eggs are interchangeable and the rack fires in wiring order (AUX
+            # 4/1/2/3) whichever pad comes first; a failed delivery leaves its
+            # egg latched, so the same slot serves the next pad. A RECOVERY
+            # flight (index past the queue's positional chunks — same rule as
+            # main.py::_chunk_for) continues through the latches that have not
+            # fired since flight 1 (operator 2026-08-27: nobody re-racks eggs at
+            # the swap); a positional flight has a freshly loaded rack.
+            recovery_slots: list[int] | None = None
+            _q = state.assigned_id_queue
+            if _q and flight > max_flights_for(len(_q), max(1, state.eggs_aboard)):
+                n_rack = (_n_channels if isinstance(_n_channels, int) else
+                          max(state.eggs_aboard,
+                              len(state.payload_slots_fired) + len(flight_ids)))
+                _fired = set(state.payload_slots_fired)
+                recovery_slots = [s for s in range(n_rack) if s not in _fired]
+                state.record_audit(
+                    f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} RECOVERY "
+                    f"slots={recovery_slots[:len(flight_ids)]} "
+                    f"fired={sorted(_fired)}")
+                logger.info(
+                    f"[mission] flight {flight}: recovery — serving from the "
+                    f"unfired latches {recovery_slots[:len(flight_ids)]} "
+                    f"(already fired: {sorted(_fired)})")
+            fired_this_flight: list[int] = []
+            handled_entries: set[int] = set()   # indices into flight_ids attempted
+            n_delivered = 0
+
+            def _next_payload_slot() -> int | None:
+                if recovery_slots is not None:
+                    pool = [x for x in recovery_slots if x not in fired_this_flight]
+                else:
+                    n_rack = (_n_channels if isinstance(_n_channels, int)
+                              else max(state.eggs_aboard, len(flight_ids)))
+                    pool = [x for x in range(n_rack) if x not in fired_this_flight]
+                return pool[0] if pool else None
+
+            async def _deliver_entry(idx: int) -> str:
+                """Serve ``flight_ids[idx]``: 'delivered' | 'kept' (the egg stays
+                aboard) | 'abort' (the budget gate refused — nothing more starts
+                this flight). Re-checks the budget before EVERY descent: the
+                aircraft is committed to the flight, so the gate reserves only
+                the egress + L&R landing — but it never starts a delivery it
+                cannot finish, nor one the FC's low-battery failsafe would
+                interrupt with an egg aboard."""
+                nonlocal batt_egress, n_delivered, delivered, delivery_no
+                assigned = flight_ids[idx]
+                remaining = [flight_ids[i] for i in range(len(flight_ids))
+                             if i not in handled_entries]
+                pct = state.telemetry.battery_percent
+                # Two battery arms: the FAILSAFE margin (never start a descent
+                # the 15% RTL would interrupt with an egg aboard) and the
+                # PLANNED egress floor (operator 2026-08-27: below
+                # egress_battery_pct nothing new starts — the flight goes home
+                # through the corridor to swap the pack). Latched for the
+                # flight once crossed, like the sweep's own check.
+                # 2026-08-28: the floor is applied to what the pack will read
+                # AFTER the delivery, not before it — a 20 m approach costs
+                # ~_DELIVERY_COST_PCT points on this gauge.
+                if not batt_egress and not math.isnan(pct) \
+                        and pct < prof.egress_battery_pct + _DELIVERY_COST_PCT:
+                    batt_egress = True
+                    state.record_audit(
+                        f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} BATTERY "
+                        f"EGRESS batt={pct:.0f}% < {prof.egress_battery_pct:.0f}% "
+                        f"floor + {_DELIVERY_COST_PCT:.0f}% delivery cost "
+                        "before a delivery — returning via the corridor for "
+                        "resupply")
+                batt_ok = (math.isnan(pct)
+                           or (pct > prof.rth_battery_pct + _DELIVERY_BATT_MARGIN_PCT
+                               and not batt_egress))
+                if not (pol.can_start_delivery(state.time_remaining_s()) and batt_ok):
+                    state.record_audit(
+                        f"t={state.time_elapsed_s():.1f}s DELIVERY abort: flight "
+                        f"{flight} skipping remaining "
+                        f"ids={','.join(map(str, remaining))} "
+                        f"(remaining={state.time_remaining_s():.0f}s "
+                        f"batt={pct:.0f}%) — returning with the egg(s)")
+                    logger.warning(
+                        f"[mission] flight {flight}: budget exhausted before "
+                        f"pad {assigned} — {len(remaining)} egg(s) come home")
+                    return "abort"
+                handled_entries.add(idx)
+                if tracker.confirmed_by_marker(assigned) is None:
+                    # Never released blind: an undiscovered pad keeps its egg.
+                    delivery_no += 1
+                    state.delivery_index = delivery_no
+                    state.record_anomaly(f"flight{flight}_pad{assigned}_not_found")
+                    state.record_audit(
+                        f"t={state.time_elapsed_s():.1f}s DELIVERY {delivery_no} END "
+                        f"delivered=False pad={assigned} reason=not_found")
+                    return "kept"
+                payload = _next_payload_slot()
+                if payload is None or (isinstance(_n_channels, int)
+                                       and payload >= _n_channels):
+                    # The config mismatch the pre-takeoff WARN flags — kept
+                    # non-fatal: _serve would reach drop_payload, which RAISES
+                    # for a payload_id >= drop_payload_count; an unhandled
+                    # exception here would end the mission landed-but-armed
+                    # on a pad. Degrade like an undiscovered pad: keep the egg,
+                    # audit why, keep flying. `payload is None` = a recovery
+                    # flight with more owed ids than unfired latches.
+                    delivery_no += 1
+                    state.delivery_index = delivery_no
+                    state.record_anomaly(
+                        f"flight{flight}_pad{assigned}_no_release_channel")
+                    state.record_audit(
+                        f"t={state.time_elapsed_s():.1f}s DELIVERY {delivery_no} END "
+                        f"delivered=False pad={assigned} reason=no_release_channel")
+                    return "kept"
+                delivery_no += 1
+                state.delivery_index = delivery_no
+                # Climb out before flying to the pad — see _climb_out_to_hop_alt.
+                # AFTER the gate and the not-found skip so a delivery that never
+                # happens doesn't pay for a climb.
+                await _climb_out_to_hop_alt()
+                # Ledger key: the delivery's own ordinal across the mission —
+                # unique by construction (a queue position could collide with
+                # the fallback numbering when a manual GO re-serves a queued id,
+                # and _drop_once's idempotence ledger would suppress the release).
+                stop_index = delivery_no - 1
+                if await _serve(flight, assigned, stop_index=stop_index,
+                                payload_id=payload, delivery_index=delivery_no):
+                    n_delivered += 1
+                    delivered += 1
+                    # Physical-release ledger: which latch actually fired.
+                    fired_this_flight.append(payload)
+                    state.payload_slots_fired.append(payload)
+                    return "delivered"
+                return "kept"
+
+            async def _serve_found() -> str | None:
+                """Sweep hook: deliver every entry whose pad is confirmed and not
+                yet attempted. None = nothing to do; 'resume' = a delivery was
+                flown and the sweep must re-acquire its leg; 'stop' = the
+                budget gate refused, the sweep ends."""
+                out: str | None = None
+                for i, a in enumerate(flight_ids):
+                    if not _running():
+                        return "stop"
+                    if i in handled_entries or tracker.confirmed_by_marker(a) is None:
+                        continue
+                    state.record_audit(
+                        f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} SWEEP "
+                        f"paused: pad={a} confirmed — delivering now")
+                    logger.info(f"[mission] flight {flight}: pad {a} confirmed "
+                                "mid-sweep — delivering now, sweep resumes after")
+                    if await _deliver_entry(i) == "abort":
+                        return "stop"
+                    out = "resume"
+                return out
+
+            def _all_handled() -> bool:
+                return bool(flight_ids) and all(
+                    i in handled_entries for i in range(len(flight_ids)))
+
+            # Find the missing ids: vote top-up → sweep (serving each pad the
+            # moment it confirms) → per-id decode visits → opportunistic
+            # registry completion. eggs_aboard=1 is behaviourally the same
+            # ladder with one id.
             # Recomputed HERE, not reused from the pre-takeoff read: the vision
             # worker feeds the registry continuously, so a pad can confirm
             # during the takeoff or the ingress transit — and a stale `missing`
@@ -1174,7 +1378,12 @@ async def run_delivery_mission(
                                              owed=owed)
                 if _running() and any(tracker.confirmed_by_marker(a) is None
                                       for a in flight_ids):
-                    await _sweep_for(flight)
+                    # A confirmed pad may already be waiting (top-up visit,
+                    # ingress) — serve it before the first leg.
+                    if await _serve_found() != "stop":
+                        await _sweep_for(flight, on_found=_serve_found,
+                                         all_handled=_all_handled)
+                owed = len(flight_ids) - len(handled_entries)
                 for a in flight_ids:
                     # A decode visit is 30-60 s of flying at the 10 m floor:
                     # not on a pack the sweep has already egressed on.
@@ -1221,172 +1430,51 @@ async def run_delivery_mission(
                         f"decoding leftover candidates")
                     await _decode_visits(flight, assigned=-1, owed=owed)
 
-            # Serve by ROUTE, not by the order the operator happened to click
-            # (operator 2026-08-18: "ให้ส่งตาม path ที่ใกล้ที่สุดก่อน"). This is
-            # the first moment it can be decided: pad positions come from the
-            # registry, which only learns them by decoding markers during the
-            # sweep that just finished. Distance saved here is battery the sweep
-            # has already spent most of, and time inside a window that charges
-            # for overtime. `payload_id` stays the serve SLOT below, so the
-            # physical release keeps the diagonal AUX 4/1/2/3 order the rack is
-            # wired for — only which pad each slot flies to changes.
-            if len(flight_ids) > 1:
+            # Whatever is still owed after the sweep — pads the decode visits
+            # found, or never found — is served nearest-first from here
+            # (operator 2026-08-18: "ให้ส่งตาม path ที่ใกล้ที่สุดก่อน"), through
+            # the SAME _deliver_entry as the mid-sweep deliveries. Ending far
+            # from the egress point is a real cost, so it is part of the route.
+            pending = [i for i in range(len(flight_ids)) if i not in handled_entries]
+            if len(pending) > 1:
                 t_now = state.telemetry
                 here = ((t_now.lat, t_now.lon)
                         if not (math.isnan(t_now.lat) or math.isnan(t_now.lon))
                         else None)
                 pad_xy = {}
-                for a in flight_ids:
-                    tgt = tracker.confirmed_by_marker(a)
+                for i in pending:
+                    tgt = tracker.confirmed_by_marker(flight_ids[i])
                     if tgt is not None:
-                        pad_xy[a] = (tgt.lat, tgt.lon)
-                # Where the aircraft leaves for after the last egg: ending far
-                # from the egress point is a real cost, so it is part of the
-                # route being minimised rather than someone else's problem.
+                        pad_xy[flight_ids[i]] = (tgt.lat, tgt.lon)
                 egress_pt = (transit_route[-1].lat, transit_route[-1].lon) \
                     if transit_route else None
-                routed = order_by_nearest(flight_ids, pad_xy, here, egress_pt)
-                if routed != list(flight_ids):
+                routed_ids = order_by_nearest([flight_ids[i] for i in pending],
+                                              pad_xy, here, egress_pt)
+                pool = list(pending)
+                ordered: list[int] = []
+                for a in routed_ids:            # duplicates keep their count
+                    j = next((i for i in pool if flight_ids[i] == a), None)
+                    if j is None:
+                        continue
+                    pool.remove(j)
+                    ordered.append(j)
+                ordered += pool
+                if ordered != pending:
                     state.record_audit(
                         f"t={state.time_elapsed_s():.1f}s SERVE ORDER flight "
-                        f"{flight} queue={','.join(map(str, flight_ids))} "
-                        f"routed={','.join(map(str, routed))}")
-                    logger.info(f"[mission] flight {flight}: serving nearest-"
-                                f"first {routed} (queue was {list(flight_ids)})")
-                    flight_ids = routed
-                    # Keep the GCS chip on the order actually flown: state.flight_ids
-                    # was set to the click order at flight start (line ~738) and the
-                    # dashboard reads it as "this flight's pads, in order".
-                    state.flight_ids = list(routed)
-
-            # A RECOVERY flight (index past the queue's positional chunks —
-            # same rule as main.py::_chunk_for) flies with whatever the rack
-            # still holds: the eggs that came home are still latched where the
-            # crew loaded them before flight 1, because nobody re-racks eggs
-            # at the swap (operator 2026-08-27: "ผมไม่อยากสลับถุงไข่"). Its
-            # serve slots therefore CONTINUE the wiring-order progression
-            # through the latches that have not fired, instead of restarting
-            # at slot 0 and popping already-empty holds. Positional flights
-            # keep slot == position: their rack IS freshly loaded from AUX4 up.
-            recovery_slots: list[int] | None = None
-            _q = state.assigned_id_queue
-            if _q and flight > max_flights_for(len(_q), max(1, state.eggs_aboard)):
-                n_rack = (_n_channels if isinstance(_n_channels, int) else
-                          max(state.eggs_aboard,
-                              len(state.payload_slots_fired) + len(flight_ids)))
-                _fired = set(state.payload_slots_fired)
-                recovery_slots = [s for s in range(n_rack) if s not in _fired]
-                state.record_audit(
-                    f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} RECOVERY "
-                    f"slots={recovery_slots[:len(flight_ids)]} "
-                    f"fired={sorted(_fired)}")
-                logger.info(
-                    f"[mission] flight {flight}: recovery — serving from the "
-                    f"unfired latches {recovery_slots[:len(flight_ids)]} "
-                    f"(already fired: {sorted(_fired)})")
-
-            # Serve each assigned id, re-checking the budget before EVERY
-            # descent. The aircraft is already committed to this flight, so the
-            # gate reserves only the egress + L&R landing — but it must never
-            # start a delivery it cannot finish, and never one the FC's
-            # low-battery failsafe would interrupt with an egg aboard.
-            n_delivered = 0
-            for slot, assigned in enumerate(flight_ids):
+                        f"{flight} queue={','.join(str(flight_ids[i]) for i in pending)} "
+                        f"routed={','.join(str(flight_ids[i]) for i in ordered)}")
+                    logger.info(f"[mission] flight {flight}: serving nearest-first "
+                                f"{[flight_ids[i] for i in ordered]}")
+                    pending = ordered
+                    # Keep the GCS chip on the order actually flown.
+                    state.flight_ids = ([flight_ids[i] for i in sorted(handled_entries)]
+                                        + [flight_ids[i] for i in pending])
+            for idx in pending:
                 if not _running():
                     break
-                pct = state.telemetry.battery_percent
-                # Two battery arms: the FAILSAFE margin (never start a descent
-                # the 15% RTL would interrupt with an egg aboard) and the
-                # PLANNED egress floor (operator 2026-08-27: below
-                # egress_battery_pct nothing new starts — the flight goes home
-                # through the corridor to swap the pack). Latched for the
-                # flight once crossed, like the sweep's own check.
-                # 2026-08-28: the floor is applied to what the pack will read
-                # AFTER the delivery, not before it — a 20 m approach costs
-                # ~_DELIVERY_COST_PCT points on this gauge.
-                if not batt_egress and not math.isnan(pct) \
-                        and pct < prof.egress_battery_pct + _DELIVERY_COST_PCT:
-                    batt_egress = True
-                    state.record_audit(
-                        f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} BATTERY "
-                        f"EGRESS batt={pct:.0f}% < {prof.egress_battery_pct:.0f}% "
-                        f"floor + {_DELIVERY_COST_PCT:.0f}% delivery cost "
-                        "before a delivery — returning via the corridor for "
-                        "resupply")
-                batt_ok = (math.isnan(pct)
-                           or (pct > prof.rth_battery_pct + _DELIVERY_BATT_MARGIN_PCT
-                               and not batt_egress))
-                if not (pol.can_start_delivery(state.time_remaining_s()) and batt_ok):
-                    state.record_audit(
-                        f"t={state.time_elapsed_s():.1f}s DELIVERY abort: flight "
-                        f"{flight} skipping remaining "
-                        f"ids={','.join(map(str, flight_ids[slot:]))} "
-                        f"(remaining={state.time_remaining_s():.0f}s "
-                        f"batt={pct:.0f}%) — returning with the egg(s)")
-                    logger.warning(
-                        f"[mission] flight {flight}: budget exhausted before "
-                        f"pad {assigned} — {len(flight_ids) - slot} egg(s) come home")
+                if await _deliver_entry(idx) == "abort":
                     break
-                if tracker.confirmed_by_marker(assigned) is None:
-                    # Never released blind: an undiscovered pad keeps its egg.
-                    delivery_no += 1
-                    state.delivery_index = delivery_no
-                    state.record_anomaly(f"flight{flight}_pad{assigned}_not_found")
-                    state.record_audit(
-                        f"t={state.time_elapsed_s():.1f}s DELIVERY {delivery_no} END "
-                        f"delivered=False pad={assigned} reason=not_found")
-                    continue
-                payload = ((recovery_slots[slot]
-                            if slot < len(recovery_slots) else None)
-                           if recovery_slots is not None else slot)
-                if payload is None or (isinstance(_n_channels, int)
-                                       and payload >= _n_channels):
-                    # The same config mismatch the pre-takeoff WARN above
-                    # flags (_n_channels, read once per flight) — this is the
-                    # guard that keeps it non-fatal. Unguarded, _serve() would
-                    # reach _drop_once's `await commander.drop_payload(...)`
-                    # (orchestrator/tactical_align.py), which RAISES
-                    # ValueError for a payload_id >= drop_payload_count
-                    # (mavlink_adapter/commands.py) — an unhandled exception
-                    # here would end the whole mission with the aircraft
-                    # landed but still ARMED on a pad, mid-window. Degrade
-                    # like an undiscovered pad instead: keep the egg, audit
-                    # why, keep flying. Unknown channel count (fakes/tests
-                    # without a `config`) is never treated as a shortage —
-                    # only an isinstance-confirmed int gates this branch.
-                    # `payload is None` = a recovery flight with more owed
-                    # ids than unfired latches: nothing aboard to release.
-                    delivery_no += 1
-                    state.delivery_index = delivery_no
-                    state.record_anomaly(
-                        f"flight{flight}_pad{assigned}_no_release_channel")
-                    state.record_audit(
-                        f"t={state.time_elapsed_s():.1f}s DELIVERY {delivery_no} END "
-                        f"delivered=False pad={assigned} reason=no_release_channel")
-                    continue
-                delivery_no += 1
-                state.delivery_index = delivery_no
-                # Climb out before flying to the next pad — see
-                # _climb_out_to_hop_alt's docstring for the full rationale.
-                # Placed AFTER the abort gate and the not-found skip so a
-                # delivery that never happens doesn't pay for a climb.
-                await _climb_out_to_hop_alt()
-                # Ledger key: the delivery's own ordinal across the mission.
-                # Unique by construction — deriving it from the committee
-                # queue's position could collide with the fallback numbering
-                # when a manual GO override re-serves a queued id, and
-                # _drop_once's idempotence ledger would then silently suppress
-                # the second release.
-                stop_index = delivery_no - 1
-                if await _serve(flight, assigned, stop_index=stop_index,
-                                payload_id=payload, delivery_index=delivery_no):
-                    n_delivered += 1
-                    delivered += 1
-                    # Physical-release ledger: which latch actually fired.
-                    # _serve returns True only when the release command
-                    # succeeded (res.dropped), so this is what the recovery
-                    # flight's slot map above reads as "no egg here any more".
-                    state.payload_slots_fired.append(payload)
 
             if not _running():
                 break

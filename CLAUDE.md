@@ -244,6 +244,17 @@ own Python built the spec from the deployed config: 4 legs / 8 waypoints @
   (`docs/AAVC_Checklist_Competition_KMITL.*`) was rebuilt with the new
   envelope line (`transit 3 pts @ 20 m, sweep 3 legs @ 20 m`).
 
+- **DELIVER-WHEN-FOUND (operator, ~18:00 after the trial).** "เมื่อเจอ
+  payload ให้ทำการ drop เลย": the sweep no longer completes before the first
+  egg — a confirmed assigned pad is served immediately and the sweep resumes
+  (§2 search bullet, `orchestrator/mission.py::_serve_found`). Tests:
+  `test_a_pad_confirmed_mid_sweep_is_served_before_the_sweep_goes_on` and
+  neighbours in `tests/test_delivery_mission.py`. ⚠ Unflown as of this
+  writing — first real exercise is the 29-Aug scored flight; the crew
+  should expect the aircraft to LEAVE the sweep line and descend as soon as
+  a pad confirms (typically on the first or second leg), then climb back
+  and continue.
+
 ---
 
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
@@ -379,12 +390,23 @@ single sortie" is history, not current design.)
   **boustrophedon sweep** (`mission_brain/search_pattern.py`) over the **search
   area polygon** (not the whole airspace), decoding EVERY pad it sees into the
   registry (`orchestrator/target_tracker.py`, clusters keyed by decoded id,
-  k-decoded-vote confirmation). **Finish-sweep-then-serve** (operator
-  2026-07-03) — **relaxed 2026-08-27**: the sweep also stops as soon as every
-  distinct id THIS flight serves is confirmed (§8); otherwise it runs to
-  completion — early-stop once `max_pads` distinct ids are confirmed — so a
-  later flight whose WHOLE chunk is already registered flies **direct** (no
-  sweep). Undecoded white-pad candidates are revisited at the 10 m
+  k-decoded-vote confirmation). **DELIVER-WHEN-FOUND (operator 2026-08-28
+  evening, replaces finish-sweep-then-serve of 2026-07-03 / its 2026-08-27
+  relaxation):** the sweep PAUSES the moment an assigned id is confirmed,
+  the pad is served from where the aircraft is (`_serve_found` →
+  `_deliver_entry`: hop → ladder → land → release → climb back to the sweep
+  altitude) and the sweep RESUMES at the leg it left (audit `FLIGHT n SWEEP
+  paused: pad=… confirmed — delivering now` / `SWEEP resumed at wp k`). The
+  sweep ends when every entry of `state.flight_ids` has been ATTEMPTED (not
+  merely seen), or once `max_pads` distinct ids are confirmed; a later flight
+  whose WHOLE chunk is already registered still flies **direct** (no sweep).
+  Ids the sweep never finds go through the decode visits and the post-sweep
+  pass, nearest-first, through the SAME `_deliver_entry` (budget gate,
+  not-found rule, latch ledger — one routine). Release slot = the next latch
+  still holding an egg in wiring order (a failed delivery keeps its egg and
+  its slot). Reason: the voltage gauge drains ~13 pt/min under load, so the
+  first egg must not wait for the whole survey; a battery egress mid-sweep
+  now leaves fewer eggs aboard. Undecoded white-pad candidates are revisited at the 10 m
   floor to read their ids; a pad decoded but still short of `confirm_votes`
   (identified-but-unconfirmed) gets a cheap **vote top-up visit** instead of a
   re-sweep (2026-07-08, `TargetTracker.identified_unconfirmed`) — falling
@@ -943,7 +965,10 @@ flight fw before G7.
   `expected_mode` inside the watchdog) — never cleared ahead of time by the
   next command (`arm_and_takeoff` no longer touches it; `goto` still does).
   Tests at the end of `tests/test_safety.py`.
-- **Sweep stops as soon as every id THIS flight serves is confirmed; an
+- **Sweep stops as soon as every id THIS flight serves is confirmed
+  (⚠ SUPERSEDED 2026-08-28 evening by DELIVER-WHEN-FOUND, §2: a confirmed
+  id is now served on the spot and the sweep ends when every id has been
+  ATTEMPTED — the early-stop arm below survives as `_all_handled`); an
   external LAND/RTL stands the mission down on the first tick (operator,
   2026-08-27 14:13 flight).** The flight confirmed its three ids (1/4/5) by
   t=52 s and swept on (leg 5 of 7) until the pilot intervened at t=125 — the

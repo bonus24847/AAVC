@@ -1059,15 +1059,15 @@ def test_decode_visits_reserve_scales_with_the_deliveries_still_owed(
     A 4-egg flight that stops discovering only when ONE more serve fits
     (``can_start_serve``, 320 s) can legitimately burn the window down until
     deliveries 3-4 are refused by their own gate — half the score, no rule
-    broken. With 400 s left and four eggs aboard the decode visit must be
-    refused (needs 3*110 + 300 = 630 s), not flown.
+    broken. With 400 s left and four eggs still aboard (nothing found on the
+    sweep) the decode visit must be refused (needs 3*110 + 300 = 630 s), not
+    flown. (Since 2026-08-28 a pad confirmed on the sweep is delivered on the
+    spot, so "owed" here is what the sweep did NOT find — see the next test.)
     """
     state = _state()
     state.operation_window_s = 400.0
     state.max_sorties = 1                            # eggs_aboard=4 → ONE flight
-    tracker = TargetTracker()
-    for mid, pos in ((3, PAD3), (1, PAD1), (4, PAD4)):
-        _preload_pad(tracker, pos, mid)              # pad 6 stays unregistered
+    tracker = TargetTracker()                        # the sweep finds nothing
     # A cue-only blob the sweep never decoded — the decode-visit bait.
     for t in (0.0, 0.5):
         tracker.ingest(_fix(PAD6[0], PAD6[1], None, t=t))
@@ -1084,6 +1084,121 @@ def test_decode_visits_reserve_scales_with_the_deliveries_still_owed(
     assert not any(abs(la - PAD6[0]) < 1e-6 and abs(lo - PAD6[1]) < 1e-6
                    for la, lo, _ in cmd.gotos), (
         "flew a decode visit the remaining deliveries could not afford")
+
+
+def test_deliveries_flown_mid_sweep_shrink_the_decode_visit_reserve(
+        monkeypatch) -> None:
+    """The mirror of the previous test under deliver-when-found: three of the
+    four pads are confirmed at the start of the sweep, so they are delivered
+    DURING it and only ONE egg is still owed when the decode visit is
+    considered — 0*110 + 300 = 300 s fits inside the same 400 s window, so
+    the visit to the undecoded candidate IS flown.
+    """
+    state = _state()
+    state.operation_window_s = 400.0
+    state.max_sorties = 1
+    tracker = TargetTracker()
+    for mid, pos in ((3, PAD3), (1, PAD1), (4, PAD4)):
+        _preload_pad(tracker, pos, mid)              # pad 6 stays unregistered
+    for t in (0.0, 0.5):
+        tracker.ingest(_fix(PAD6[0], PAD6[1], None, t=t))
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", _fake_serve(state))
+    cmd = RecordingCommander(state)
+
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([3, 1, 4, 6], eggs_aboard=4), profile=COMPETITION))
+
+    assert state.dropped_stops == {0, 1, 2}
+    assert not any("decode-visits stopped (time reserve)" in a
+                   for a in state.anomalies), state.anomalies
+    assert any(abs(la - PAD6[0]) < 1e-6 and abs(lo - PAD6[1]) < 1e-6
+               for la, lo, _ in cmd.gotos), "the one owed delivery funds the visit"
+
+
+def test_a_pad_confirmed_mid_sweep_is_served_before_the_sweep_goes_on(
+        monkeypatch) -> None:
+    """Operator 2026-08-28 (evening, after the KMITL trial): "เมื่อเจอ payload
+    ให้ทำการ drop เลย" — the sweep no longer finishes before the first
+    delivery. Pad 3 confirms on the first sweep waypoint: the aircraft must
+    fly to PAD3 and release BEFORE the last sweep waypoint is flown, then
+    resume the sweep for pad 5, which confirms only on the final waypoint —
+    and is delivered too. Two eggs, two pads, in the order they were found.
+    """
+    state = _state()
+    tracker = TargetTracker()
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", _fake_serve(state))
+    cmd = RecordingCommander(state)
+    spec = _spec()
+    wp_list = [(round(w.lat, 7), round(w.lon, 7)) for w in spec.waypoints]
+    first_wp, last_wp = wp_list[0], wp_list[-1]
+    real_goto = cmd.goto
+
+    async def goto_with_camera(lat, lon, alt_m, yaw_deg=float("nan")):
+        await real_goto(lat, lon, alt_m, yaw_deg)
+        key = (round(lat, 7), round(lon, 7))
+        if key == first_wp:
+            _preload_pad(tracker, PAD3, 3)           # seen on the first leg
+        if key == last_wp:
+            _preload_pad(tracker, PAD5, 5)           # seen on the last leg
+
+    monkeypatch.setattr(cmd, "goto", goto_with_camera)
+
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, spec, home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([3, 5], eggs_aboard=2), profile=COMPETITION))
+
+    keys = [(round(la, 7), round(lo, 7)) for la, lo, _ in cmd.gotos]
+    pad3_key = (round(PAD3[0], 7), round(PAD3[1], 7))
+    assert pad3_key in keys, "pad 3 was never flown to"
+    i_pad3 = keys.index(pad3_key)
+    i_last = keys.index(last_wp)
+    assert i_pad3 < i_last, (
+        f"pad 3 (goto #{i_pad3}) should be served before the sweep's last "
+        f"waypoint (goto #{i_last}) — the sweep must pause to deliver")
+    # …and the sweep RESUMES after the delivery: its remaining waypoints are
+    # still flown, at the sweep altitude, after the pad-3 goto.
+    later_sweep = [k for k in keys[i_pad3 + 1:] if k in wp_list]
+    assert later_sweep, "the sweep did not resume after the mid-sweep delivery"
+    assert state.dropped_stops == {0, 1}
+    assert [e for e in state.anomalies if "SWEEP paused: pad=3" in e]
+    assert [e for e in state.anomalies if "SWEEP resumed" in e]
+    assert [e for e in state.anomalies if "SWEEP paused: pad=5" in e]
+
+
+def test_budget_refusal_mid_sweep_ends_the_sweep_with_the_eggs_aboard(
+        monkeypatch) -> None:
+    """The delivery gate is the same one everywhere: if the pack reads below
+    the egress floor + delivery cost when a pad confirms mid-sweep, nothing
+    starts — the sweep ends (no more waypoints), the egg stays aboard and the
+    flight goes home through the corridor.
+    """
+    state = _state()
+    state.telemetry.battery_percent = COMPETITION.egress_battery_pct + 5.0
+    tracker = TargetTracker()
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", _fake_serve(state))
+    cmd = RecordingCommander(state)
+    spec = _spec()
+    wps = {(round(w.lat, 7), round(w.lon, 7)) for w in spec.waypoints}
+    real_goto = cmd.goto
+
+    async def goto_with_camera(lat, lon, alt_m, yaw_deg=float("nan")):
+        await real_goto(lat, lon, alt_m, yaw_deg)
+        if (round(lat, 7), round(lon, 7)) in wps:
+            _preload_pad(tracker, PAD3, 3)
+
+    monkeypatch.setattr(cmd, "goto", goto_with_camera)
+
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, spec, home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([3]), profile=COMPETITION))
+
+    flown = [1 for la, lo, alt in cmd.gotos
+             if (round(la, 7), round(lo, 7)) in wps and alt == spec.sweep_alt_m]
+    assert len(flown) < len(spec.waypoints), "the sweep should stop at the refusal"
+    assert state.dropped_stops == set()
+    assert any("BATTERY EGRESS" in e for e in state.anomalies), state.anomalies
+    assert any("DELIVERY abort" in e for e in state.anomalies)
 
 
 def test_registry_completion_is_skipped_when_no_further_flight_is_budgeted(
