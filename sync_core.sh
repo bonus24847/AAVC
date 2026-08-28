@@ -60,7 +60,7 @@ rsync -a "$SRC/sitl/aavc_config.yaml" "$SRC/sitl/kmitl_config.yaml" "$DST/sitl/"
 # HITL has no actuator output) and MPC_THR_HOVER. NO --delete here: the comp
 # repo carries field tools of its own (survey/satellite helpers) that this
 # repo has never had, and they must survive the sync.
-for f in preflight_params.py px4_type_audit.py param_audit.py verify_flight.py \
+for f in preflight_params.py px4_type_audit.py param_audit.py verify_flight.py board_param.py \
          fence_probe.py alt_watch.py replay_frames.py landing_trial.py \
          gen_pads.py gen_aruco_glyphs.py gen_grass.py measure_mount_yaw.py \
          rc_check.py hover_decode.py serial_sniff.py gps_bench.py; do
