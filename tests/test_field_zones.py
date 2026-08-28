@@ -27,9 +27,9 @@ def test_competition_field_carries_the_whole_planned_route(monkeypatch):
     z = _zones(_COMP_FIELD, monkeypatch)
     assert z["transit"] and len(z["transit"]) == 3            # root-level {id,lat,lon} rows
     assert z["transit"][0] == z["home"]                        # P1 = L&R
-    assert len(z["sweep"]) == 8                                # 4 legs
-    assert len(z["keepout"]) == 2 and all(len(p) == 4 for p in z["keepout"])
-    assert len(z["gateway"]) == 2
+    assert len(z["sweep"]) == 12                               # 7 legs at 15 m around the trees
+    assert len(z["keepout"]) == 3 and all(len(p) == 4 for p in z["keepout"])
+    assert len(z["gateways"]) == 3 and z["gateway"] == z["gateways"][0]
     # the sweep's east ends stop short of the east band, its west ends inside the airspace
     lons = [p[1] for p in z["sweep"]]
     assert max(lons) < min(p[1] for p in z["keepout"][1])
@@ -47,7 +47,7 @@ def test_planned_route_matches_the_flight_config_digit_for_digit():
         [[float(a), float(b)] for a, b in cfg["transit_route"]]
     assert field["keepout_zones"] == [[list(map(float, v)) for v in poly]
                                       for poly in cfg["routing"]["keepout_zones"]]
-    assert field["planned_path"]["gateway"] == [float(v) for v in cfg["routing"]["gateway"]]
+    assert field["planned_path"]["gateways"] == [[float(v) for v in g] for g in cfg["routing"]["gateways"]]
     # the sweep is ENU in the flight config; the field file carries it as lat/lon
     import math
     lat0, lon0 = (float(v) for v in cfg["ground_operation"]["launch_recovery"])

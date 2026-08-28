@@ -354,8 +354,10 @@ def load_zones():
     sweep = pairs(pp.get("sweep"))
     if len(sweep) >= 2:
         out["sweep"] = sweep
-    if pp.get("gateway"):
-        out["gateway"] = [float(pp["gateway"][0]), float(pp["gateway"][1])]
+    gws = pairs(pp.get("gateways")) or (pairs([pp["gateway"]]) if pp.get("gateway") else [])
+    if gws:
+        out["gateways"] = gws
+        out["gateway"] = gws[0]
     keep = [pairs(z) for z in (doc.get("keepout_zones") or [])]
     keep = [z for z in keep if len(z) >= 3]
     if keep:
@@ -4194,7 +4196,7 @@ function aavcMap(s){
  if(!mapReady||typeof L==='undefined')return;
  var z=s.zones||{};
  // redraw when the field CHANGES (map editor save/clear), not just once
- var zsig=JSON.stringify([z.airspace,z.search,z.transit,z.home,z.sweep,z.gateway,z.keepout]);
+ var zsig=JSON.stringify([z.airspace,z.search,z.transit,z.home,z.sweep,z.gateways,z.keepout]);
  if(window.ZSIG!==zsig&&(z.airspace||z.search)){
   window.ZSIG=zsig;
   for(var zi=0;zi<lzones.length;zi++)lmap.removeLayer(lzones[zi]);lzones=[];
@@ -4216,7 +4218,8 @@ function aavcMap(s){
     lzones.push(L.marker(mid,{icon:L.divIcon({className:'planicon',html:'<div class="sweepseq">'+(si/2+1)+'</div>',iconSize:[20,20],iconAnchor:[10,10]}),zIndexOffset:-150}).addTo(lmap).bindTooltip('sweep leg '+(si/2+1),{direction:'top'}));
    }
   }
-  if(z.gateway)lzones.push(L.circleMarker(z.gateway,{radius:6,color:'#111',fillColor:'#ffd23f',fillOpacity:1,weight:2}).addTo(lmap).bindTooltip('gateway — จุดอ้อมเมื่อเส้นตรงตัดกล่องห้ามบิน'));
+  var gws=z.gateways||(z.gateway?[z.gateway]:[]);
+  for(var gi=0;gi<gws.length;gi++)lzones.push(L.circleMarker(gws[gi],{radius:6,color:'#111',fillColor:'#ffd23f',fillOpacity:1,weight:2}).addTo(lmap).bindTooltip('gateway '+(gi+1)+' — จุดอ้อมเมื่อเส้นตรงตัดกล่องห้ามบิน'));
   if(z.home)lhomeMarker=L.circleMarker(z.home,{radius:6,color:'#fff',fillColor:'#2ea043',fillOpacity:1,weight:2}).addTo(lmap).bindTooltip('HOME / L&R');
   // template switch: pan the map to the newly selected field
   if(window.ZFIT&&z.airspace&&z.airspace.length>=3){window.ZFIT=false;

@@ -74,22 +74,30 @@ transit_waypoints:
 # apart), `gateway` = routing.gateway (the one via-point every goto detours
 # through when its straight line would cross a keep-out polygon).
 planned_path:
-  sweep:                              # [lat, lon], flying order; pairs = legs 1..4
-    - [13.730789, 100.788482]
-    - [13.730789, 100.787871]
-    - [13.730933, 100.787871]
-    - [13.730933, 100.788482]
+  sweep:                              # [lat, lon], flying order — 7 legs at 15 m around the trees (15:40)
+    - [13.731095, 100.788519]
+    - [13.731095, 100.789369]
+    - [13.731238, 100.789369]
+    - [13.731238, 100.788519]
+    - [13.730798, 100.788519]
+    - [13.730798, 100.787871]
+    - [13.730969, 100.787871]
+    - [13.730969, 100.788056]
+    - [13.731095, 100.788056]
     - [13.731095, 100.787871]
-    - [13.731095, 100.789342]
-    - [13.731283, 100.789342]
     - [13.731220, 100.787871]
-  gateway: [13.731068, 100.788509]   # ENU 115 E / 83 N — off the building band's NW corner
+    - [13.731220, 100.788056]
+  gateways:                           # via-points the routing chains around the keep-outs
+    - [13.731068, 100.788509]   # NE  ENU 115 / 83
+    - [13.730843, 100.788482]   # SE  ENU 112 / 58
+    - [13.730843, 100.788001]   # SW  ENU  60 / 58
 
 # Plan-level keep-out polygons (= flight config routing.keepout_zones) — the
-# no-fly bands the operator marked on the gridded map at the 28-Aug briefing:
-# the main building + the courtyard east of it, and the whole east end of the
-# search area. Drawn red. NOT the FMU/companion no-fly failsafe (that stays
-# unarmed — see the flight config); the mission plans AROUND these instead.
+# no-fly bands the operator marked on the gridded map at the 28-Aug briefing
+# plus the 18 m tree block he marked after the trial (15:20; 8 m margin, the
+# 15 m sweep flies below the canopy top). Drawn red. NOT the FMU/companion
+# no-fly failsafe (that stays unarmed — see the flight config); the mission
+# plans AROUND these instead.
 keepout_zones:
   - # building band  ENU E 125.6-266 / N 42-75.3
     - [13.730998, 100.788607]
@@ -101,6 +109,11 @@ keepout_zones:
     - [13.731362, 100.789906]
     - [13.730699, 100.789906]
     - [13.730699, 100.789479]
+  - # trees (18 m)   ENU E 72-104 / N 62-118 (drawn E 80-96 / N 70-110 + 8 m)
+    - [13.731382, 100.788112]
+    - [13.731382, 100.788408]
+    - [13.730879, 100.788408]
+    - [13.730879, 100.788112]
 
 # Payload-release servos — the manual "ปล่อย servo" buttons on the GCS.
 # IDENTICAL to the practice field file: FOUR independent latch servos, outputs
