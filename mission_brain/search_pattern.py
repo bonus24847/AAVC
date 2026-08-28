@@ -70,6 +70,25 @@ def _latlon(east: float, north: float, lat0: float, lon0: float) -> tuple[float,
     return lat, lon
 
 
+def _held_heading(leg_bearing: float, camera: CameraModel) -> float:
+    """The heading to HOLD while flying legs of bearing ``leg_bearing`` so the
+    camera's WIDE image axis lies across track: the leg bearing offset by
+    however the camera is bolted (``CameraModel.mount_yaw_rad``; 0 = image-up
+    at the nose). TWO headings put the wide axis across track. They are
+    180 deg apart, and the footprint is a rectangle, so the ground covered is
+    identical either way — take the one that flies the leg NOSE-FIRST. Without
+    this the 180 deg mount measured on the aircraft 2026-08-23 (the camera is
+    bolted upside down) would send it down every sweep leg backwards: legal,
+    identically covered, and unlike every validated run — not a thing for a
+    safety pilot to meet for the first time in the air. At a 90 deg mount there
+    is no nose-first option (both perpendiculars sit 90 deg off the leg) and
+    this is correctly a no-op."""
+    sweep_yaw = (leg_bearing - math.degrees(camera.mount_yaw_rad)) % 360.0
+    if abs(((sweep_yaw - leg_bearing + 180.0) % 360.0) - 180.0) > 90.0:
+        sweep_yaw = (sweep_yaw + 180.0) % 360.0
+    return sweep_yaw
+
+
 def build_search_pattern(
     geofence: list[tuple[float, ...]] | list[list[float]],
     home: Coordinate,
@@ -205,24 +224,68 @@ def build_search_pattern(
         leg_bearing = float(axis_deg) if sweep_is_east else float(axis_deg) - 90.0
     # Wide axis across track <=> nose along the legs, offset by however the
     # camera is bolted (CameraModel.mount_yaw_rad; 0 = image-up at the nose).
-    sweep_yaw = (leg_bearing - math.degrees(camera.mount_yaw_rad)) % 360.0
-    # TWO headings put the wide axis across track. They are 180 deg apart, and
-    # the footprint is a rectangle, so the ground covered is identical either
-    # way — take the one that flies the leg NOSE-FIRST. Without this the 180 deg
-    # mount measured on the aircraft 2026-08-23 (the camera is bolted upside
-    # down) would send it down every sweep leg backwards: legal, identically
-    # covered, and unlike every validated run — not a thing for a safety pilot
-    # to meet for the first time in the air. At a 90 deg mount there is no
-    # nose-first option (both perpendiculars sit 90 deg off the leg) and this
-    # is correctly a no-op.
-    if abs(((sweep_yaw - leg_bearing + 180.0) % 360.0) - 180.0) > 90.0:
-        sweep_yaw = (sweep_yaw + 180.0) % 360.0
+    sweep_yaw = _held_heading(leg_bearing, camera)
 
     return SearchPlanSpec(
         waypoints=waypoints,
         leg_count=n_legs,
         leg_bearing_deg=leg_bearing % 360.0,
         sweep_yaw_deg=sweep_yaw,
+        sweep_alt_m=alt,
+        speed_mps=speed_mps,
+        swath_m=swath,
+        spacing_m=spacing,
+        est_duration_s=est,
+    )
+
+
+def build_explicit_pattern(
+    waypoints_enu: list[tuple[float, float]] | list[list[float]],
+    origin: Coordinate,
+    *,
+    sweep_alt_m: float,
+    speed_mps: float,
+    camera: CameraModel = NADIR,
+    ceiling_m: float = 20.0,
+    overlap_frac: float = 0.3,
+    leg_bearing_deg: float = 90.0,
+    turn_penalty_s: float = 3.0,
+) -> SearchPlanSpec:
+    """A sweep laid out BY HAND as ENU metres (east, north) about ``origin`` —
+    the Launch & Recovery point every other ENU number in the config is
+    measured from. Added 2026-08-28: the competition-day briefing turned the
+    KMITL search area into an L (the main building and the east end became
+    no-fly bands), and ``build_search_pattern`` sweeps a polygon's bounding
+    box, which would run every leg through the building. Same contract as the
+    generated pattern — waypoints in flying order, one altitude, the held
+    heading derived from ``leg_bearing_deg`` (the bearing the E-W legs run
+    along, i.e. config ``search.sweep_axis_deg``), swath/spacing/duration for
+    the dashboard and the time budget. ``leg_count`` is the number of waypoint
+    PAIRS. The caller owns the geometry: keep every leg inside the airspace,
+    outside the keep-out zones and within one swath of the area it covers
+    (tests/test_search_pattern.py pins that for the shipped KMITL list).
+    """
+    pts = [(float(p[0]), float(p[1])) for p in waypoints_enu]
+    if len(pts) < 2:
+        raise ValueError("an explicit sweep needs at least 2 waypoints")
+    if not (speed_mps > 0.0):
+        raise ValueError(f"speed_mps must be > 0, got {speed_mps!r}")
+    alt = max(1.0, min(sweep_alt_m, ceiling_m - 1.0))
+    waypoints = [
+        Coordinate(lat=lat, lon=lon, alt_m=alt)
+        for lat, lon in (_latlon(e, n, origin.lat, origin.lon) for e, n in pts)
+    ]
+    swath = 2.0 * alt * math.tan(camera.fov_rad / 2.0)
+    spacing = max(1.0, swath * (1.0 - overlap_frac))
+    path_len = sum(math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
+                   for i in range(len(pts) - 1))
+    est = path_len / max(speed_mps, 0.1) + turn_penalty_s * max(0, len(pts) - 1)
+    leg_bearing = float(leg_bearing_deg) % 360.0
+    return SearchPlanSpec(
+        waypoints=waypoints,
+        leg_count=(len(pts) + 1) // 2,
+        leg_bearing_deg=leg_bearing,
+        sweep_yaw_deg=_held_heading(leg_bearing, camera),
         sweep_alt_m=alt,
         speed_mps=speed_mps,
         swath_m=swath,

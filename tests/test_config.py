@@ -33,8 +33,8 @@ def test_competition_profile_is_locked() -> None:
     assert p.telemetry_stale_threshold_s == 10.0
     assert p.geofence_margin_m == 5.0
     assert p.altitude_floor_m == 3.0
-    assert p.altitude_ceiling_m == 30.0          # hard 30 m ceiling (briefing 2026-08-28; was 20)
-    assert p.transit_alt_m == 20.0               # transit strictly at 20 m (unchanged by the briefing)
+    assert p.altitude_ceiling_m == 30.0          # 30 m ceiling (briefing 2026-08-28; was 20)
+    assert p.transit_alt_m == 20.0               # transit strictly at 20 m (briefing left it)
     assert p.search_floor_m == 10.0              # search ≥ 10 m
     assert p.drop_count_max == 1                 # one egg aboard
     assert p.max_sorties == 4                    # ≤4 pads, one flight each

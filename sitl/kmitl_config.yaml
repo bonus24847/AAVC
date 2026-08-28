@@ -87,31 +87,24 @@ controlled_airspace:
   - [13.729994, 100.789841]   # SE
   - [13.729806, 100.787228]   # SW
 
-# Search area = the polygon the boustrophedon SWEEPS. ⚠ Since the 28-Aug-2026
-# briefing this is NOT the rules' whole search area (kept below as
-# search_area_rules, for the record and for the GCS) but its WESTERN part —
-# west of the main building — because the committee marked the building and
-# the east end of the search area as NO-FLY bands (operator's photo
-# IMG_0550.jpg, red boxes; georeferenced ±5 m, see the no_fly_zones note
-# below). Everything the mission flies between waypoints is a STRAIGHT goto
-# — pad-to-pad hops, decode visits, the egress to P3', a failsafe RTL — and
-# the building box (E 122-186 m, N 25-84 m from L&R) sits in the middle of
-# the rules' polygon, so any pad found EAST of it could only be reached by
-# flying through the box. West of it every straight line stays clear:
-# P3' (E 118.7) is west of the box, the corridor comes in from the west, and
-# an RTL to P1 from anywhere in this polygon never crosses E 110.
-#   ⚠ Pads placed east of the building (the strip north of it, 22-28 m wide,
-#   or the 29 m strip between it and the east band) are NOT searched. Ask the
-#   committee where the pads go; routing around the box is day-2 work.
-# East limit E = 110 m (12 m short of the drawn box edge): the sweep legs
-# inset 5 m end at E ~106-108 and the 20 m camera footprint reaches E ~123 —
-# the drawn edge of the box, so the roof itself is never in view and cannot
-# seed a false white-pad candidate. Vertices [lat, lon], NW,NE,SE,SW; the
-# west/south/north edges are the rules' own, the east edge is the E = 110 cut.
+# Search area = what the sweep COVERS. ⚠ Since the 28-Aug-2026 briefing this
+# is the rules' search area MINUS the two no-fly bands the operator marked on
+# the gridded map (routing.keepout_zones below): an L — the open field WEST
+# of the main building (E 41-125, full height) plus the strip NORTH of it
+# (E 125-220, N 75-112). The rules' full polygon is kept below as
+# search_area_rules (documentation; the GCS field file draws it).
+# ⚠ The sweep is NOT generated from this polygon any more: build_search_pattern
+# sweeps a polygon's bounding box, which would run every leg through the
+# building band. The legs are laid out by hand in search.sweep_waypoints_enu
+# (same ENU frame) and this polygon is what the dashboard draws + what a
+# reviewer checks the legs against. Vertices [lat, lon], clockwise from NW.
 search_area:
   - [13.731239, 100.787824]   # NW  = rules NW (ENU 40.9 E, 102.1 N)
-  - [13.731276, 100.788463]   # NE' = rules north edge at E 110 (N 106.2)
-  - [13.730717, 100.788463]   # SE' = rules south edge at E 110 (N 43.9)
+  - [13.731284, 100.788607]   # north edge at E 125.6 (building band west edge)
+  - [13.731334, 100.789479]   # north edge at E 219.8 (east band west edge)
+  - [13.730998, 100.789479]   # E 219.8 / N 75.3 — the L's inner corner (top of the building band)
+  - [13.730998, 100.788607]   # E 125.6 / N 75.3 — the building band's NW corner
+  - [13.730715, 100.788607]   # E 125.6 / south edge — 2 m east of the corridor gate
   - [13.730723, 100.787840]   # SW  = rules SW (ENU 42.6 E, 44.6 N)
 
 # The rules' FULL search area (PDF p.3, ~227 x 78 m) — DOCUMENTATION since
@@ -129,32 +122,20 @@ search_area_rules:
 # P1->P2->P3 at transit_alt_m; egress reversed. P1 doubles as the RTH holding
 # point; P3 sits on the search-area south edge (the ingress/egress gate).
 transit_route:
-  # ⚠ CHANGED AT THE 28-Aug-2026 EVENT BRIEFING (the committee's slide, page 3
-  # of 18, "transit route (yellow)", with the new corridor sketched on it by
-  # the operator): the north leg no longer runs P2->P3 over the west wing of
-  # the main building — it turns north ~14 m EARLIER and runs up the grass
-  # strip between the display aircraft and the building's west wall, entering
-  # the search area ~23 m west of the old P3. P1 (= L&R) is unchanged.
-  #   P2' / P3' were georeferenced from that sketch: the slide (a north-up
-  #   Google-Maps screenshot) was matched to the Esri z19 imagery the GCS
-  #   caches (SIFT + ECC refinement, residual ~0.5 px) and cross-checked
-  #   against the slide's own airspace / search-area overlays (±3 m) and its
-  #   drawn P2 (0.2 m off the PDF easting). Then
-  #     P2' = the point on the P1->P2 line at the sketched line's easting
-  #     P3' = the sketched line's crossing of the search-area south edge
-  #   Precision ±5 m — the finger-drawn stroke is the limit, not the fit.
-  #   The leg runs 2.3-3.6 m WEST of the building's no-fly box as drawn
-  #   (IMG_0550.jpg; box west edge E 122.3) — that is the committee's own
-  #   placement, hugging the wall; the box must never be a watchdog polygon.
-  #   ⚠ If the committee published COORDINATES for the new corridor, THOSE
-  #   win: replace the two lines below, and move aavc-gcs/aavc_field.yaml
-  #   (transit_waypoints) with them — the console draws from that copy.
+  # ⚠ CHANGED AT THE 28-Aug-2026 EVENT BRIEFING. The committee moved the north
+  # leg off the main building (the PDF's P3 sat on its roof — the building is
+  # a no-fly band now, see routing: below). Coordinates = the OPERATOR'S OWN
+  # line on the 20 m-gridded satellite map (28-Aug noon, after the briefing):
+  # due north at E 123.7 m from L&R, from the P1->P2 line to the search-area
+  # south edge — 2 m west of the building band he drew. Both points are
+  # digit-for-digit in aavc-gcs/aavc_field.yaml (transit_waypoints).
+  #   ⚠ If the committee published COORDINATES for the corridor, THOSE win.
   #   Superseded PDF Table-1 values, kept for the record:
   #     P2 [13.730397, 100.788694]  (ENU 135.0 E,  8.3 N)
   #     P3 [13.730712, 100.788755]  (ENU 141.6 E, 43.4 N — on the building)
   - [13.730322, 100.787446]   # P1  RTH / holding point (= L&R, unchanged)
-  - [13.730389, 100.788567]   # P2' turn north  (ENU 121.2 E,  7.5 N; 13.8 m W of P2)
-  - [13.730716, 100.788544]   # P3' search gate (ENU 118.7 E, 43.9 N; 22.8 m W of P3)
+  - [13.730390, 100.788590]   # P2' turn north  (ENU 123.7 E,  7.6 N; 11.3 m W of P2)
+  - [13.730715, 100.788590]   # P3' search gate (ENU 123.7 E, 43.8 N; 17.9 m W of P3)
 
 # ⚠ KMITL HAS a no-fly zone — rules Figure 1/3, the orange block on the EAST
 # side, south of the search area's east end — but the PDF gives it as a
@@ -169,24 +150,48 @@ transit_route:
 # brief: take over and exit along the corridor if an RTL fires out east).
 # (The "no published no-fly zone on the practice field" text that sat here
 # until 2026-08-27 was the PRACTICE file's.)
-# ⚠ 2026-08-28 briefing update (operator's marked-up field photo, IMG_0550.jpg,
-# georeferenced against the GCS's Esri tiles, ±5 m): THREE no-fly areas —
-#   building   the main building block, ENU E 122-186 / N 25-84 (lat/lon below)
-#   east band  the whole east end of the search area, E 215-256 / N 37-116
-#   orange     the rules' Figure-1 block south of it, E 219-255 / N -14..40
-# DELIBERATELY NOT ARMED here (operator's standing rule, 2026-08-27: no
-# approximate polygon in the watchdog — a false RTH costs the flight). The
-# building box also CANNOT be armed: the committee's own corridor passes
-# 2-4 m from its west edge (P3' is 3.6 m off it), so that polygon would RTH
-# every ingress. The PLAN avoids all three instead (search_area is cut at
-# E 110, the corridor is the committee's). To arm the two eastern ones —
-# 90+ m from anything the plan flies — paste:
+# ⚠ 2026-08-28: the operator marked the no-fly areas on the 20 m-gridded
+# satellite map (after the briefing; his own boxes, ±3 m):
+#   building band  the main building and the courtyard east of it, ENU
+#                  E 125.6-266 / N 42-75.3 (the whole search-area width east
+#                  of the building, below the north strip)
+#   east band      the whole east end of the search area, E 219.8-266 / N 42-116
+#   (the rules' orange block, E 219-255 / N -14..40 south of the search area,
+#    still stands — it is outside anything the plan flies)
+# DELIBERATELY NOT ARMED as watchdog polygons (operator's standing rule,
+# 2026-08-27: no approximate polygon in the watchdog — a false RTH costs the
+# flight; and the corridor he drew runs 2 m from the building band's west
+# edge, which a watchdog polygon would RTH on every ingress). The PLAN avoids
+# them instead — routing.keepout_zones below steers every goto around them
+# and search.sweep_waypoints_enu keeps the legs out of them. To arm the east
+# band (90+ m from anything the plan flies), paste:
 # no_fly_zones:
-#   - [[13.731367, 100.789439], [13.731367, 100.789814], [13.730658, 100.789814], [13.730658, 100.789438]]
-#   - [[13.730679, 100.789468], [13.730679, 100.789800], [13.730196, 100.789800], [13.730196, 100.789468]]
-# (building box for reference only — do NOT arm:
-#   - [[13.731079, 100.788577], [13.731078, 100.789163], [13.730548, 100.789162], [13.730548, 100.788577]] )
+#   - [[13.731362, 100.789479], [13.731362, 100.789906], [13.730699, 100.789906], [13.730699, 100.789479]]
 no_fly_zones: []
+
+# ── Plan-level keep-out routing (2026-08-28) ──────────────────────────────
+# Every move the mission makes is a straight goto (sweep legs, decode visits,
+# the hop to a pad, the egress to P3', the planned battery egress). With the
+# building band in the MIDDLE of the L-shaped search area, a straight line
+# from the north strip to the corridor gate / the west field / a candidate
+# crosses it. orchestrator/mission.py::_goto_routed checks each goto against
+# these polygons and, when the line crosses one, flies to `gateway` first —
+# a point off the building band's NW corner from which every point of the
+# west field, the north strip and the corridor gate has a clear straight
+# line — then on to the target. Decode candidates and claimed pads inside a
+# polygon (+3 m) are refused: the committee places pads in the open, so a
+# "pad" in a band is a false hit, and visiting it would put the aircraft in
+# the band. Nothing here RTHs — it is not a failsafe (no_fly_zones is).
+# ⚠ What it cannot route: PX4's OWN failsafe RTL (a straight line home) —
+# from the north strip east of E ~130 that line crosses the building band.
+# Safety-pilot brief: if an RTL fires there, take over and bring the aircraft
+# west along the strip first. Empty keepout_zones = every goto is the
+# straight line it always was.
+routing:
+  keepout_zones:
+    - [[13.730998, 100.788607], [13.730998, 100.789906], [13.730699, 100.789906], [13.730699, 100.788607]]   # building band  E 125.6-266 / N 42-75.3
+    - [[13.731362, 100.789479], [13.731362, 100.789906], [13.730699, 100.789906], [13.730699, 100.789479]]   # east band      E 219.8-266 / N 42-116
+  gateway: [13.731068, 100.788509]   # ENU 115 E / 83 N — off the building band's NW corner
 
 # Ground operations — the Launch & Recovery point: on the pitch long axis,
 # field-frame s=+24 (6 m in from the SE airspace edge, inside the penalty
@@ -230,18 +235,11 @@ search:
   # committee's pads-in-the-open promise is what makes a 10.5 m visit over a
   # candidate safe. ⚠ A FALSE candidate on the building's roof would be
   # visited at 10.5 m too — the safety pilot watches every descent that starts
-  # over the building. Computed on the FLOWN polygon
-  # (search_area = west of the building, E <= 110) with the measured 74.2 deg
-  # lens (overlap 0.30, margin 5, 3 m/s):
-  #   12.0 m -> 5 legs, 344 m, 142 s, marker 28.2 px  (decodes IN the sweep)
-  #   15.0 m -> 4 legs, 281 m, 115 s, marker 22.6 px  (below the proven band)
-  #   20.0 m -> 3 legs, 216 m,  87 s, marker 16.9 px  <- chosen (pad 42 px)
-  # (On the rules' full polygon 20 m was 3 legs / 695 m / 247 s against
-  # 5 / 1139 / 407 at 12 m.) On the cut polygon the sweep is short either
-  # way and the decode visits (~47 s each, ~190 s for four) are the larger
-  # cost — at 12 m the ids would read during the sweep and most visits
-  # vanish. 20 stays because the operator chose it for obstacle clearance;
-  # 12 is one number here if the trial shows the 20 m cue is not enough.
+  # over the building. Laid out BY HAND for the
+  # L-shaped area (sweep_waypoints_enu below; the generated pattern would run
+  # through the building band). At 20 m (swath 30.3): 3 legs, 433 m of
+  # legs+turns, ~159 s; marker 16.9 px, pad 42 px. At 12 m the same
+  # area would need ~6 legs (swath 18.2) and decode in the sweep.
   # ⚠ NOT YET FLOWN: the 28-Aug trial slot is the one test — pass = every
   # placed pad becomes a white-pad candidate on the sweep AND decodes on its
   # visit.
@@ -251,6 +249,37 @@ search:
                            # LEGAL BAND HERE: sweep >= 10 m (rules), <= 30 m
                            # (briefing 2026-08-28; was 20). The profile's
                            # ceiling clamps it with min() — never upward.
+  # The sweep itself, laid out BY HAND (2026-08-28) as [east, north] metres
+  # from L&R (ground_operation.launch_recovery — the frame every ENU number
+  # in this file uses). Read by orchestrator/main.py::_build_spec →
+  # mission_brain/search_pattern.py::build_explicit_pattern; when this key is
+  # present the polygon planner is bypassed. Three E-W legs at the 20 m
+  # swath (30.3 m, legs 21 m apart or less), flown in this order — the
+  # heading held is sweep_axis_deg (87) minus the camera mount, as always:
+  #   C  (112,58) → (46,58)    west field, lower band N 43-73 — starts 18 m
+  #                            from the corridor gate P3' (123.7, 43.8);
+  #                            ends at E 112 so the footprint reaches E ~127,
+  #                            the building band's edge, and no further
+  #   A  (46,88) → (205,88)    north strip + west field, N 73-103; 12.7 m
+  #                            above the band's top (75.3); ends at E 205 so
+  #                            the footprint reaches the east band's edge
+  #   B  (205,107) → (46,100)  along the tilted north edge (102 at E 46 →
+  #                            112 at E 205), N 85-122 — 5-10 m inside the
+  #                            geofence's north edge (110.8 → 113.6)
+  # Coverage was checked on a 2 m grid of the whole L: every point is within
+  # 15.1 m (half a swath) of a leg except a few metres in the corner right
+  # against the corridor gate. The transitions (E 46 south-bound, E 205
+  # north-bound) and the entry/exit never cross a keep-out polygon; the exit
+  # from B's west end to P3' is a 96 m straight line through the west field.
+  # Re-run tests/test_search_pattern.py after ANY edit — it checks every leg
+  # against the airspace and the keep-out polygons.
+  sweep_waypoints_enu:
+    - [112.0, 58.0]
+    - [46.0, 58.0]
+    - [46.0, 88.0]
+    - [205.0, 88.0]
+    - [205.0, 107.0]
+    - [46.0, 100.0]
   # ✅ 0.44 -> 0.30 on 2026-08-24, after the SITL test the operator asked for.
   # 0.44 was belt-and-braces for an UNMEASURED camera mount: if the wide image
   # axis did not lie across track the real swath was the 720 px axis and 0.30
@@ -336,26 +365,26 @@ search:
   # the window was computing against a field a third of the size, so it
   # approved work it could not finish — and the per-delivery abort gate reads
   # the same numbers, so it could not catch it either.
-  sortie_cost_s: 900.0     # FULL-SWEEP 4-EGG sortie, rebuilt 2026-08-28 for the
-                           # cut polygon + 20 m sweep + decode visits: takeoff
-                           # 17 (G4' measured) + ingress 53 (158 m of new
-                           # corridor at 3 m/s) + 24 to the first leg + sweep
-                           # 87 + 4 decode visits x 47 = 188 + 4 x serve_cost_s
-                           # 105 = 420 + 17 back to P3' + egress 53 + land 35
-                           # = 894 s (six visits: 988). Egg 4's gate then runs
-                           # with 516 s left against its 300 s floor. The
-                           # launch gate stacks reserve_s 180 + this + margin 30
-                           # = 1110 <= 1200, so the first GO is legal.
+  sortie_cost_s: 970.0     # FULL-SWEEP 4-EGG sortie, rebuilt 2026-08-28 for the
+                           # L-shaped area + 20 m sweep + decode visits: takeoff
+                           # 17 (G4' measured) + ingress 53 (160 m of new
+                           # corridor at 3 m/s) + 6 to leg C + sweep 159 (433 m
+                           # of legs+turns) + 4 decode visits x 47 = 188 + 4 x
+                           # serve_cost_s 105 = 420 + 32 from B's end to P3' +
+                           # egress 53 + land 35 = 963 s (six visits: 1057).
+                           # Egg 4's gate then runs with 462 s left against
+                           # its 300 s floor. The launch gate stacks reserve_s
+                           # 180 + this + margin 30 = 1180 <= 1200: first GO legal.
                            # (2026-08-24 history: 900 = 17 + 57 + 407 + 320 +
                            # 57 + 35 at the 12 m sweep of the FULL polygon,
                            # cross-checked against the 536 s SITL run.)
   known_sortie_cost_s: 280.0  # registry-known sortie, no search. 2026-08-28: the
-                           # far corner of the flown polygon is 255 m by way
-                           # of the corridor (158 + 97) = 85 s each way
-                           # at MPC_XY_CRUISE 3.0, plus one serve (105 from the
-                           # 20 m hop) = 275. (Before: 291 m straight-line
-                           # to the far end of the full polygon + an 80 s serve.
-                           # 140 was the KMUTNB number.)
+                           # far corner of the L (E 205 / N 107) is 263 m by
+                           # way of the corridor = 88 s each way at MPC_XY_CRUISE
+                           # 3.0 (routing via the gateway adds < 10 m), plus one
+                           # serve (105 from the 20 m hop) = 281. (Before: 291 m
+                           # straight-line to the far end of the full polygon +
+                           # an 80 s serve. 140 was the KMUTNB number.)
   rth_reserve_s: 120.0     # egress + land at L&R from the FAR side. Measured:
                            # the far corner of the search polygon is 291 m out,
                            # ~97 s of flight before the wheels touch — the old
