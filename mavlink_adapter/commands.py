@@ -56,6 +56,15 @@ class ConnectionConfig:
     drop_servo_channels: tuple[int, ...] = ()
     drop_servo_pwm_release: int = 1900
     drop_servo_pwm_hold: int = 1100
+    # Re-close the latch 0.6 s after the release pulse? OFF since 2026-08-28
+    # (operator, after the 17:28 KMITL flight: "หากทำการ drop payload แล้ว
+    # อยากให้เปิด servo ค้างไว้เลย ไม่ต้องปิด") — the latch stays OPEN for the
+    # rest of the flight so the egg can never be pinched by a hold sent
+    # while it is still leaving the rack. The FC itself drives every AUX pin
+    # to PWM_AUX_DISn (1100 = closed) the moment the aircraft DISARMS at L&R,
+    # so the rack is closed again for the resupply crew without any command
+    # from here. True restores the release → dwell → hold pulse.
+    drop_servo_relatch: bool = False
     drop_payload_count: int = 1   # cargo release channels onboard — bounds payload_id to
                                   # [0, drop_payload_count). One channel PER EGG SLOT
                                   # (M4, review 2026-07-24): drop_payload's servo channel is
@@ -982,16 +991,18 @@ class DroneCommander:
         # payload_id bounds check above plus ConnectionConfig.__post_init__,
         # which range-checks every explicit drop_servo_channels entry.
         # The PWM is mapped to the bipolar [-1, 1] convention via _pwm_to_norm
-        # (1900->+0.8 release, 1100->-0.8 hold); the hold re-latch keeps the
-        # mechanism closed for the next resupply.
+        # (1900->+0.8 release, 1100->-0.8 hold). The latch stays OPEN after
+        # the release unless drop_servo_relatch is set (2026-08-28, operator)
+        # — PX4 closes every AUX pin at disarm via PWM_AUX_DISn anyway.
         try:
             await self.system.action.set_actuator(
                 ch, _pwm_to_norm(self.config.drop_servo_pwm_release)
             )
-            await asyncio.sleep(0.6)
-            await self.system.action.set_actuator(
-                ch, _pwm_to_norm(self.config.drop_servo_pwm_hold)
-            )
+            if self.config.drop_servo_relatch:
+                await asyncio.sleep(0.6)
+                await self.system.action.set_actuator(
+                    ch, _pwm_to_norm(self.config.drop_servo_pwm_hold)
+                )
         except ActionError as e:
             logger.warning(
                 f"[mavlink] drop via set_actuator rejected: {e}; "
@@ -1007,7 +1018,8 @@ class DroneCommander:
         builds that reject MAVSDK action.set_actuator when it arrives from a
         non-GCS MAVLink source. Same wire command as the primary path (PX4 has
         no DO_SET_SERVO handler — this used to send one, which PX4 silently
-        dropped, making the 'fallback' a no-op). Sends release, dwell, hold.
+        dropped, making the 'fallback' a no-op). Sends the release pulse —
+        plus a dwell and the hold only when drop_servo_relatch is set.
 
         param7 = 0 (index page), param1..6 = actuator-set values with NaN for
         every channel this drop must NOT touch (FunctionActuatorSet skips
@@ -1042,8 +1054,10 @@ class DroneCommander:
                     raise RuntimeError(f"no heartbeat from {endpoint} in 5s")
                 tgt_sys = mav.target_system or 1
                 tgt_comp = mav.target_component or 1
-                for pwm in (self.config.drop_servo_pwm_release,
-                            self.config.drop_servo_pwm_hold):
+                pulses = [self.config.drop_servo_pwm_release]
+                if self.config.drop_servo_relatch:
+                    pulses.append(self.config.drop_servo_pwm_hold)
+                for pwm in pulses:
                     params = [_math.nan] * 6
                     params[actuator_index - 1] = _pwm_to_norm(pwm)
                     mav.mav.command_long_send(
