@@ -434,3 +434,90 @@ def test_the_pose_belongs_to_the_frame_not_to_the_decode(monkeypatch) -> None:
     assert fix_a is not None and fix_b is not None
     assert abs(fix_b.lat - fix_a.lat) > 0.0009        # it really used the pose
     assert ta._hit_world_fix(hit, None) is None
+
+
+# ── rung ALTITUDE gate (2026-08-28, KMITL 17:28 flight) ──────────────────────
+
+class LaggingCommander(FakeCommander):
+    """Records the commanded altitude; the airframe sinks toward it 1 m per
+    loop cycle (see _patch_detector_lagging) — the real bird's 0.4-3 m/s
+    against a 12 Hz loop, not the instant arrival the base fake models. The
+    align issues ONE goto per rung and lets PX4 fly to it, so the lag has to
+    live in the per-cycle telemetry, not in goto()."""
+
+    def __init__(self, state: OrchestratorState) -> None:
+        super().__init__(state)
+        self.target_alt: float | None = None
+        self.alt_at_land: float | None = None
+
+    async def goto(self, lat, lon, alt_m, yaw_deg=float("nan")) -> None:
+        t = self.state.telemetry
+        t.lat, t.lon = lat, lon
+        self.target_alt = alt_m
+
+    async def land(self, *, disarm: bool = True) -> None:
+        self.alt_at_land = self.state.telemetry.relative_alt_m
+        await super().land(disarm=disarm)
+
+
+def _patch_detector_lagging(monkeypatch, cmd: LaggingCommander, marker_id,
+                            step_m: float = 1.0) -> list[float]:
+    """Centred pad every cycle; the altitude moves ≤ step_m toward the last
+    commanded altitude per cycle. Returns the per-cycle altitude trace."""
+    trace: list[float] = []
+
+    def fake(frame_path, min_conf, assigned_id):
+        t = state_ref.telemetry
+        if cmd.target_alt is not None and t.relative_alt_m > cmd.target_alt:
+            t.relative_alt_m = max(cmd.target_alt, t.relative_alt_m - step_m)
+        alt = max(t.relative_alt_m, 0.5)
+        trace.append(alt)
+        exp = 423.1 * 0.2 / alt          # fx(640px,1.295rad) * R / slant
+        return PadHit(cx=320, cy=240, marker_id=marker_id, radius_px=exp,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", fake)
+    _patch_live_camera(monkeypatch)
+    return trace
+
+
+def test_a_rung_is_not_done_until_the_aircraft_is_at_its_altitude(monkeypatch) -> None:
+    """Pad centred from the first frame (as after a sweep fix) — the OLD loop
+    locked the 5 m rung on the first cycle at 11 m and commanded LAND from
+    there (the 17:28 flight: LAND from 4.8 / 8.5 m, eggs 0.5-0.7 m off).
+    Now the rung waits for the aircraft to actually arrive."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = LaggingCommander(state)
+    trace = _patch_detector_lagging(monkeypatch, cmd, 3)
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rung_timeout_s=2.0)))
+    assert res.landed and cmd.landed_calls
+    assert cmd.alt_at_land is not None and cmd.alt_at_land <= 5.0 + 0.6, (
+        f"LAND commanded at {cmd.alt_at_land} m — the 5 m rung was not reached")
+    # Seven 1 m steps from 12 to 5 m: the rung took several cycles, not one.
+    assert sum(1 for a in trace if 5.0 < a < 12.0) >= 6, trace
+    assert not any("alt_unverified" in a for a in state.anomalies)
+
+
+class StuckCommander(FakeCommander):
+    """Position holds but the altitude never changes (a frozen baro/EKF or a
+    goto PX4 will not follow) — the gate must not turn that into a deferral."""
+
+    async def goto(self, lat, lon, alt_m, yaw_deg=float("nan")) -> None:
+        t = self.state.telemetry
+        t.lat, t.lon = lat, lon            # altitude stays where it was
+
+
+def test_an_unverifiable_rung_altitude_falls_back_to_the_old_rule(monkeypatch) -> None:
+    global state_ref
+    state = state_ref = _state()                # parked at 12 m for good
+    cmd = StuckCommander(state)
+    _patch_detector(monkeypatch, 3)
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rung_timeout_s=0.3)))
+    assert res.landed and cmd.landed_calls, (
+        "centred pad + unverifiable altitude must still land (old rule)")
+    assert any("rung5m_alt_unverified_fallback" in a for a in state.anomalies), state.anomalies
+

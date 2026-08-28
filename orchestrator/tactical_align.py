@@ -124,6 +124,20 @@ class AlignParams:
     cycle_hz: float = 12.0            # detect→reposition loop rate (achieved)
     acquire_timeout_s: float = 12.0   # search budget before deferring
     rung_timeout_s: float = 18.0      # per-rung align budget
+    # ALTITUDE GATE (2026-08-28, KMITL 17:28 flight): a rung counts as reached
+    # only while the aircraft is AT its altitude — |alt − rung| ≤
+    # max(rung_alt_tol_m, rung_alt_tol_frac · rung). Before this the rung
+    # ended on the centring lock alone, and because the sweep had already
+    # centred the pad every rung "locked" within 1-2 s while the aircraft was
+    # still far above it: LAND was commanded from a TRUE 4.8 m (pad 6) and
+    # 8.5-9 m (pad 5, TFmini + marker size), PX4 then sank blind for 16-26 s on
+    # a GPS position hold and the touchdown ended 0.5-0.7 m off the marker
+    # (nadir frames) although the "final err" read 0.09-0.14 m. The altitude
+    # comes from the marker's apparent size (baro-independent), else the pose.
+    # On a rung timeout with the pad centred but the altitude never verified
+    # the rung proceeds as before (audited) — the gate can delay, never defer.
+    rung_alt_tol_m: float = 0.3
+    rung_alt_tol_frac: float = 0.12
     min_confidence: float = 0.45      # pad-hit acceptance
     max_lost_cycles: int = 24         # lost detections before climbing (2.0 s)
     search_radius_m: float = 4.0      # expanding-box search step if not acquired
@@ -245,6 +259,24 @@ def _hit_world_fix(hit: PadHit, pose: _Pose | None) -> GroundFix | None:
     lat, lon, alt, yaw, roll, pitch = pose
     return project_pixel((hit.cx, hit.cy), lat, lon, alt, yaw, NADIR,
                          roll_deg=roll, pitch_deg=pitch)
+
+
+def _alt_estimate(hit: PadHit | None, pose: _Pose | None,
+                  params: AlignParams) -> float:
+    """Height above the pad for the rung altitude gate, in metres.
+
+    Preferred: the marker's apparent size — ``alt = R · fx / r_px`` (the
+    pinhole law ``expected_radius_px`` inverts), which needs neither the baro
+    nor the home latch and is exact where it matters (a 400 mm marker is
+    170 px at 2 m, so ±3 px is ±2 %). Else the pose altitude; NaN when
+    neither is available (the gate then passes — never blocks on no data)."""
+    if hit is not None and hit.radius_px > 0.0:
+        fx = expected_radius_px(NADIR, 1.0, 1.0)
+        if fx > 0.0:
+            return params.target_radius_m * fx / hit.radius_px
+    if pose is not None and not math.isnan(pose[2]):
+        return float(pose[2])
+    return float("nan")
 
 
 def _radius_ok(hit: PadHit, gf: GroundFix, params: AlignParams) -> bool:
@@ -554,6 +586,8 @@ async def acquire_and_land_drop(
         await _set_descent_cap(
             params.rung_descent_mps[min(rung_i, len(params.rung_descent_mps) - 1)])
         in_tol = 0
+        in_tol_raw = 0           # centring alone — the pre-2026-08-28 rule
+        alt_tol = max(params.rung_alt_tol_m, params.rung_alt_tol_frac * rung_alt)
         lost = 0
         t_rung = state.now()
         while _running(state) and (state.now() - t_rung) < params.rung_timeout_s:
@@ -578,9 +612,12 @@ async def acquire_and_land_drop(
                 mlat, mlon = _commanded_latlon(fix)
                 best_latlon = (mlat, mlon)
                 await _goto(mlat, mlon, rung_alt)
-                in_tol = in_tol + 1 if last_err <= tol else 0
+                alt_est = _alt_estimate(hit, pose, params)
+                at_rung = math.isnan(alt_est) or abs(alt_est - rung_alt) <= alt_tol
+                in_tol_raw = in_tol_raw + 1 if last_err <= tol else 0
+                in_tol = in_tol + 1 if (last_err <= tol and at_rung) else 0
                 if in_tol >= params.lock_cycles:
-                    break        # locked at this rung → descend to next
+                    break        # locked AT this rung → descend to next
                 await pacer.wait()
                 continue
             # lost / unprojectable / off-target / wrong-size
@@ -597,6 +634,16 @@ async def acquire_and_land_drop(
                 await _goto(best_latlon[0], best_latlon[1], rung_alt)
             await pacer.wait()
         final_locked = in_tol >= params.lock_cycles
+        if not final_locked and in_tol_raw >= params.lock_cycles:
+            # Centred the whole time but the altitude never verified inside
+            # the rung budget: fall back to the old centring-only rule rather
+            # than deferring a delivery the pre-gate code would have flown.
+            state.record_anomaly(f"rung{rung_alt:.0f}m_alt_unverified_fallback")
+            logger.warning(
+                f"[align] #{stop_index}: rung {rung_alt:.0f} m centred but its "
+                f"altitude never verified within {params.rung_timeout_s:.0f} s "
+                "— proceeding on centring alone (audited)")
+            final_locked = True
         logger.info(f"[align] #{stop_index}: rung {rung_alt:.0f} m err="
                     f"{last_err:.2f} m locked={final_locked}")
     res.aligned = res.acquired and not math.isnan(last_err)
