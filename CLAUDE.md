@@ -244,6 +244,31 @@ own Python built the spec from the deployed config: 4 legs / 8 waypoints @
   (`docs/AAVC_Checklist_Competition_KMITL.*`) was rebuilt with the new
   envelope line (`transit 3 pts @ 20 m, sweep 3 legs @ 20 m`).
 
+- **17:28 FLIGHT — 2/2 delivered, and WHY the eggs still sat 0.5-0.7 m
+  off the marker (ULog `10_28_22`, audit + 1293 nadir frames).** Transit
+  6/6 at 19.4-19.5 m, both pads confirmed 23 s into leg 1, ladder "locked"
+  every rung (err 0.61→0.14 / 0.50→0.09), releases at t=128/192 s, home at
+  313 s, 97→35 % gauge (48 % resting). But the frames + TFmini show LAND
+  was commanded from a TRUE **4.8 m** (pad 6) and **8.5-9 m** (pad 5): the
+  rung loop ended on the centring lock alone (9 centred cycles ≈ 1 s) with
+  no check that the aircraft had reached the rung, so the whole ladder
+  collapsed in ~10 s and PX4 sank blind for 16-26 s on a GPS hold →
+  0.65-0.70 / 0.45-0.60 m off at liftoff (measured from the marker in the
+  frames; the audit's "err" is the lock at 5-9 m, not the touchdown).
+  **FIX (deployed 28 Aug ~00:00): rung ALTITUDE GATE** —
+  `AlignParams.rung_alt_tol_m 0.3 / rung_alt_tol_frac 0.12`: a rung's lock
+  cycles count only while the marker-size altitude (`_alt_estimate`, R·fx/r_px,
+  baro-independent) is within max(0.3 m, 12 %) of the rung; on a rung timeout
+  with the pad centred but the altitude unverified the old rule applies
+  (anomaly `rung…_alt_unverified_fallback`) — the gate can delay a descent,
+  never defer one. Tests at the end of `tests/test_tactical_align.py`. NOT
+  done: raising `MPC_LAND_SPEED` 0.3 → 0.5 — e02ffa3 recorded a global bump
+  making AUTO.LAND climb to 41 m, so the blind 2 m stays at 0.3 m/s (~7 s).
+  Also: egress `_wait_climb` 15 → 20 s (the flight reached 14.9 of 17.5 m in
+  15 s and flew the gateway hop from there); the egg latch stays OPEN after
+  the release (`drop_servo_relatch: false`, §2); the rack was measured
+  18.5 × 6.6 cm vs the 20 × 7 spec (no aiming offset needed); the PM02D
+  reads the pack current (hover 38-39 A; §2 power note).
 - **DELIVER-WHEN-FOUND (operator, ~18:00 after the trial).** "เมื่อเจอ
   payload ให้ทำการ drop เลย": the sweep no longer completes before the first
   egg — a confirmed assigned pad is served immediately and the sweep resumes

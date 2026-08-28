@@ -158,3 +158,16 @@ def test_field_configs_keep_the_latch_open_after_release() -> None:
         assert _build_connection(cfg["connection"], None).drop_servo_relatch is False
     assert _build_connection({"drop_servo_relatch": True}, None).drop_servo_relatch is True
 
+
+def test_align_rungs_are_altitude_gated() -> None:
+    """2026-08-28 (KMITL 17:28 flight): a rung counts only when the aircraft is AT
+    its altitude, within max(0.3 m, 12 %). Without it LAND was commanded from
+    5-9 m and the eggs landed 0.5-0.7 m off the marker."""
+    a = AlignParams()
+    assert a.rung_alt_tol_m == 0.3
+    assert a.rung_alt_tol_frac == 0.12
+    import yaml
+    for path in ("sitl/kmitl_config.yaml", "sitl/aavc_config.yaml"):
+        blk = yaml.safe_load(open(path, encoding="utf-8"))["align"]
+        assert blk["rung_alt_tol_m"] == 0.3 and blk["rung_alt_tol_frac"] == 0.12, path
+

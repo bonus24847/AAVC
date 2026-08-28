@@ -1501,7 +1501,9 @@ async def run_delivery_mission(
             # (the legs here are ~5 s each); doing it first costs a few seconds
             # and keeps the corridor. Non-fatal by design: on timeout the flight
             # proceeds from wherever it is rather than stranding an egg.
-            if not await _wait_climb(climb_alt, timeout_s=15.0):
+            # 15 → 20 s (operator 2026-08-28): the 17:28 flight reached 14.9 of
+            # 17.5 m in 15 s from the pad and flew the gateway hop from there.
+            if not await _wait_climb(climb_alt, timeout_s=20.0):
                 state.record_anomaly(
                     f"flight {flight}: egress climb to {climb_alt:.1f} m not "
                     "confirmed — flying the corridor from below it")
