@@ -136,8 +136,11 @@ matches the flight config; the two repos' flight cores are identical; KMITL need
 
 Relayed by the operator from the 09:00 briefing (`docs/RULES_AAVC2026.md`
 "Event-briefing override (2026-08-28)"; branch
-`rules/2026-08-28-briefing-ceiling-30`). Everything here is **UNFLOWN** —
-the 13:00-18:00 trial slot is the single test.
+`rules/2026-08-28-briefing-ceiling-30`). **DEPLOYED to the CM4 at ~12:45 on
+28 Aug** (`cm4/deploy.sh --repo ~/Desktop/aavc-comp`, MD5 MATCH; the CM4's
+own Python built the spec from the deployed config: 4 legs / 8 waypoints @
+20 m, 0 keep-out crossings, all inside the airspace). Everything here is
+**UNFLOWN** — the 13:00-18:00 trial slot is the single test.
 
 - **Ceiling 20 → 30 m.** `profile.py` COMPETITION `altitude_ceiling_m=30`; the
   companion watchdog follows automatically (warn 30.5 / RTH 31.5). Transit
@@ -185,9 +188,12 @@ the 13:00-18:00 trial slot is the single test.
   the L and to P3′) first; candidates/claimed pads inside a band (+3 m) are
   refused (`decode visit skipped` / `DELIVERY k REFUSED`). Not a failsafe —
   nothing here RTHs; `no_fly_zones` stays `[]` (operator's 2026-08-27 rule,
-  and the corridor runs 2 m from the band's edge). ⚠ What it cannot route:
+  and the corridor runs 2 m from the band's edge). What it cannot route:
   **PX4's own failsafe RTL** (straight line home) — from the north strip
-  east of E ~130 that line crosses the building band; safety-pilot brief.
+  east of E ~130 that line crosses the building band. **Operator accepted
+  that at deploy time: "RTL 25 m is high enough to clear everything"** — the
+  band is an obstacle/people band, and a 25 m failsafe return over it is
+  the intended behaviour, not a breach to fight.
 - **Sweep 12 → 20 m** (operator: "survey at 20 m" — obstacle clearance over
   the display aircraft; "25 m clears everything"). On the L: **4 hand-laid
   legs / 556 m / ~206 s** (at 12 m the same L would need ~8 legs and would
