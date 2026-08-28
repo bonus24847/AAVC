@@ -54,17 +54,17 @@ aruco_assignment: [1, 2, 3, 4]
 # Mandatory transit route P1->P2->P3 (map overlay reference) — rules p.4
 # Table 1, scored per coordinate in order BOTH ways. P1 doubles as the RTH /
 # holding point; P3 is the search-area ingress/egress gate.
-# ⚠ CHANGED AT THE 28-Aug-2026 EVENT BRIEFING: the north leg moved ~14-23 m
-# WEST, off the main building and up the grass strip between the display
-# aircraft and the building's west wall. P2'/P3' below are digit-for-digit
-# the flight config's (aavc-comp sitl/kmitl_config.yaml transit_route) —
-# georeferenced from the committee's slide, ±5 m; if the committee published
+# ⚠ CHANGED AT THE 28-Aug-2026 EVENT BRIEFING: the north leg moved WEST, off
+# the main building (now a no-fly band) — due north at E 123.7 m from L&R,
+# the line the operator drew on the gridded satellite map at noon. P2'/P3'
+# below are digit-for-digit the flight config's (aavc-comp
+# sitl/kmitl_config.yaml transit_route); if the committee published
 # coordinates, put THOSE in both files. Superseded PDF values:
 #   P2 [13.730397, 100.788694] · P3 [13.730712, 100.788755]
 transit_waypoints:
   - {id: 1, lat: 13.730322, lon: 100.787446}   # P1 — launch / RTH hold (unchanged)
-  - {id: 2, lat: 13.730389, lon: 100.788567}   # P2' — turn north (13.8 m W of the PDF's P2)
-  - {id: 3, lat: 13.730716, lon: 100.788544}   # P3' — search-area ingress/egress (22.8 m W of P3)
+  - {id: 2, lat: 13.730390, lon: 100.788590}   # P2' — turn north (E 123.7 / N 7.6 m; 11.3 m W of the PDF's P2)
+  - {id: 3, lat: 13.730715, lon: 100.788590}   # P3' — search-area ingress/egress (E 123.7 / N 43.8 m)
 
 # Payload-release servos — the manual "ปล่อย servo" buttons on the GCS.
 # IDENTICAL to the practice field file: FOUR independent latch servos, outputs
