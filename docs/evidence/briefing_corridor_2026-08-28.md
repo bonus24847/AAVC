@@ -147,3 +147,18 @@ the white-pad blob cue fired on 0 of 1412 frames). Then:
   the full 11.3 m half-swath, 0.4 % at a 10 m usable one.
 
 Frames: `~/Desktop/KMITL_trial_frames_2026-08-28.jpg` (contact sheet).
+
+## Evening change — deliver when found (operator, 28 Aug ~18:00)
+
+"ตอนนี้ flight path ของเราเป็นการ survey ให้ครบทุกจุดก่อนถึงจะวาง payload ผมอยากเปลี่ยนใหม่
+ให้เมื่อเจอ payload ให้ทำการ drop เลย." The finish-sweep-then-serve rule
+(2026-07-03, relaxed 2026-08-27) is retired for the competition: the sweep
+pauses the moment an assigned id is confirmed, the pad is served from where
+the aircraft is, and the sweep resumes at the leg it left. On this gauge
+(~13 pt/min under load) the change buys the first egg before the pack has
+paid for the whole survey, and a battery egress mid-sweep now leaves fewer
+eggs aboard. Same delivery routine everywhere (`_deliver_entry`): budget
+gate, not-found rule, latch ledger. Tests:
+`test_a_pad_confirmed_mid_sweep_is_served_before_the_sweep_goes_on`,
+`test_budget_refusal_mid_sweep_ends_the_sweep_with_the_eggs_aboard`,
+`test_deliveries_flown_mid_sweep_shrink_the_decode_visit_reserve`.

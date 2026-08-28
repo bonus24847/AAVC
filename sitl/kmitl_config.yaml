@@ -231,6 +231,14 @@ ground_operation:
 # /tmp/aavc_targets.json — used ONLY for the post-flight --truth-json audit and
 # tools/verify_flight.py, NEVER for planning.
 search:
+  # ⚠ DELIVER-WHEN-FOUND (operator 2026-08-28 evening): the sweep no longer
+  # runs to completion before the first egg. The moment an assigned id is
+  # CONFIRMED (3 agreeing frames) the sweep pauses, the aircraft serves that
+  # pad from where it is (hop → ladder → land → release → climb back to
+  # sweep_alt_m) and the sweep resumes at the leg it left. Ids the sweep does
+  # not find still go through the decode visits and are served afterwards.
+  # Audit: `FLIGHT n SWEEP paused: pad=… confirmed — delivering now` /
+  # `SWEEP resumed at wp k`. (orchestrator/mission.py `_serve_found`.)
   # ⚠ 12.0 -> 20.0 on 2026-08-28 (event briefing: ceiling raised 20 -> 30 m,
   # pads placed in the OPEN only — never on the building or beside an
   # obstacle; operator: "survey at 20 m"). The search area contains the main
