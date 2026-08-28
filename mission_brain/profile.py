@@ -93,10 +93,20 @@ COMPETITION = MissionProfile(
     gps_loss_threshold_s=5.0,
     telemetry_stale_threshold_s=10.0,
     geofence_margin_m=5.0,
-    # ── AAVC 2026 V1.3: hard 20 m ceiling; transit strictly AT 20 m; search
-    # band 10-20 m; below 10 m only for the delivery descent over the pad ──
+    # ── AAVC 2026 V1.3 as amended at the 28-Aug-2026 event briefing: hard
+    # 30 m ceiling (was 20 — the committee raised it so the field's buildings
+    # and display aircraft can be overflown with margin; "25 m clears
+    # everything", operator 2026-08-28); transit still AT 20 m (the rules'
+    # Table-1 altitude — the briefing did not restate it; 25 m is the one-line
+    # change below if it did); search band 10-30 m; below 10 m only for the
+    # delivery descent over the pad. The companion ceiling watchdog rides on
+    # this number (warn +0.5 / RTH +1.5, orchestrator/constants.py), so 30
+    # here IS the rule the aircraft enforces; RTL_RETURN_ALT is pinned per
+    # field in the config (KMITL 25 — the failsafe return must clear the same
+    # obstacles the corridor does, and 25 leaves 5 m under this ceiling for
+    # PX4's in-flight home.alt drift, CLAUDE.md §8 2026-08-26). ──
     altitude_floor_m=3.0,             # lowest commanded hover (LAND descends below)
-    altitude_ceiling_m=20.0,          # competition rule: never exceed 20 m AGL
+    altitude_ceiling_m=30.0,          # briefing 2026-08-28: never exceed 30 m AGL
     transit_alt_m=20.0,               # rules: transit legs strictly at 20 m AGL
     search_floor_m=10.0,              # rules: search phase ≥ 10 m AGL
     # M9 (review 2026-07-24): drop_count_max is DEAD config — nothing reads it

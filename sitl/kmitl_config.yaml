@@ -1,6 +1,7 @@
 # AAVC field configuration — KMITL COMPETITION MAP (IAAI KMITL, the real event
 # field). Used by the aavc-comp repo / the COMP launcher icon with
-# AAVC_PROFILE=competition (20 m ceiling, 20 m transit, 10 m search floor).
+# AAVC_PROFILE=competition (30 m ceiling — 20 until the 28-Aug-2026 event
+# briefing — 20 m transit, 10 m search floor).
 #
 # ⚠⚠ GEOMETRY IS APPROXIMATE. The airspace / search / transit coordinates below
 # are the committee-published numbers from the rules PDF (AAVC2026 V1.3, p.3-4),
@@ -22,7 +23,8 @@
 # assigned eggs in ONE flight; eggs_aboard=1 is the original one-egg-per-
 # flight model, still supported as a one-integer rollback). Each flight:
 # takeoff at the Launch & Recovery site -> mandatory transit P1->P2->P3 at
-# 20 m -> search the SEARCH AREA (10-20 m band) -> for each assigned id in
+# 20 m -> search the SEARCH AREA (10-30 m band since the 28-Aug briefing) ->
+# for each assigned id in
 # turn (a DELIVERY): land ON the pad -> release that delivery's egg after
 # touchdown -> transit P3->P2->P1 -> land at L&R -> resupply -> next flight
 # (<= max_sorties flights within the 20-minute operation window; scoring is
@@ -85,15 +87,38 @@ controlled_airspace:
   - [13.729994, 100.789841]   # SE
   - [13.729806, 100.787228]   # SW
 
-# Search area = where the six pads are placed: the NORTHERN strip of the
-# airspace, ~227 x 78 m (rules PDF p.2). The boustrophedon sweep covers THIS
-# polygon (not the whole airspace). Vertices [lat, lon]. (The "NW 30 x 40 m
-# of the airspace / field frame s,t" text that sat here until 2026-08-27 was
-# the PRACTICE pitch's — the same class of stale text as F-08.)
+# Search area = the polygon the boustrophedon SWEEPS. ⚠ Since the 28-Aug-2026
+# briefing this is NOT the rules' whole search area (kept below as
+# search_area_rules, for the record and for the GCS) but its WESTERN part —
+# west of the main building — because the committee marked the building and
+# the east end of the search area as NO-FLY bands (operator's photo
+# IMG_0550.jpg, red boxes; georeferenced ±5 m, see the no_fly_zones note
+# below). Everything the mission flies between waypoints is a STRAIGHT goto
+# — pad-to-pad hops, decode visits, the egress to P3', a failsafe RTL — and
+# the building box (E 122-186 m, N 25-84 m from L&R) sits in the middle of
+# the rules' polygon, so any pad found EAST of it could only be reached by
+# flying through the box. West of it every straight line stays clear:
+# P3' (E 118.7) is west of the box, the corridor comes in from the west, and
+# an RTL to P1 from anywhere in this polygon never crosses E 110.
+#   ⚠ Pads placed east of the building (the strip north of it, 22-28 m wide,
+#   or the 29 m strip between it and the east band) are NOT searched. Ask the
+#   committee where the pads go; routing around the box is day-2 work.
+# East limit E = 110 m (12 m short of the drawn box edge): the sweep legs
+# inset 5 m end at E ~106-108 and the 20 m camera footprint reaches E ~123 —
+# the drawn edge of the box, so the roof itself is never in view and cannot
+# seed a false white-pad candidate. Vertices [lat, lon], NW,NE,SE,SW; the
+# west/south/north edges are the rules' own, the east edge is the E = 110 cut.
 search_area:
-  # ⚠ Rules PDF (KMITL, p.3), NOT surveyed — reordered NW,NE,SE,SW (simple
-  # rectangle). The boustrophedon sweeps THIS polygon (~227 x 78 m). Verify at
-  # the 28-Aug trial. The 17000 mAh pack covers a full-field sweep + 4 deliveries.
+  - [13.731239, 100.787824]   # NW  = rules NW (ENU 40.9 E, 102.1 N)
+  - [13.731276, 100.788463]   # NE' = rules north edge at E 110 (N 106.2)
+  - [13.730717, 100.788463]   # SE' = rules south edge at E 110 (N 43.9)
+  - [13.730723, 100.787840]   # SW  = rules SW (ENU 42.6 E, 44.6 N)
+
+# The rules' FULL search area (PDF p.3, ~227 x 78 m) — DOCUMENTATION since
+# 2026-08-28 (no flight code reads this key; the GCS field file draws it).
+# Restore it as search_area only with a planner that routes around the
+# building box.
+search_area_rules:
   - [13.731239, 100.787824]   # NW
   - [13.731359, 100.789916]   # NE
   - [13.730703, 100.789776]   # SE
@@ -102,14 +127,34 @@ search_area:
 # Primary transit route — MANDATORY both directions, scored per coordinate
 # passed in order (rules PDF p.4 Table 1 + p.12 scoring matrix). Ingress
 # P1->P2->P3 at transit_alt_m; egress reversed. P1 doubles as the RTH holding
-# point; P3 sits on the search-area SE edge (the ingress/egress gate).
+# point; P3 sits on the search-area south edge (the ingress/egress gate).
 transit_route:
-  # ⚠ Rules PDF Table 1 (KMITL) — the committee transit coordinates, scored per
-  # point in order BOTH ways. P1 doubles as the RTH / holding point; P3 is the
-  # search-area ingress/egress gate. Verify at the 28-Aug trial.
-  - [13.730322, 100.787446]   # P1  RTH / holding point
-  - [13.730397, 100.788694]   # P2  intermediate
-  - [13.730712, 100.788755]   # P3  search-area ingress/egress
+  # ⚠ CHANGED AT THE 28-Aug-2026 EVENT BRIEFING (the committee's slide, page 3
+  # of 18, "transit route (yellow)", with the new corridor sketched on it by
+  # the operator): the north leg no longer runs P2->P3 over the west wing of
+  # the main building — it turns north ~14 m EARLIER and runs up the grass
+  # strip between the display aircraft and the building's west wall, entering
+  # the search area ~23 m west of the old P3. P1 (= L&R) is unchanged.
+  #   P2' / P3' were georeferenced from that sketch: the slide (a north-up
+  #   Google-Maps screenshot) was matched to the Esri z19 imagery the GCS
+  #   caches (SIFT + ECC refinement, residual ~0.5 px) and cross-checked
+  #   against the slide's own airspace / search-area overlays (±3 m) and its
+  #   drawn P2 (0.2 m off the PDF easting). Then
+  #     P2' = the point on the P1->P2 line at the sketched line's easting
+  #     P3' = the sketched line's crossing of the search-area south edge
+  #   Precision ±5 m — the finger-drawn stroke is the limit, not the fit.
+  #   The leg runs 2.3-3.6 m WEST of the building's no-fly box as drawn
+  #   (IMG_0550.jpg; box west edge E 122.3) — that is the committee's own
+  #   placement, hugging the wall; the box must never be a watchdog polygon.
+  #   ⚠ If the committee published COORDINATES for the new corridor, THOSE
+  #   win: replace the two lines below, and move aavc-gcs/aavc_field.yaml
+  #   (transit_waypoints) with them — the console draws from that copy.
+  #   Superseded PDF Table-1 values, kept for the record:
+  #     P2 [13.730397, 100.788694]  (ENU 135.0 E,  8.3 N)
+  #     P3 [13.730712, 100.788755]  (ENU 141.6 E, 43.4 N — on the building)
+  - [13.730322, 100.787446]   # P1  RTH / holding point (= L&R, unchanged)
+  - [13.730389, 100.788567]   # P2' turn north  (ENU 121.2 E,  7.5 N; 13.8 m W of P2)
+  - [13.730716, 100.788544]   # P3' search gate (ENU 118.7 E, 43.9 N; 22.8 m W of P3)
 
 # ⚠ KMITL HAS a no-fly zone — rules Figure 1/3, the orange block on the EAST
 # side, south of the search area's east end — but the PDF gives it as a
@@ -124,6 +169,23 @@ transit_route:
 # brief: take over and exit along the corridor if an RTL fires out east).
 # (The "no published no-fly zone on the practice field" text that sat here
 # until 2026-08-27 was the PRACTICE file's.)
+# ⚠ 2026-08-28 briefing update (operator's marked-up field photo, IMG_0550.jpg,
+# georeferenced against the GCS's Esri tiles, ±5 m): THREE no-fly areas —
+#   building   the main building block, ENU E 122-186 / N 25-84 (lat/lon below)
+#   east band  the whole east end of the search area, E 215-256 / N 37-116
+#   orange     the rules' Figure-1 block south of it, E 219-255 / N -14..40
+# DELIBERATELY NOT ARMED here (operator's standing rule, 2026-08-27: no
+# approximate polygon in the watchdog — a false RTH costs the flight). The
+# building box also CANNOT be armed: the committee's own corridor passes
+# 2-4 m from its west edge (P3' is 3.6 m off it), so that polygon would RTH
+# every ingress. The PLAN avoids all three instead (search_area is cut at
+# E 110, the corridor is the committee's). To arm the two eastern ones —
+# 90+ m from anything the plan flies — paste:
+# no_fly_zones:
+#   - [[13.731367, 100.789439], [13.731367, 100.789814], [13.730658, 100.789814], [13.730658, 100.789438]]
+#   - [[13.730679, 100.789468], [13.730679, 100.789800], [13.730196, 100.789800], [13.730196, 100.789468]]
+# (building box for reference only — do NOT arm:
+#   - [[13.731079, 100.788577], [13.731078, 100.789163], [13.730548, 100.789162], [13.730548, 100.788577]] )
 no_fly_zones: []
 
 # Ground operations — the Launch & Recovery point: on the pitch long axis,
@@ -149,35 +211,46 @@ ground_operation:
 # /tmp/aavc_targets.json — used ONLY for the post-flight --truth-json audit and
 # tools/verify_flight.py, NEVER for planning.
 search:
-  # ⚠ 8.0 -> 12.0 on 2026-08-22 (full-system review, finding F1). 8.0 was
-  # tuned for the KMUTNB practice field's 10 m CEILING and is illegal here:
-  # the rules fly the search area in a 10-20 m band, and nothing in the code
-  # clamps a sweep altitude UPWARD (search_pattern and mission both use min()),
-  # so every sweep sample was below the floor and safety.py logged
-  # below_search_floor continuously into an audit the judges may read.
-  # It also did not fit the pack. Computed on the real KMITL polygon
-  # (227 x 74 m) with the measured 74.2 deg lens:
-  #    8.0 m -> 8 legs, 644 s sweep, 1078 s mission, 12.88 Ah  (pack has 12.75)
-  #   12.0 m -> 5 legs, 407 s sweep,  841 s mission, 10.04 Ah  <- chosen
-  #   19.0 m -> 4 legs, 327 s sweep,  761 s mission,  9.09 Ah  (marker 17.8 px,
-  #                                    on the detector's validated 18 px floor)
-  # 12 m keeps the 400 mm marker at 28 px and leaves ~360 mAh of headroom.
-  sweep_alt_m: 12.0        # was 8.0 (a KMUTNB-sized number); see the table
-                           # above for why 12 was chosen HERE.
-                           # ⚠ The paragraph that used to sit here was the
-                           # PRACTICE field's reasoning, left in this file:
-                           # it talked about a 10 m ceiling and a "legal band
-                           # [search_floor_m 2.5, ceiling 10]". At KMITL the
-                           # band is [10, 20] — the rules' search floor is
-                           # 10 m AGL and the ceiling is 20 — so that text
-                           # described a field this config does not fly and
-                           # would have justified an ILLEGAL sweep altitude to
-                           # anyone reading it at 7 a.m. on the day. Deleted
-                           # rather than corrected: the numbers it argued from
-                           # belong to the other config. (Same class as the
-                           # 2026-08-22 site.center incident — practice-field
-                           # text inside the competition file.)
-                           # LEGAL BAND HERE: sweep >= 10 m (rules), <= 20 m.
+  # ⚠ 12.0 -> 20.0 on 2026-08-28 (event briefing: ceiling raised 20 -> 30 m,
+  # pads placed in the OPEN only — never on the building or beside an
+  # obstacle; operator: "survey at 20 m"). The search area contains the main
+  # building's northern half and a display aircraft, so the sweep altitude is
+  # an OBSTACLE number first: 20 m clears both with margin (the committee's
+  # own word is that 25 m clears everything on the field), and it is the same
+  # altitude as the transit, so the outbound flight is ONE level from P1 to
+  # the last sweep leg. What it costs is the marker: at 20 m the 400 mm
+  # marker is 16.9 px (2.8 px/module) — UNDER the detector's validated 18 px
+  # floor and well under the 25-35 px band proven in flight (2026-08-27) — so
+  # the sweep is NOT expected to decode ids. It only has to SEE the pads: the
+  # 1 m white pad is 42 px (blob floor 18 px); each white-pad candidate is
+  # then revisited at the decode altitude (search floor 10 + 0.5 = 10.5 m,
+  # mission.py::_decode_visits) where the marker is 32 px — inside the proven
+  # band. Those visits are the new cost (~47 s each: descend 9.5 m at
+  # MPC_Z_V_AUTO_DN 0.4, dwell decode_dwell_s, climb back), and the
+  # committee's pads-in-the-open promise is what makes a 10.5 m visit over a
+  # candidate safe. ⚠ A FALSE candidate on the building's roof would be
+  # visited at 10.5 m too — the safety pilot watches every descent that starts
+  # over the building. Computed on the FLOWN polygon
+  # (search_area = west of the building, E <= 110) with the measured 74.2 deg
+  # lens (overlap 0.30, margin 5, 3 m/s):
+  #   12.0 m -> 5 legs, 344 m, 142 s, marker 28.2 px  (decodes IN the sweep)
+  #   15.0 m -> 4 legs, 281 m, 115 s, marker 22.6 px  (below the proven band)
+  #   20.0 m -> 3 legs, 216 m,  87 s, marker 16.9 px  <- chosen (pad 42 px)
+  # (On the rules' full polygon 20 m was 3 legs / 695 m / 247 s against
+  # 5 / 1139 / 407 at 12 m.) On the cut polygon the sweep is short either
+  # way and the decode visits (~47 s each, ~190 s for four) are the larger
+  # cost — at 12 m the ids would read during the sweep and most visits
+  # vanish. 20 stays because the operator chose it for obstacle clearance;
+  # 12 is one number here if the trial shows the 20 m cue is not enough.
+  # ⚠ NOT YET FLOWN: the 28-Aug trial slot is the one test — pass = every
+  # placed pad becomes a white-pad candidate on the sweep AND decodes on its
+  # visit.
+  # (History: 8.0 -> 12.0 on 2026-08-22, review F1 — 8.0 was a KMUTNB number
+  # under the practice 10 m ceiling and sat below the rules' 10 m floor.)
+  sweep_alt_m: 20.0        # was 12.0 until 2026-08-28; see the table above.
+                           # LEGAL BAND HERE: sweep >= 10 m (rules), <= 30 m
+                           # (briefing 2026-08-28; was 20). The profile's
+                           # ceiling clamps it with min() — never upward.
   # ✅ 0.44 -> 0.30 on 2026-08-24, after the SITL test the operator asked for.
   # 0.44 was belt-and-braces for an UNMEASURED camera mount: if the wide image
   # axis did not lie across track the real swath was the 720 px axis and 0.30
@@ -237,32 +310,52 @@ search:
   target_radius_m: 0.2     # marker half-side (m) -> size-prior gate (PadHit.radius_px
                            # is marker-equivalent px, also for blob-only hits)
   radius_band: [0.4, 2.5]  # size-prior acceptance band (decode is the identity gate)
-  max_fix_ground_dist_m: 15.0  # reject near-horizon junk from a tilted frame edge
-                           # (50 was sized for the 280 m KMITL field; 15 spans
-                           # the whole 60 m pitch from its centre)
+  max_fix_ground_dist_m: 20.0  # reject near-horizon junk from a tilted frame edge.
+                           # 15 -> 20 on 2026-08-28 with the 20 m sweep: the
+                           # half-swath is now 15.1 m (9.1 at 12 m), so 15
+                           # threw away every pad in the outer metre of a
+                           # level frame and the whole far edge of a tilted
+                           # one — a pad seen only from a leg's edge lost its
+                           # votes. 20 keeps the full flat swath; the junk it
+                           # exists to reject is tens of metres out. (The "15
+                           # spans the 60 m pitch" text that stood here was the
+                           # PRACTICE field's.)
   serve_dedupe_m: 6.0      # served-pad dedupe radius (default 12 would swallow
                            # a neighbouring pad at the new 14.5 m separation)
   decode_dwell_s: 4.0      # hover time over an unidentified candidate to decode its ID
-  serve_cost_s: 80.0       # time budget: align + land-ON + release + climb out
-                           # (shorter rungs from 4 m; re-measure at G4-KMUTNB)
+  serve_cost_s: 105.0      # time budget: align + land-ON + release + climb out.
+                           # 80 -> 105 on 2026-08-28: the pad hop and the
+                           # climb-out now happen at the 20 m sweep altitude
+                           # (mission.py::_climb_out_to_hop_alt), i.e. 8 m more
+                           # descent at MPC_Z_V_AUTO_DN 0.4 (+20 s) and 8 m
+                           # more climb at MPC_Z_VEL_MAX_UP 1.5 (+5 s) per egg.
+                           # The practice field measured 45-50 s from an 8 m
+                           # hop (2026-08-27), so this is conservative.
   # ⚠ All three were KMUTNB-sized numbers left in a KMITL file (review F5,
   # 2026-08-22). The gate that decides whether another flight/delivery fits
   # the window was computing against a field a third of the size, so it
   # approved work it could not finish — and the per-delivery abort gate reads
   # the same numbers, so it could not catch it either.
-  sortie_cost_s: 900.0     # FULL-SWEEP 4-EGG sortie, rebuilt 2026-08-24. The old
-                           # 420 was wrong twice: its arithmetic predated the
-                           # 0.30->0.44 change AND it sized ONE serve while
-                           # eggs_aboard=4 flies four. Parts: takeoff 17 (G4'
-                           # measured) + ingress 57 (171 m at 3 m/s) + sweep 407
-                           # (search_pattern.py, this config) + 4 x serve_cost_s
-                           # 80 = 320 + egress 57 + land 35 = 893, rounded up.
-                           # Cross-checked against the 2026-08-24 SITL run: 536 s
-                           # there with a 192 s sweep, so 343 s of non-sweep work
-                           # against KMITL's 407 s sweep and longer transits.
-  known_sortie_cost_s: 280.0  # registry-known sortie, no search: the far pad is
-                           # 291 m from L&R = ~97 s each way at MPC_XY_CRUISE
-                           # 3.0, plus one serve. 140 was the KMUTNB number.
+  sortie_cost_s: 900.0     # FULL-SWEEP 4-EGG sortie, rebuilt 2026-08-28 for the
+                           # cut polygon + 20 m sweep + decode visits: takeoff
+                           # 17 (G4' measured) + ingress 53 (158 m of new
+                           # corridor at 3 m/s) + 24 to the first leg + sweep
+                           # 87 + 4 decode visits x 47 = 188 + 4 x serve_cost_s
+                           # 105 = 420 + 17 back to P3' + egress 53 + land 35
+                           # = 894 s (six visits: 988). Egg 4's gate then runs
+                           # with 516 s left against its 300 s floor. The
+                           # launch gate stacks reserve_s 180 + this + margin 30
+                           # = 1110 <= 1200, so the first GO is legal.
+                           # (2026-08-24 history: 900 = 17 + 57 + 407 + 320 +
+                           # 57 + 35 at the 12 m sweep of the FULL polygon,
+                           # cross-checked against the 536 s SITL run.)
+  known_sortie_cost_s: 280.0  # registry-known sortie, no search. 2026-08-28: the
+                           # far corner of the flown polygon is 255 m by way
+                           # of the corridor (158 + 97) = 85 s each way
+                           # at MPC_XY_CRUISE 3.0, plus one serve (105 from the
+                           # 20 m hop) = 275. (Before: 291 m straight-line
+                           # to the far end of the full polygon + an 80 s serve.
+                           # 140 was the KMUTNB number.)
   rth_reserve_s: 120.0     # egress + land at L&R from the FAR side. Measured:
                            # the far corner of the search polygon is 291 m out,
                            # ~97 s of flight before the wheels touch — the old
@@ -289,13 +382,17 @@ mission:
   # (10 / 9.0 / 2.5) inside a competition config — harmless to the aircraft,
   # which reads the profile, but this block is what a human reads when writing
   # the briefing, and it contradicted this file's own header.
-  altitude_ceiling_m: 20            # rules V1.3 hard AGL ceiling (enforced by the
-                                    # companion); the FC's own fence (GF_MAX_VER_DIST)
-                                    # is a 50 m gross-runaway net only — PX4 1.17
-                                    # moves home.alt in flight (2026-08-26)
+  altitude_ceiling_m: 30            # hard AGL ceiling: 20 -> 30 at the 28-Aug-2026
+                                    # event briefing (enforced by the companion:
+                                    # warn 30.5 / RTH 31.5); the FC's own fence
+                                    # (GF_MAX_VER_DIST) is a 50 m gross-runaway net
+                                    # only — PX4 1.17 moves home.alt in flight
+                                    # (2026-08-26). tools/verify_flight.py reads
+                                    # THIS key for its ceiling line.
   transit_alt_m: 20                 # transit legs AT 20 m, both directions
-                                    # (rules Table 1 — scored per point)
-  search_floor_m: 10                # search 10-20 m; below 10 only over the pad
+                                    # (rules Table 1 — scored per point; the
+                                    # briefing raised the ceiling, not this)
+  search_floor_m: 10                # search 10-30 m; below 10 only over the pad
   # DELIVERIES (pads to serve), not flights, despite the name: this predates
   # the FLIGHT/DELIVERY split. orchestrator/main.py reads mission.max_deliveries
   # FIRST and only falls back to THIS key when max_deliveries is absent from
@@ -637,16 +734,20 @@ px4_tuning:
   MPC_LAND_ALT2: 2.0        # final crawl speed below 2 m AGL (was 5)
   # Any failsafe RTL (geofence, datalink loss, watchdog) climbs to RTL_RETURN_ALT
   # first — PX4's default 60 m would smash through the ceiling. Emergency
-  # egress is a direct line home just under ceiling height.
-  # ⚠ 9.0 -> 19.5 on 2026-08-22 (review F7). 9.0 is the KMUTNB number: correct
-  # under that field's 10 m ceiling, and simply left here. At KMITL the
-  # envelope is ceiling 20 / transit 20 / search floor 10, so a failsafe return
-  # at 9 m crossed a 280 m field BELOW the rules' own floor for the entire
-  # leg — a rules violation and an obstacle question, taken while the aircraft
-  # is already in trouble. 19.5 mirrors how the transit is commanded
-  # (ceiling - 0.5 for the AGL frame bias), so the return stays legal without
-  # riding the ceiling.
-  RTL_RETURN_ALT: 19.5      # failsafe return altitude (m AGL); PX4 default 60
+  # egress is a direct line home: it skips the corridor, so it crosses the
+  # main building, the display aircraft and the tree line on the way.
+  # ⚠ 19.5 -> 25.0 on 2026-08-28 (event briefing: ceiling 20 -> 30; operator:
+  # "25 m clears everything, so fly the RTH failsafe at this level"). Under
+  # the 20 m ceiling the return had to ride 0.5 m under the ceiling and only
+  # 8-12 m over the roofs; 25 puts it 13+ m above every obstacle on the field
+  # and still 5 m under the new ceiling — which is exactly the room PX4's
+  # in-flight home.alt drift needs (measured up to +4.65 m, 2026-08-26; the
+  # FC flies RTL_RETURN_ALT above ITS home, the companion measures the
+  # ceiling above the LATCHED one). Do NOT raise it further: at 30 a +4.65 m
+  # drift is a real 34.65 m — a rules breach in the middle of a failsafe.
+  # (2026-08-22 history: 9.0 -> 19.5, review F7 — 9 was the KMUTNB number and
+  # crossed the field below the rules' 10 m floor.)
+  RTL_RETURN_ALT: 25.0      # failsafe return altitude (m AGL); PX4 default 60
   # FC-level ALTITUDE fence at the competition rules' 20 m (operator
   # 2026-08-18) — the outer net above the watchdog's 10 m ceiling (warn 10.5 /
   # RTH 12). Additive to the polygon fence; same GF_ACTION=3 (Return).
@@ -658,8 +759,9 @@ px4_tuning:
   # At KMITL that left 0.5 m between the commanded transit and an FC-side RTL,
   # while this airframe has recorded 19.75 m against a 19.5 m command and a
   # transient near 20.5 m during egress — through the fence. 22 puts it 0.5 m
-  # ABOVE the companion RTH, restoring the intended order. The rules' 20 m
-  # ceiling is still enforced, by the companion (warn 20.5 / RTH 21.5), which is
+  # ABOVE the companion RTH, restoring the intended order. The rules' ceiling
+  # (30 m since the 28-Aug-2026 briefing; 20 before) is still enforced by the
+  # companion (warn +0.5 / RTH +1.5 over profile.altitude_ceiling_m), which is
   # the layer that can land gracefully.
   GF_MAX_VER_DIST: 50.0     # FC vertical fence (m) — gross-runaway net only: PX4 1.17
                             # rewrites home.alt in flight (#25003), so a 22 m fence

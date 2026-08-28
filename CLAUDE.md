@@ -7,6 +7,195 @@ anything not yet copied here, but do **not** pull its heavy stack back in.
 
 ---
 
+## 0. THE DATE (rules V1.3 pp. 9-10 — read it off the PDF, not off memory)
+
+**The competition is 28-30 August 2026 at IAAI KMITL (Terminal 1).**
+
+| Date | What happens |
+|---|---|
+| **Fri 28 Aug** | 08:00-09:00 registration · 09:00 briefing · **safety inspection** · **13:00-18:00 flight trial** (15 min slots, first-come-first-served, repeat if time allows) · 18:30 opening dinner |
+| **Sat 29 Aug** | **Scored flight day 1** — assemble at Terminal 1 before 07:30 |
+| **Sun 30 Aug** | **Scored flight day 2** · 18:30 awards + closing |
+
+Three things follow from this and they shape every plan in this file:
+
+1. **28 Aug is not a practice day, it is the LAST day to fix anything.** The
+   aircraft has to arrive already flight-ready; the trial slots are for
+   learning the real field, not for debugging.
+2. **A failed safety inspection eats our own flying time** — the committee
+   feeds back issues and the fix has to be re-checked *during* the trial
+   window.
+3. There are **two more scored components besides flying**: the safety
+   inspection and a **15-minute presentation + 5-minute Q&A** on 28 Aug (slots
+   announced on arrival). The technical-report score also feeds the overall
+   score and already decided our time slot.
+
+This section exists because the date was in the PDF in this repo's root and
+nowhere in this file, so a session that needed it could not find it.
+
+---
+
+## 0b. Full-system review, 2026-08-23 — the KMITL window does not fit
+
+Reviewed end to end against the rules PDF: board params, both mission repos,
+the path manager, the CM4 device code, and both GCS field maps. The system is
+not broken — geometry matches the PDF exactly, the two repos have not drifted,
+energy has 3x margin, 718 tests green. **What is wrong is TIME**, and only at
+KMITL: the competition field is twice the practice field and several numbers in
+`kmitl_config.yaml` were still calibrated on the small one.
+
+**The number that matters is 21 seconds.** A full-sweep four-egg KMITL sortie,
+built from measured parts (G4' takeoff/landing, real transit distances, the
+sweep from `search_pattern.py` on the shipped config):
+
+| part | 0.44 (ships) | 0.30 |
+|---|---|---|
+| takeoff / ingress 171 m / **sweep** / 4 serves / egress / land | 17 / 57 / **565** / 320 / 57 / 35 | 17 / 57 / **407** / 320 / 57 / 35 |
+| **total of the 1200 s window** | **1051 s** | **893 s** |
+| remaining when egg 4's gate runs (`can_start_delivery` refuses below 300) | **321 → 21 s of slack** | 479 → 179 s |
+
+Both deliver 4/4 when nothing goes wrong. The difference is what one bad gust,
+one re-align or one decode visit costs: at 0.44 anything 22 s over plan drops an
+egg.
+
+- **F-01 `overlap_frac` 0.44 -> 0.30 — TESTED AND CHANGED 2026-08-24.** The
+  operator held 0.44 out of doubt the camera would find the pads at the real
+  field, and asked for it to be settled in Gazebo with numbers first. Flown head
+  to head at KMITL OPTICS (competition envelope, 12 m sweep so the marker is
+  28.2 px, same pad seed 1301, only overlap different):
+
+  | | 0.30 | 0.44 |
+  |---|---|---|
+  | legs / pads found / ids / eggs | 5 · 6/6 · 6/6 · 4/4 | 6 · 6/6 · 6/6 · 4/4 |
+  | release error | 0.09-0.22 m | 0.15-0.20 m |
+  | mission time | **536 s** | 647 s |
+
+  Identical coverage, identical delivery success, **111 s faster** on that field
+  and a computed **158 s** on KMITL's larger polygon. Decode was separately
+  measured at EVERY across-track offset out to 94% of the half-swath, so wider
+  spacing never puts a pad where the detector fails. Evidence:
+  `docs/evidence/sweep_overlap_2026-08-24.txt` + both audit trails.
+- **F-02 `sortie_cost_s` — CORRECTED 2026-08-24.** KMITL 420 -> **900**,
+  practice 240 -> **690**. Both were wrong the same two ways: the arithmetic
+  predated the overlap change, and both sized ONE serve while `eggs_aboard=4`
+  flies four. Rebuilt from parts (KMITL: 17 takeoff + 57 ingress + 407 sweep +
+  4x80 serves + 57 egress + 35 land = 893, rounded up), cross-checked against
+  the 536 s SITL run. The KMITL gate now needs 1110 s of 1200 and still fits,
+  and the last egg's slack over the 300 s floor went **21 s -> 179 s**.
+- **F-09 the gz camera was still at yaw 0 — FOUND BY THAT TEST, FIXED.**
+  2026-08-23 set `mount_yaw_deg: 180` in both configs (correct for the real
+  aircraft) while `sitl/models/eft_x6100/model.sdf` still mounted the SITL
+  camera at yaw 0, so every SITL projection came out point-mirrored. The first
+  0.30 run delivered **0 of 4 with all six pads decoded and every id correct**,
+  positions 3.7-20.2 m off, the aircraft flying to empty grass at each pad —
+  the G7-attempt-1 signature, reproduced somewhere for the first time. The
+  camera pose is now `0 0 0.10 0 1.5708 3.14159`. ⚠ This retires a standing
+  warning in this file: SITL and `CameraModel` **no longer share** the mounting
+  assumption, so a future mount error shows up in sim instead of at the field.
+- **F-03 KMITL asks the decoder for a SMALLER marker than the flight that already
+  failed.** *(Superseded 2026-08-28, §0c: the sweep now flies 20 m as a
+  white-pad finder and the ids are read on 10.5 m decode visits at 32 px.)*
+  KMUTNB sweeps at 8 m = 42 px = 7.1 px/module and decoded 2 of 6.
+  KMITL must sweep at 12 m = 28 px = **4.7 px/module**. Flying lower does not
+  rescue it: the rules floor the search at 10 m AGL, which is still only
+  5.6 px/module. The bench decodes to 14 m statically, so this is the in-flight
+  BLUR problem and nothing else — `tools/hover_decode.py` is the instrument for
+  closing it.
+- **F-04 CLOSED by the operator 2026-08-24 — sortie count is NOT scored.**
+  The judges care about three things only: **is the egg delivered accurately, is
+  it delivered inside the time window, and is the operation safe** (and what the
+  safety provisions actually are). One flight or two changes nothing on the
+  scoresheet, so `eggs_aboard=4` stands and the "Repeating Delivery" line is not
+  a reason to split the mission. Recorded here because the rules text alone
+  reads the other way.
+- **F-05 standby-area telemetry — ACCEPTED 2026-08-24, procedural.** Rules p.13
+  forbids "activating radio control equipment and other telemetry while in the
+  standby area", and the CM4 raises its own WiFi AP at boot with the console
+  ssh-starting the beacon as soon as it answers. **Do not connect the pack until
+  the launch point**, and keep the console shut while waiting. Operator agreed
+  independently. Confirm the interpretation at the 28-Aug briefing.
+- **F-06 the RC-loss drill and ELRS "No Pulses" are still not done.** 2026-08-23
+  closed the DIAGNOSIS (a held kill switch, not the link) — the net itself has
+  never been tested.
+- **F-07/F-08 stale text, FIXED 2026-08-23.** PX4MASTER's summary claimed the comp
+  config "deliberately keeps `EKF2_HGT_REF=1`" — both configs ship 0, and 1 is the
+  setting that RTH'd a flight on 2026-08-20. And `kmitl_config.yaml` carried the
+  PRACTICE field's altitude reasoning ("ceiling now 10 m", "legal band
+  [search_floor_m 2.5, ceiling 10]"); at KMITL the band is [10, 20]. Same class as
+  the 2026-08-22 `site.center` incident: practice-field text inside the
+  competition file, every number plausible, describing another field.
+
+Verified CORRECT and needing nothing: transit P1-P3, controlled airspace and
+search area all match the PDF coordinate-for-coordinate; the GCS competition map
+matches the flight config; the two repos' flight cores are identical; KMITL needs
+4275 mAh of 12750 usable.
+
+---
+
+## 0c. Competition-day briefing, 28 Aug 2026 — ceiling 30, corridor moved, sweep 20
+
+Relayed by the operator from the 09:00 briefing (`docs/RULES_AAVC2026.md`
+"Event-briefing override (2026-08-28)"; branch
+`rules/2026-08-28-briefing-ceiling-30`). Everything here is **UNFLOWN** —
+the 13:00-18:00 trial slot is the single test.
+
+- **Ceiling 20 → 30 m.** `profile.py` COMPETITION `altitude_ceiling_m=30`; the
+  companion watchdog follows automatically (warn 30.5 / RTH 31.5). Transit
+  stays **20 m** — Table 1 was not restated; `transit_alt_m` is the one line to
+  change if the committee said 25. Search band is 10–30 m.
+- **RTH failsafe at 25 m** (`kmitl_config.yaml` `RTL_RETURN_ALT: 25.0`, was
+  19.5): the committee's "25 m clears everything"; a straight-line RTL crosses
+  the main building, the display aircraft and the tree line. Not higher: PX4's
+  in-flight home-alt drift (+4.65 m measured) would put 30 at a real 34.65.
+- **Corridor moved west, off the main building.** The PDF's P2→P3 leg ended ON
+  the building's roof. The new leg turns north 13.8 m earlier (**P2′
+  13.730389, 100.788567**, ENU 121.2 E / 7.5 N) and enters the search area
+  22.8 m west of the old P3 (**P3′ 13.730716, 100.788544**, ENU 118.7 E /
+  43.9 N), up the grass strip between the display aircraft and the building's
+  west wall; P1 = L&R unchanged. Georeferenced from the committee's slide
+  (SIFT+ECC against the GCS's cached Esri z19 tiles, ±5 m —
+  `docs/evidence/briefing_corridor_2026-08-28.md`). **Committee coordinates,
+  if published, replace ours** in BOTH `kmitl_config.yaml` and
+  `aavc-gcs/aavc_field.yaml` (same digits there).
+- **Three NO-FLY bands (operator's marked-up field photo `IMG_0550.jpg`,
+  georeferenced ±5 m): the main building (ENU E 122-186 / N 25-84), the whole
+  east end of the search area (E 215-256 / N 37-116) and the rules' orange
+  block south of it (E 219-255 / N -14..40).** The building box sits in the
+  MIDDLE of the rules' search polygon and every move the mission makes is a
+  straight goto (pad hops, decode visits, the egress to P3′, a failsafe RTL),
+  so a pad found east of it could only be reached through the box. Hence:
+  **the flown `search_area` is now the rules' polygon CUT at E 110 m — the
+  open field WEST of the building** (the rules' full polygon is kept as
+  `search_area_rules`, documentation only). From there every straight line —
+  hops, egress, RTL to P1 — stays west of E 110. ⚠ Pads placed east of the
+  building are NOT searched; ask the committee where the pads go. Routing
+  around the box is day-2 work. `no_fly_zones` stays `[]` on purpose (the
+  operator's 2026-08-27 rule: no approximate polygon in the watchdog); the
+  building box could never be armed anyway — the committee's corridor hugs
+  its west edge at 2-4 m. Paste-ready polygons for the two eastern bands sit
+  in the config comment.
+- **Sweep 12 → 20 m** (operator: "survey at 20 m" — obstacle clearance over
+  the display aircraft; "25 m clears everything"). On the cut polygon: **3
+  legs / 216 m / 87 s** (12 m would be 5 / 344 / 142 and decode in-flight).
+  The marker is 16.9 px at 20 m — under the validated 18 px floor — so the
+  sweep is a **white-pad finder** (pad 42 px, blob floor 18) and ids are read
+  on the EXISTING decode visits at 10.5 m (`mission.py::_decode_visits`,
+  marker 32 px — inside the 25-35 px band proven in flight on 08-27), ~47 s
+  each. The 20 m footprint from the legs' east ends reaches E ~123 = the
+  drawn box edge, so the roof is never in view. Knock-ons:
+  `max_fix_ground_dist_m` 15 → 20 (the half-swath is 15.1 m now),
+  `serve_cost_s` 80 → 105 (the hop is at 20 m: +8 m down at 0.4 m/s),
+  `sortie_cost_s` stays 900 (rebuilt: 17 + 53 + 24 + 87 + 188 + 420 + 17 +
+  53 + 35 = 894; egg 4's gate runs with 516 s left), `known_sortie_cost_s`
+  280 (rebuilt: 255 m via the corridor each way + a 105 s serve).
+- Still open from the briefing: the committee's OWN corridor / no-fly
+  coordinates (ours are ±5 m from photos) and WHERE the pads are placed. The
+  GCS label now reads "เพดาน 30 m"; the printed KMITL checklist
+  (`docs/AAVC_Checklist_Competition_KMITL.*`) was rebuilt with the new
+  envelope line (`transit 3 pts @ 20 m, sweep 3 legs @ 20 m`).
+
+---
+
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 
 An autonomous **PX4 hexacopter** (EFT X6100 frame; Pixhawk 6X + Raspberry Pi CM4
@@ -24,14 +213,16 @@ four assigned eggs in ONE flight (`eggs_aboard=1` is the pre-briefing
 one-egg-per-flight model, still a fully supported one-integer rollback).
 Each assigned pad is its own **DELIVERY**, scored independently. Per
 flight: takeoff at the Launch & Recovery site → **mandatory transit
-P1→P2→P3 at 20 m** (scored per point, both directions) → search the **search
-area** (10–20 m band; the assigned ids are entered by the operator at each
+P1→P2→P3 at 20 m** (scored per point, both directions; the points moved west
+on 2026-08-28 — §0c) → search the **search
+area** (10–30 m band since 28 Aug; the assigned ids are entered by the operator at each
 GO) → for each assigned id in turn: **land ON the pad** → **release that
 delivery's egg after touchdown** (`payload_id` 0..3 → latch servo on
 **AUX 4/1/2/3** as wired) → egress transit → land at L&R → **disarm** → resupply → next
 flight (≤4 flights inside the **20-minute operation window** — the briefing
-default needs only ONE; per-minute penalty after). Ceiling **20 m AGL**;
-below **10 m only** for the delivery descent over the pad.
+default needs only ONE; per-minute penalty after). Ceiling **30 m AGL since
+the 28-Aug-2026 briefing (20 in the PDF — §0c)**; below **10 m only** for the
+delivery descent over the pad.
 Fast-but-safe. Full rules digest: `docs/RULES_AAVC2026.md` (source:
 `AAVC2026_RulesAndRegulation_V1.3_140769.pdf` in the repo root — V1.3 is
 editorial-only over V1.1: no flight-rule value changed; it adds DMS coordinates,
@@ -77,7 +268,18 @@ single sortie" is history, not current design.)
   `connection.drop_servo_channels: [4, 1, 2, 3]` maps `payload_id` → channel
   (`ConnectionConfig.actuator_index`; empty list = the old
   `drop_servo_channel + payload_id` progression). `drop_payload_count=4`;
-  a single latch was the `eggs_aboard=1` case. Table + QGC bench sheet:
+  a single latch was the `eggs_aboard=1` case. ⚠ A **RECOVERY flight**
+  (index past the queue's positional chunks, same rule as
+  `main.py::_chunk_for`) serves from the **unfired latches** instead of
+  restarting at slot 0 (2026-08-27, operator: the crew does NOT re-rack
+  eggs at the battery swap — the eggs that came home are still latched
+  where flight 1 loaded them): `state.payload_slots_fired` records every
+  release that physically happened, and `mission.py::recovery_slots`
+  continues the wiring-order progression through what still holds an egg
+  (audit `FLIGHT n RECOVERY slots=… fired=…`). Before this, a recovery
+  flight re-fired slots 0/1 — two already-empty holds — and flew its eggs
+  home. Positional flights are byte-identical (slot == position; rack
+  freshly loaded from AUX4 up). Table + QGC bench sheet:
   `docs/SERVO_AUX_MAPPING.md`. The mission-global `stop_index` (`= delivery_index - 1`) — **not**
   the flight/sortie index — keys the release idempotence ledger
   (`state.dropped_stops`), so two deliveries inside the same flight can
@@ -87,7 +289,20 @@ single sortie" is history, not current design.)
   the flight gate: failing it skips the remaining eggs in that flight
   (audited `DELIVERY abort: flight n skipping remaining ids=…`) and heads
   home with them still aboard, rather than starting a descent the budget
-  can't finish. Between FLIGHTS the vehicle lands at L&R and **disarms**
+  can't finish. **Planned battery egress at `profile.egress_battery_pct`
+  (30%, operator 2026-08-27):** below it the flight starts NOTHING new — the
+  sweep's `_done()` stops the search (audit `FLIGHT n SWEEP battery egress
+  batt=…`), decode visits are skipped, and the delivery gate refuses
+  (`FLIGHT n BATTERY EGRESS …` + the usual `DELIVERY abort`) — then it flies
+  the NORMAL egress through P3→P2→P1, lands and disarms so the crew can
+  swap the pack and the recovery flight serves what is owed (from the
+  latches that still hold eggs). Latched per flight (`batt_egress`), so a
+  gauge rebound cannot restart a descent. `rth_battery_pct` (15%) stays the
+  FAILSAFE underneath: a straight-line PX4 RTL that skips the scored
+  transit points and, from the east end of the KMITL search area, hugs the
+  no-fly zone — the whole point of the planned floor is never reaching it
+  (the flight is fully autonomous; nobody can fly it home by hand).
+  Between FLIGHTS the vehicle lands at L&R and **disarms**
   (resupply crew approaches); `COM_DISARM_LAND=-1` is retained so a
   **mid-flight pad landing (between deliveries) stays ARMED** (no re-arm
   over the field — which also pins PX4 home to the launch point while
@@ -96,9 +311,11 @@ single sortie" is history, not current design.)
   P1→P2→P3 at **strictly 20 m** outbound and P3→P2→P1 back — scored per
   coordinate passed, so each pass/miss is audited (`TRANSIT_PASS`/`_MISS`).
   The final approach home is an **explicit goto + land, NOT RTL** (kept from
-  2026-06-11: PX4 re-captures home at every re-arm). `RTL_RETURN_ALT=20` is
-  pinned so any FAILSAFE RTL (geofence/datalink/watchdog) stays at the ceiling
-  — PX4's default 60 m would bust it.
+  2026-06-11: PX4 re-captures home at every re-arm). `RTL_RETURN_ALT` is
+  pinned per field (KMITL **25** under the 30 m ceiling since 2026-08-28 —
+  §0c; the commander default is 20) so any FAILSAFE RTL
+  (geofence/datalink/watchdog) stays legal and above the obstacles — PX4's
+  default 60 m would bust the ceiling.
 - **Blind visual search + cross-flight pad registry** (2026-06-11, reshaped
   2026-07-03, chunked per flight 2026-07-24): pad coordinates are **unknown
   at takeoff** — the committee only assigns marker ids, up to `eggs_aboard`
@@ -126,6 +343,54 @@ single sortie" is history, not current design.)
   authority (the oblique cue camera was retired 2026-07-15 with the
   single-OV9281 hardware decision). The plan is rebuilt live per sortie
   (`mission_brain/live_plan.py`).
+  ⚠ **The search phase HOLDS ONE HEADING** (`SearchPlanSpec.sweep_yaw_deg`,
+  passed as `yaw_deg` on all four search-phase `goto`s, 2026-08-22). Every
+  `goto` used to send a NaN yaw, so PX4 fell through to `MPC_YAW_MODE` — the
+  factory **0 = "towards waypoint"** on all three 2026-08-20 flights — and
+  turned the nose at each sweep waypoint: the commanded heading walked a full
+  circle at the 25 °/s cap, **867° of yaw in 122 s** (ULog `08_11_09`), and the
+  body-fixed camera spun with it (1 of 457 frames decoded). A finite yaw in the
+  goto **beats the param** — PX4 reads the triplet yaw before ever consulting
+  `MPC_YAW_MODE` (`FlightTaskAuto.cpp:490-501`) — so the fix holds even if
+  `MPC_YAW_MODE=5` never lands (its PX4 metadata says `@max 4` while the enum
+  defines 5; it is in `preflight_params.py::PINNED` for exactly that reason).
+  The heading is DERIVED: `leg_bearing − cameras.nadir.mount_yaw_deg`, then
+  flipped 180° if that would fly the leg BACKWARDS — both headings put the
+  camera's WIDE (1280 px) axis across track (the footprint is a rectangle, so
+  `swath_m` is identical either way) and the plan takes the nose-first one.
+  Without that flip the measured 180° mount would send the aircraft down every
+  sweep leg in reverse. ✅ **`mount_yaw_deg` MEASURED 2026-08-23 = 180** — the
+  camera is bolted **UPSIDE DOWN**, image row 0 looks at the TAIL. It had
+  shipped as `0.0`, an ASSUMPTION, and that was wrong by **~175° in EVERY
+  direction**: every pixel→lat/lon fix came out point-mirrored about the
+  aircraft, which is precisely the shape of a sweep that SEES pads and never
+  re-acquires them (G7 #1: 2 of 6 decoded). Four placements of one floor object
+  round the raised, levelled airframe (nose / right / tail / left) each solved
+  it alone — 180.3 / 187.4 / 183.4 / 186.1, mean 184.3, snapped to the bolted
+  180; the four pixels are kept as data in
+  `tests/test_measure_mount_yaw.py::_BENCH_2026_08_23`. Found on the way, same
+  day: `tools/measure_mount_yaw.py` computed `psi = ang − bearing` where
+  `projection.py` wants `psi = ang + bearing` — invisible at the documented
+  nose (`bearing=0`) placement and wrong by `2·bearing` anywhere else, so ONLY
+  a confirmation placement off the nose could expose it (the right-wing frame
+  read 7° where the aircraft's own projection says 187°). ✅ The tail-first side effect is CLOSED
+  (`search_pattern.py` now takes the nose-first perpendicular, above).
+  ✅ `overlap_frac` is back to **0.30** (2026-08-24) — the operator held it at
+  the belt-and-braces 0.44 while unsure the camera would find the pads at the
+  real field, and asked for the question flown in Gazebo before it moved. It
+  was: same pad seed, KMITL optics (12 m sweep, marker 28.2 px), only overlap
+  differing — **6/6 pads, 6/6 ids, 4/4 eggs on BOTH**, releases 0.09-0.22 m vs
+  0.15-0.20 m, and 536 s against 647 s. Coverage identical, 111 s faster there
+  and ~158 s at KMITL. Decode was measured separately at every across-track
+  offset out to 94% of the half-swath, so the wider spacing never puts a pad
+  where the detector fails — which was the mechanism the doubt was about.
+  0.44 only ever insured against an UNMEASURED mount, and that cannot occur
+  now. Evidence `docs/evidence/sweep_overlap_2026-08-24.txt`. ⚠ SITL used to be blind to all of this because the gz camera shared the
+  mounting assumption — **no longer**: `sitl/models/eft_x6100/model.sdf` was
+  rotated to `0 0 0.10 0 1.5708 3.14159` on 2026-08-24 so sim carries the same
+  180 the airframe does, and a mount error now fails in SITL. (SITL still
+  renders with no exposure time, so smear does not exist in sim — the blur
+  problem stays a field-only question.)
   SITL ground truth (`/tmp/aavc_targets.json`, now with `marker_id`) is used
   ONLY for the post-flight audit + `tools/verify_flight.py`, **never planning**.
 - **Single long-running orchestrator across the window** (operator 2026-07-03):
@@ -231,10 +496,12 @@ single sortie" is history, not current design.)
   402/405/409/410 (**RC passthrough** — two egg latches were wired to the roll
   and yaw sticks, i.e. the eggs would have released while the aircraft banked);
   now 301..304, verified across a reboot. Power (**REWIRED 2026-08-16** — the Holybro PM03D failed and is
-  OUT): a converter feeds the **Pixhawk straight off the pack**, and the
+  OUT; since **2026-08-20 a Holybro PM02D feeds the Pixhawk — FC/avionics
+  ONLY**, replacing the interim converter): the
   **motors run from a SEPARATE board the FC cannot sense**. So any current the
-  FC reads is avionics draw, not the ~35-43 A of flight, and a current-fused
-  gauge on that wiring fails OPTIMISTIC and silently. The switch to the voltage
+  FC reads (~0.7 A via the PM02D) is avionics draw, not the ~35-43 A of
+  flight, and a current-fused gauge on that wiring fails OPTIMISTIC and
+  silently — the PM02D's current output must NEVER feed coulomb counting. The switch to the voltage
   branch is **`BAT1_CAPACITY=-1`** (`lib/battery/battery.cpp`
   `estimateStateOfCharge` takes the voltage-only `else` only when capacity
   <= 0) — **NOT** `BAT1_I_CHANNEL=-1`, which is a no-op: -1 means "board
@@ -248,9 +515,22 @@ single sortie" is history, not current design.)
   Because
   `calculateStateOfChargeVoltageBased` only load-compensates when current > 0,
   the gauge sags under thrust and rebounds, so `safety.py` requires both
-  battery thresholds to hold for `battery_sustain_s` (5 s) before acting. Height
+  battery thresholds to hold for `battery_sustain_s` (5 s) before acting. **Absolute
+  height is BARO at BOTH fields** (`EKF2_HGT_REF=0`, operator 2026-08-23;
+  practice moved 2026-08-20, competition followed): on PX4's default `=1` (GPS)
+  the baro-vs-GPS divergence measured **10.8 m peak-to-peak** inside one flight,
+  the reported AGL inflated to 12.0 m while the aircraft physically held ~8.5 m,
+  and the ceiling watchdog — correct on its inputs — RTH'd a flight that was
+  tracking transit to 1.7 m. NOT `=2` (range): that makes the local origin ride
+  ground level, so a shed cargo box or a person under the beam would move
+  "down". ⚠ `reboot_required` — PX4 stores a new value immediately while the
+  estimator keeps running on the OLD reference, so a read-back says "held" and
+  proves nothing; it is deliberately NOT in `verify_envelope_pins`, and
+  `tools/preflight_params.py` checks it as a **`BOOT_LATCHED`** STOP against the
+  field config in force. Height
   aiding for the real bird is a **Benewake TFmini-S** downward lidar
-  (`EKF2_RNG_CTRL=1` pinned; its `SENS_TFMINI_CFG` port is chosen at the bench).
+  (`EKF2_RNG_CTRL=1` pinned, conditional aiding below `EKF2_RNG_A_HMAX=7.0` m
+  pinning the final metres; its `SENS_TFMINI_CFG` port is chosen at the bench).
   **Optical flow was CUT 2026-07-22** — no flow module in the kit, so
   `EKF2_OF_CTRL` is pinned to 0. The single nadir camera (Meige OV9281 UVC, mono
   global-shutter) is **HARD-MOUNTED looking down — no gimbal** (operator
@@ -364,9 +644,37 @@ dev = pytest, ruff, mypy.
 > and the mission loop (multi-sortie + transit). Those were authorised by the
 > locked-decision change above; the contracts below are the current ones.
 
-- **Camera frames:** NADIR = `/tmp/aavc_nadir.png` (the single camera; 1280 px
-  wide in SITL). The nadir frame is mirrored to
-  `/tmp/aavc_frame.png` (the dashboard camera endpoint).
+- **Camera frames:** NADIR = `/tmp/aavc_nadir.jpg` (the single camera; 1280 px
+  wide in SITL). The nadir frame is mirrored to `/tmp/aavc_frame.jpg` (the
+  dashboard camera endpoint) unless the writer runs `--no-mirror`, which the
+  REAL launchers do. **JPEG q95 since 2026-08-21** — the writers pick the codec
+  from the path suffix; CM4-measured 48→12 ms to encode and 33→15 to decode,
+  which is what pays for decoding every frame instead of every other one.
+  The REAL launchers additionally default to `--mjpeg-passthrough` (2026-08-21):
+  the camera already emits JPEG, so its bytes are written verbatim — no decode,
+  no re-encode, nothing compressed twice — measured **20 Hz for 7% of one CM4
+  core** (121 fps available) with 33 KB frames. Decode survival was tested
+  across JPEG q95→q60 at 17-42 px markers (the 8-16 m band): all decode, and
+  the camera sits at ~q80-85. `CAM_PASSTHROUGH=0` reverts to YUYV + re-encode.
+  ⚠ **EXPOSURE IS AUTO, and the forced 2 ms that used to be the default was the
+  whole in-flight decode failure** (measured on the aircraft 2026-08-24). It was
+  added 2026-08-21 on the theory that `auto_exposure=3` sat at 16.6 ms and
+  smeared the frames. Read back OUTDOORS, **auto picks 1 ms — SHORTER than the
+  2 ms forced on it**, so auto was never the blur. Forcing 2 ms is what broke
+  the decode: same scene, same marker at the KMITL pixel size (29-32 px),
+  auto → brightness 124 / sharpness 929 / **DECODES**, forced 2 ms →
+  brightness 190 / sharpness 934 / **nothing**. Sharpness was never the problem;
+  at ~190 mean the marker's white quiet zone blows out and the black/white edge
+  ArUco needs is gone. On auto, a marker carried at RUNNING speed across 8-10 m
+  decoded **145/222 then 125/224 frames (65% / 56%)** at 25-35 px — the sweep's
+  own pixel size, at twice the sweep's angular rate. `CAM_EXPOSURE` therefore
+  defaults to **0 = auto**; a positive value pins a manual exposure in 100 µs
+  units. ⚠ `0` now actively RESTORES `auto_exposure=3` + the default gain: it
+  used to mean "don't touch", which let a previous forced run leave the camera
+  in manual with a stale exposure and nothing said so — that is exactly how the
+  decode stayed broken from 2026-08-21 to 2026-08-24 while every launcher
+  believed it was on auto. Frame rate is unaffected and was never the issue:
+  measured 25.0 fps written, the sensor offering 120.
 - **Dashboard DetectedObjectEvent** fields (unchanged set): `t_monotonic, label,
   clothing_color, member_count, pose, confidence, lat, lon,
   is_designated_match`. Values now: `label="aruco pad <id>"|"landing pad"`,
@@ -427,7 +735,9 @@ dev = pytest, ruff, mypy.
 - **Audit trail** (`runs/<mission_id>/audit.jsonl`): the grammar broke
   2026-07-24 from `SORTIE n …`/`sortie=` to **FLIGHT/DELIVERY**, in lockstep
   with `tools/verify_flight.py` (keep them in lockstep on any future change).
-  1 Hz `TELEM phase=… flight=n lat=… lon=… alt=… armed=…` samples +
+  1 Hz `TELEM phase=… flight=n lat=… lon=… alt=… armed=… batt=… vbat=…
+  mode=…` samples (batt/vbat since 2026-08-20, mode since 2026-08-21 — all
+  three OPTIONAL in the verifier so older archives still parse) +
   `TRANSIT_PASS|MISS Pn ingress|egress flight=n d=…m` (once per flight, each
   direction — NOT once per delivery) + `FLIGHT n START eggs=… ids=…
   remaining=…s` / `FLIGHT n END delivered=x/y d_home=…m remaining=…s` +
@@ -455,14 +765,32 @@ dev = pytest, ruff, mypy.
 make install        # .venv + pip install -e .[dev]
 make sitl           # PX4 SITL + Gazebo with the IAAI KMITL field
 make spawn-targets  # spawn the 6 ArUco pads, ids 1-6 (SEED=n re-rolls ids + positions)
-make camera-bridge  # gz camera -> /tmp/aavc_nadir.png (+frame mirror; system python3)
+make camera-bridge  # gz camera -> /tmp/aavc_nadir.jpg (+frame mirror; system python3)
 make run            # orchestrator (TRUTH=path → truth audit). Headless sorties:
                     #   .venv/bin/python -m orchestrator.main --assigned-ids "3,1,4,6" …
+# fly the SITL world on the COMPETITION envelope (transit 20 / ceiling 20 /
+# floor 10) instead of the practice profile — this is what makes a SITL run
+# represent KMITL. The config's own `mission:` block canNOT do it: those keys
+# are DOCUMENTATION; the flown values come from mission_brain/profile.py.
+#   AAVC_PROFILE=competition .venv/bin/python -m orchestrator.main \
+#       --config sitl/aavc_config.yaml --truth-json /tmp/aavc_targets.json \
+#       --no-dashboard --assigned-ids "6,3,5,1"
 make web-build      # build the Svelte dashboard
 make test           # pytest
 make lint           # ruff + mypy
 # post-flight drone-response check (operator requirement):
 #   .venv/bin/python tools/verify_flight.py runs/<mission_id>/audit.jsonl --truth …
+# hand-flown hover decode test — does the camera READ in the air? (run on the
+# CM4 beside the grabber; the beacon turns its verdict into one radio line and
+# the console spells that out in Thai):
+#   .venv/bin/python tools/hover_decode.py            # -> /tmp/aavc_decode.json
+#   .venv/bin/python tools/hover_decode.py --no-mavlink   # bench, no vehicle
+# is the RC link down, or is PX4 refusing an RC it can hear? (a switch in the
+# wrong position clears the RC health bit that every indicator reads):
+#   .venv/bin/python tools/rc_check.py --endpoint udpout:127.0.0.1:14550
+# read the camera's mount rotation off the airframe (see the tool's docstring
+# for the bench procedure; 0.0 in config is an ASSUMPTION until this is run):
+#   .venv/bin/python tools/measure_mount_yaw.py --grid /tmp/g.jpg
 # regenerate the pad models after a geometry change:
 #   .venv/bin/python tools/gen_pads.py
 # land-ON precision bench (SITL tuning aid, NOT the scored mission):
@@ -481,8 +809,8 @@ make lint           # ruff + mypy
 | G1 SITL bare | PX4 + Gazebo load the KMITL field, manual takeoff/land |
 | G2 pads spawn | `make spawn-targets` places 6 ArUco pads (ids 1-6, varied yaw — 4 get committee-assigned per team, 2 stay permanent distractors); camera bridge feeds frames |
 | G3 detect | `find_landing_pads` decodes a SITL pad id at sweep altitude; projections sane |
-| G4 SITL mission | `make run --assigned-ids …`: FLIGHT(s) ⊃ DELIVERIES — transit both ways per flight, land-ON each assigned pad, release after touchdown (`payload_id` 0..eggs_aboard-1 → AUX 4/1/2/3), land+disarm at L&R, window < 20 min; `tools/verify_flight.py` PASSES. All evidence below **predates the 2026-07-24 briefing** and validated the then-current one-egg-per-flight model (`eggs_aboard=1` — behaviourally the SAME loop today, per the regression pin `test_delivery_mission.py::test_eggs_aboard_1_is_one_delivery_per_flight`): **PASSED on the hexacopter 2026-07-22** on the model rebuilt from `Power-System-Guide-1.pdf` (1.000 m wheelbase, 7.17 kg, 18" props, 37.65 N/motor): 4/4 delivered id-correct, release 0.13-0.25 m from truth, transit 8/8 in order, 14.8 min, 19 checks / 0 warnings — `docs/evidence/G4_hexacopter_corrected-model_2026-07-22.txt`. Re-run with the sysid gains: 19/0, releases 0.11-0.27 m, 882 s (`G4_hexacopter_tuned-gains_2026-07-22.txt`). Three runs — guessed geometry, corrected geometry, corrected+tuned — all pass and agree within scatter. ✅ **G4′ CLOSED 2026-07-25**: the briefing default (`eggs_aboard=4` — ONE flight, four deliveries, 6-pad field) **PASSED 14 checks / 0 warnings** on the 2-pack aircraft (AUW 8.22 kg): 4/4 delivered id-correct, releases **0.15–0.21 m** from truth, transit 6/6 in order, max altitude 19.69 m, landed 2.6 m from L&R, **457 s of the 1200 s window** — `docs/evidence/G4prime_multiegg_2packs_2026-07-25.txt`. That run was also the first on the flight clock and the progress-based leg guard (§8). ⚠ It ran at host RTF **0.95** (headless), so it confirms no regression but does NOT re-create the ~0.20 RTF that caused the 2026-07-25 `sweep_leg_timeout_wp0` — that condition is covered by unit tests, not by this flight. |
-| G5 HW bench | 6X + CM4 bench (props off): ✅ **6-motor map DONE 2026-08-17** (`PWM_MAIN_FUNC1..6` = 101..106 restored + readback, `ACTUATOR_TEST` M1..M6 individually — all six spin, correct order and direction, operator-observed; `SYS_AUTOSTART=6001` / `CA_ROTOR_COUNT=6` untouched). battery calibration on the **post-PM03D** wiring — `BAT1_V_DIV` ✅ closed 2026-08-16 (multimeter vs GCS on this wiring; board carries -1 = the 6X default divider, which is the value that calibration validated); ✅ **`BAT1_CAPACITY=-1` + `BAT1_N_CELLS=6` verified on-board 2026-08-17** (USB readback — voltage-only gauge branch active); ✅ **TFmini-S alive 2026-08-17**: `SENS_TFMINI_CFG=103` (TELEM3), `DISTANCE_SENSOR` streamed at the requested rate over USB, steady 0.50 m on the bench, 0.4–12 m limits; ✅ **`BAT1_V_EMPTY`/`V_CHARGED` gauge chain verified 2026-08-17 with the pack on**: FC gauge 42% vs interpolate() 41% at 22.70 V = 3.784 V/cell — consistent with the pack's story (unused since last charge + 5 h of the 0.76 A avionics draw the FC also reported); 3.6/4.05 are the right LiPo endpoints for the CURRENT 7500 pack — ✅ **the full-charge glance is DONE 2026-08-18: 24.84 V = 4.139 V/cell → FC gauge 100%**, read over the CM4's own ttyAMA0 link. ⚠ Note the pack RESTS above `V_CHARGED` (4.139 > 4.05), so the gauge pins at 100% until thrust sags it under 4.05 — the top of the pack is not resolved, which is harmless (every threshold that acts lives at the bottom, where the interpolation is real) but explains a gauge that "won't move" for the first minute. ⚠ Re-confirm the endpoints when the 17000 mAh semi-solid pack arrives — different chemistry, `V_CHARGED` may need raising. ⚠ Bench habit: UNPLUG the pack between sessions — 5 h plugged in cost ~3.8 Ah, half of this pack. ⚠ Bench readbacks of `COM_DISARM_LAND` / `RTL_RETURN_ALT` / `EKF2_OF_CTRL` showing non-mission values are NOT regressions — the commander pins those at every connect (`commands.py`); the parked board holds bench state, not flight state. **`tools/preflight_params.py` encodes exactly that split** — run it before every field day (`.venv/bin/python tools/preflight_params.py`, via the router or `--serial /dev/ttyAMA0`): the BOARD block is a STOP if anything is off, the PINNED block is informational. 2026-08-18 on the pack: **BOARD 15/15 correct**, PINNED sitting at defaults (`GF_MAX_VER_DIST` 30, `EKF2_OF_CTRL` 1, `MPC_Z_V_AUTO_DN` 1.5, `COM_DISARM_LAND` 2, `RTL_RETURN_ALT` 6) as expected. ✅ **camera `fov_deg` MEASURED 2026-08-17**: real WSD-9781-v12 lens = **74.2°** (±1°) — 50 mm on-screen marker flat on the floor at a tape-measured 0.495 m, 85.5 px avg over 3 sharp frames → fx 847 px (replaces the 99.7° unmeasured placeholder; config + SITL gz camera + projection default all updated together — sweeps grow ~1.5× more legs since the swath is 0.66× the placeholder's, spacing is fov-derived so no coverage gaps). ⚠ Learned on the way: the parked aircraft's camera sits **3.5 cm** off the ground — ground-level targets are out of focus AND below the TFmini's 0.4 m minimum, so **parked TFmini readings (the steady "0.50 m") are below-min-range garbage** — trust it only in flight. Egg-release servo verified (2026-08-15). **G5 is CLOSED.** ✅ **ESC telemetry: CLOSED NEGATIVE 2026-08-17 — do not re-run this check.** It was run in the required order (motor map restored, all six rotors verified spinning, so an empty reading finally meant something) and came back empty: `DSHOT_TEL_CFG=0`, zero `ESC_STATUS` even after a `SET_MESSAGE_INTERVAL` the FC ACCEPTED. Cause is physical — the ESCs are PWM-only with no telemetry lead — so the one-motor-out layers were deleted rather than left inert (§2). Nothing on this bench can change that; new ESCs can. ✅ **egg-release servos DONE 2026-08-15** (`ACTUATOR_TEST` per pin, all four corners; one latch needs `PWM_AUX_MAX=2100`, `docs/SERVO_AUX_MAPPING.md`). ⚠ **"Preflight fail: Crash dump present on SD" — seen and CLEARED 2026-08-18.** PX4 blocks arming while a hardfault log sits on the card. **Read it before deleting it**: the fault was a Hard Fault (`arm_hardfault.c:173`, `cfsr=0x100` = instruction-bus error escalated by `hfsr=0x40000000`) in the **Idle Task**, 57 min into a boot with no GPS time (i.e. a bench session, never in flight), on **this** firmware (build May 13 2026). One occurrence, kept at `docs/evidence/hardfault_6X_2026-08-18_recovered.log`. Cleared by deleting `/fs/microsd/fault_*.log` over MAVFTP then rebooting; the fence and all 15 BOARD params survived the reboot, re-verified. ⚠ The card also carries `param_import_fail.txt` (kept as evidence): this board has TWICE failed to import `/fs/mtd_params` ("BSON document size doesn't match bytes decoded") and fallen back to `/fs/microsd/parameters_backup.bson`. Both records are against OLDER firmware (1.14.3, 1.15.4) so they read as upgrade artifacts rather than live corruption — but they show **the SD backup is the only net under the motor map**, and the recovery restores ONLY what that file holds. It was checked 2026-08-18 and is CURRENT (129 params: `SYS_AUTOSTART=6001`, `PWM_MAIN_FUNC1..6`, `PWM_AUX_FUNC1..4`, `SENS_TFMINI_CFG`) — the older recovery in the log restored a 54-param set carrying `SYS_AUTOSTART=4001`, the QUAD airframe, which is what "recovered but wrong aircraft" looks like. ⚠ Tooling note: raw pymavlink is unreliable against this board — pymavlink 2.4.49 raises `TypeError` from its instanced-message bookkeeping on PX4 1.17 messages and silently drops whatever arrived with it, which is why param reads and MAVFTP transfers die mid-way. Every helper here guards `recv_match`; `tools/preflight_params.py` sidesteps it entirely by going through MAVSDK. |
+| G4 SITL mission | `make run --assigned-ids …`: FLIGHT(s) ⊃ DELIVERIES — transit both ways per flight, land-ON each assigned pad, release after touchdown (`payload_id` 0..eggs_aboard-1 → AUX 4/1/2/3), land+disarm at L&R, window < 20 min; `tools/verify_flight.py` PASSES. All evidence below **predates the 2026-07-24 briefing** and validated the then-current one-egg-per-flight model (`eggs_aboard=1` — behaviourally the SAME loop today, per the regression pin `test_delivery_mission.py::test_eggs_aboard_1_is_one_delivery_per_flight`): **PASSED on the hexacopter 2026-07-22** on the model rebuilt from `Power-System-Guide-1.pdf` (1.000 m wheelbase, 7.17 kg, 18" props, 37.65 N/motor): 4/4 delivered id-correct, release 0.13-0.25 m from truth, transit 8/8 in order, 14.8 min, 19 checks / 0 warnings — `docs/evidence/G4_hexacopter_corrected-model_2026-07-22.txt`. Re-run with the sysid gains: 19/0, releases 0.11-0.27 m, 882 s (`G4_hexacopter_tuned-gains_2026-07-22.txt`). Three runs — guessed geometry, corrected geometry, corrected+tuned — all pass and agree within scatter. ✅ **G4′ CLOSED 2026-07-25**: the briefing default (`eggs_aboard=4` — ONE flight, four deliveries, 6-pad field) **PASSED 14 checks / 0 warnings** on the 2-pack aircraft (AUW 8.22 kg): 4/4 delivered id-correct, releases **0.15–0.21 m** from truth, transit 6/6 in order, max altitude 19.69 m, landed 2.6 m from L&R, **457 s of the 1200 s window** — `docs/evidence/G4prime_multiegg_2packs_2026-07-25.txt`. That run was also the first on the flight clock and the progress-based leg guard (§8). ⚠ It ran at host RTF **0.95** (headless), so it confirms no regression but does NOT re-create the ~0.20 RTF that caused the 2026-07-25 `sweep_leg_timeout_wp0` — that condition is covered by unit tests, not by this flight. ✅ **G4″ 2026-08-24 — the first SITL run on the COMPETITION envelope**, flown to settle `overlap_frac` with numbers rather than argument: `AAVC_PROFILE=competition` (transit 20 m, ceiling 20, search floor 10) with the sweep at **12 m**, so the 400 mm marker is **28.2 px** — the KMITL condition, not the practice field's easier 8 m / 42 px. Same pad seed 1301 both times, only overlap differing: **0.30 → 5 legs, 6/6 pads, 6/6 ids, 4/4 eggs, releases 0.09-0.22 m, transit 6/6, landed 2.0 m from L&R, 536 s**; 0.44 → 6 legs, the same 6/6 · 6/6 · 4/4, releases 0.15-0.20 m, **647 s**. Identical coverage and delivery; 0.30 is 111 s faster here and a computed 158 s at KMITL. `verify_flight` 13 ok / 1 on both (the 1 is a transit segment shorter than the 1 Hz TELEM cadence — its own line reads "100% of samples within the corridor"). Evidence: `docs/evidence/sweep_overlap_2026-08-24.txt` + both audit trails. ⚠ The FIRST attempt of that pair delivered **0 of 4 while decoding all six pads with every id correct** — the gz camera was still at yaw 0 against a config that had just been set to the measured 180, so every SITL fix came out point-mirrored (positions 3.7-20.2 m out). Fixed in `sitl/models/eft_x6100/model.sdf` and now asserted by `test_world_assets.py::test_the_sim_camera_carries_the_measured_airframe_mount`. |
+| G5 HW bench | 6X + CM4 bench (props off): ✅ **6-motor map DONE 2026-08-17** (`PWM_MAIN_FUNC1..6` = 101..106 restored + readback, `ACTUATOR_TEST` M1..M6 individually — all six spin, correct order and direction, operator-observed; `SYS_AUTOSTART=6001` / `CA_ROTOR_COUNT=6` untouched). battery calibration: `BAT1_V_DIV` was closed 2026-08-16 on the post-PM03D CONVERTER wiring (multimeter vs GCS; board carries -1 = the 6X default divider) — ✅ **RE-CLOSED ON THE PM02D 2026-08-23**: the module replaced the interim converter on 2026-08-20 and the divider belongs to the module, so it was re-verified the way it was closed the first time — operator's multimeter **24.9 V** at the connector against the FC's own **24.89 V** over MAVSDK, a 0.01 V (0.04%) agreement, board still carrying `BAT1_V_DIV = -1` (the 6X default). The gauge chain was re-checked in the same reading: 4.148 V/cell against `interpolate(3.77, 4.18)` = 92% vs the FC's 93-94%, so `V_EMPTY`/`V_CHARGED` are consistent too. (Motors remain unsensed — this measures avionics voltage only, which is the whole gauge, §2.) ✅ **`BAT1_CAPACITY=-1` + `BAT1_N_CELLS=6` verified on-board 2026-08-17** (USB readback — voltage-only gauge branch active); ✅ **TFmini-S alive 2026-08-17**: `SENS_TFMINI_CFG=103` (TELEM3), `DISTANCE_SENSOR` streamed at the requested rate over USB, steady 0.50 m on the bench, 0.4–12 m limits; ✅ **`BAT1_V_EMPTY`/`V_CHARGED` gauge chain verified 2026-08-17 with the pack on**: FC gauge 42% vs interpolate() 41% at 22.70 V = 3.784 V/cell — consistent with the pack's story (unused since last charge + 5 h of the 0.76 A avionics draw the FC also reported); 3.6/4.05 were the 7500-LiPo era's endpoints (full-charge glance 2026-08-18: 24.84 V = 4.139 V/cell → gauge 100%); the **17000 mAh semi-solid went aboard 2026-08-19 with `BAT1_V_CHARGED=4.18` / `BAT1_V_EMPTY=3.77` on the board** (operator spec 25.1 V full / ~22.6 V empty; BOARD-verified by preflight_params 2026-08-20). ⚠ Measured the same night at KMUTNB: with no current sensing there is no load compensation, so the gauge **sags ~30-35 percentage points under flight load** (28% under thrust at ~65-70% resting SoC — flight 3 was RTH'd by the 30% floor at 68 s on a part-charged pack). The %-floors fire EARLY under load, which is the safe direction; the operational answer is a charged pack, not a lower floor. ⚠ Bench habit: UNPLUG the pack between sessions — 5 h plugged in cost ~3.8 Ah, half of this pack. ⚠ Bench readbacks of `COM_DISARM_LAND` / `RTL_RETURN_ALT` / `EKF2_OF_CTRL` showing non-mission values are NOT regressions — the commander pins those at MISSION START (`orchestrator/main.py` calls `apply_param_overrides`; `connect()` itself writes NO params — believing otherwise is what hides an "applied 0/24" failure); the parked board holds bench state, not flight state. **`tools/preflight_params.py` encodes exactly that split** — run it before every field day (`.venv/bin/python tools/preflight_params.py`, via the router or `--serial /dev/ttyAMA0`): the BOARD block is a STOP if anything is off, the PINNED block is informational. 2026-08-18 on the pack: **BOARD 15/15 correct**, PINNED sitting at defaults (`GF_MAX_VER_DIST` 30, `EKF2_OF_CTRL` 1, `MPC_Z_V_AUTO_DN` 1.5, `COM_DISARM_LAND` 2, `RTL_RETURN_ALT` 6) as expected. ✅ **camera `fov_deg` MEASURED 2026-08-17**: real WSD-9781-v12 lens = **74.2°** (±1°) — 50 mm on-screen marker flat on the floor at a tape-measured 0.495 m, 85.5 px avg over 3 sharp frames → fx 847 px (replaces the 99.7° unmeasured placeholder; config + SITL gz camera + projection default all updated together — sweeps grow ~1.5× more legs since the swath is 0.66× the placeholder's, spacing is fov-derived so no coverage gaps). ⚠ Learned on the way: the parked aircraft's camera sits **3.5 cm** off the ground — ground-level targets are out of focus AND below the TFmini's 0.4 m minimum, so **parked TFmini readings (the steady "0.50 m") are below-min-range garbage** — trust it only in flight. Egg-release servo verified (2026-08-15). **G5 is CLOSED.** ✅ **ESC telemetry: CLOSED NEGATIVE 2026-08-17 — do not re-run this check.** It was run in the required order (motor map restored, all six rotors verified spinning, so an empty reading finally meant something) and came back empty: `DSHOT_TEL_CFG=0`, zero `ESC_STATUS` even after a `SET_MESSAGE_INTERVAL` the FC ACCEPTED. Cause is physical — the ESCs are PWM-only with no telemetry lead — so the one-motor-out layers were deleted rather than left inert (§2). Nothing on this bench can change that; new ESCs can. ✅ **egg-release servos DONE 2026-08-15** (`ACTUATOR_TEST` per pin, all four corners; one latch needs `PWM_AUX_MAX=2100`, `docs/SERVO_AUX_MAPPING.md`). ⚠ **"Preflight fail: Crash dump present on SD" — seen and CLEARED 2026-08-18.** PX4 blocks arming while a hardfault log sits on the card. **Read it before deleting it**: the fault was a Hard Fault (`arm_hardfault.c:173`, `cfsr=0x100` = instruction-bus error escalated by `hfsr=0x40000000`) in the **Idle Task**, 57 min into a boot with no GPS time (i.e. a bench session, never in flight), on **this** firmware (build May 13 2026). One occurrence, kept at `docs/evidence/hardfault_6X_2026-08-18_recovered.log`. Cleared by deleting `/fs/microsd/fault_*.log` over MAVFTP then rebooting; the fence and all 15 BOARD params survived the reboot, re-verified. ⚠ The card also carries `param_import_fail.txt` (kept as evidence): this board has TWICE failed to import `/fs/mtd_params` ("BSON document size doesn't match bytes decoded") and fallen back to `/fs/microsd/parameters_backup.bson`. Both records are against OLDER firmware (1.14.3, 1.15.4) so they read as upgrade artifacts rather than live corruption — but they show **the SD backup is the only net under the motor map**, and the recovery restores ONLY what that file holds. It was checked 2026-08-18 and is CURRENT (129 params: `SYS_AUTOSTART=6001`, `PWM_MAIN_FUNC1..6`, `PWM_AUX_FUNC1..4`, `SENS_TFMINI_CFG`) — the older recovery in the log restored a 54-param set carrying `SYS_AUTOSTART=4001`, the QUAD airframe, which is what "recovered but wrong aircraft" looks like. ⚠ Tooling note: raw pymavlink is unreliable against this board — pymavlink 2.4.49 raises `TypeError` from its instanced-message bookkeeping on PX4 1.17 messages and silently drops whatever arrived with it, which is why param reads and MAVFTP transfers die mid-way. Every helper here guards `recv_match`; `tools/preflight_params.py` sidesteps it entirely by going through MAVSDK. |
 | ~~G6 HW tethered~~ | **DROPPED 2026-08-16** (operator): the aircraft has already flown 3-4 real flights, so a tether proves nothing new. ⚠ What was NOT dropped are the two G6 items that are measurements, not ceremony — **camera `fov_deg` calibration** (moved to G5, ground procedure) and the **first land-ON + release over a printed pad** (folded into G7's first flight) |
 | G7 HW mission | Full mission flown **at the KMUTNB sky field** — the practice field standing in for KMITL. This IS the "fly the mission for real" step, not a hurdle before it |
 | G8 Dress rehearsal | Full mission + live egg deliveries within the 20-min window |
@@ -496,6 +824,62 @@ flight fw before G7.
 
 ## 8. Working Notes
 
+- Tests import the **real** modules (`mission_brain.live_plan`,
+  `vision.projection`, `vision.detectors.aruco`, `orchestrator.mission`) — no
+  mocks of the unit under test. Keep `make test` green when touching those.
+- `make test` / `make lint` run under `env -u PYTHONPATH` so a sourced ROS env
+  cannot leak `launch_testing` / lark plugins into the venv (it will otherwise
+  fail at collection). Mirror that if you invoke pytest by hand.
+- The orchestrator must stay runnable **headless** (`--no-dashboard
+  --assigned-ids …`) and degrade gracefully if the dashboard seam is absent.
+- SITL geometry invariant: config `site.center` == config
+  `ground_operation.launch_recovery` == world `<spherical_coordinates>` ==
+  `launch_sitl.sh` `PX4_HOME_*` == the L&R point. ENU offsets in config
+  comments/spawner/world are all relative to it. ⚠ **The first equality is now
+  TESTED across every `sitl/*config.yaml`**
+  (`test_geometry_invariant.py::test_every_field_config_calls_its_L_and_R_one_thing`)
+  because it silently broke: `kmitl_config.yaml` shipped the practice field's
+  whole `site:` block — 31.5 km from the competition L&R — under a comment
+  asserting the two were equal (found 2026-08-22). The aircraft never noticed
+  (home comes from GPS); what breaks is everything that converts a pad lat/lon
+  into METRES — `gcs_status._enu`, so the console feed, the `AAVC pads` beacon
+  lines, the Svelte dashboard and `spawn_targets.py` — and the console
+  re-anchors those metres at the VEHICLE's origin, so every pad marker lands
+  31.5 km off the map with every individual number looking sane.
+  `orchestrator/main.py::_resolve_site_origin` now takes the origin from
+  `launch_recovery` (the point the aircraft uses) and logs an ERROR naming both
+  values when they disagree — the other three consumers still read
+  `site.center`, which is why the CONFIG has to be right, not just main.py.
+  There is no KMITL SITL world: `launch_sitl.sh` spawns on
+  `kmutnb_skyfield.sdf` and `tools/gen_geo.py` holds the KMUTNB frame only, so
+  `kmitl_config.yaml` is a REAL-FLIGHT config — SITL work belongs in the
+  practice repo.
+- The rules' no-fly zone + L&R coordinates are APPROXIMATE (figure-only) —
+  update `sitl/aavc_config.yaml` after the event briefing.
+- **Mission time is FLIGHT time, not host time (2026-07-25):** every mission
+  deadline — the 20-minute window, the TimePolicy reserves, every leg and rung
+  timeout — is read from `state.now()` (`orchestrator/flight_clock.py`), which
+  tracks the aircraft's own clock (`telemetry.vehicle_time_s`, from MAVSDK
+  `raw_gps().timestamp_us` = PX4's `hrt_absolute_time()`). On hardware that IS
+  wall time; under PX4 lockstep it is SIMULATED time, and a loaded host runs
+  the sim slower than the wall — 443 s of sim across 776 s of wall, dipping to
+  **0.20x** on one leg (ULog `04_51_49`, 2026-07-25). Consequences before the
+  fix: the window was consumed ~1.8x too fast, a "12.9-minute" run was really
+  7.4 minutes of flying, and a distance-derived leg timeout abandoned a
+  waypoint the aircraft was still closing on at 8 m/s
+  (`sweep_leg_timeout_wp0`). Host-side liveness (camera frame age, telemetry
+  staleness) deliberately still uses `time.monotonic()` — those ask "is this
+  process being fed?", a question about the host. The clock falls back to the
+  wall whenever the vehicle stops reporting, so losing the stream degrades to
+  the old behaviour rather than freezing every timeout.
+  Paired change: leg abandonment is now **progress-based**
+  (`mission.py::_ProgressGuard`) — a leg is dropped when it stops CLOSING
+  (no 1 m of closure for 25 s), with the old `2 x dist/speed + 20 s` kept only
+  as an 8x hard ceiling. The real bird hits the same failure without any clock
+  trickery: a headwind or a re-planned longer leg stretches wall time past 2x
+  nominal while the aircraft is flying perfectly well.
+  ⚠ RTF is much better headless: the failing run had the dashboard up (0.57
+  average), the passing one did not (0.95).
 - **First real egg on a pad — and D3 fired on our own LAND 0.3 s later
   (2026-08-27 14:51, ULog `07_51_21`).** `DELIVERY 1 RELEASE pad=1 err=0.14 m
   delivered=True`, then `FC FAILSAFE mode=LAND` with the aircraft still
@@ -673,43 +1057,19 @@ flight fw before G7.
   (`RTL_RETURN_ALT`, `GF_MAX_VER_DIST`) still ride the rewritten home: a +4.65 m
   shift at KMITL puts a failsafe RTL at ~24.6 m real. Tests:
   `tests/test_home_alt_latch.py`.
-- Tests import the **real** modules (`mission_brain.live_plan`,
-  `vision.projection`, `vision.detectors.aruco`, `orchestrator.mission`) — no
-  mocks of the unit under test. Keep `make test` green when touching those.
-- `make test` / `make lint` run under `env -u PYTHONPATH` so a sourced ROS env
-  cannot leak `launch_testing` / lark plugins into the venv (it will otherwise
-  fail at collection). Mirror that if you invoke pytest by hand.
-- The orchestrator must stay runnable **headless** (`--no-dashboard
-  --assigned-ids …`) and degrade gracefully if the dashboard seam is absent.
-- SITL geometry invariant: config `site.center` == world
-  `<spherical_coordinates>` == `launch_sitl.sh` `PX4_HOME_*` == the L&R point.
-  ENU offsets in config comments/spawner/world are all relative to it.
-- The rules' no-fly zone + L&R coordinates are APPROXIMATE (figure-only) —
-  update `sitl/aavc_config.yaml` after the event briefing.
-- **Mission time is FLIGHT time, not host time (2026-07-25):** every mission
-  deadline — the 20-minute window, the TimePolicy reserves, every leg and rung
-  timeout — is read from `state.now()` (`orchestrator/flight_clock.py`), which
-  tracks the aircraft's own clock (`telemetry.vehicle_time_s`, from MAVSDK
-  `raw_gps().timestamp_us` = PX4's `hrt_absolute_time()`). On hardware that IS
-  wall time; under PX4 lockstep it is SIMULATED time, and a loaded host runs
-  the sim slower than the wall — 443 s of sim across 776 s of wall, dipping to
-  **0.20x** on one leg (ULog `04_51_49`, 2026-07-25). Consequences before the
-  fix: the window was consumed ~1.8x too fast, a "12.9-minute" run was really
-  7.4 minutes of flying, and a distance-derived leg timeout abandoned a
-  waypoint the aircraft was still closing on at 8 m/s
-  (`sweep_leg_timeout_wp0`). Host-side liveness (camera frame age, telemetry
-  staleness) deliberately still uses `time.monotonic()` — those ask "is this
-  process being fed?", a question about the host. The clock falls back to the
-  wall whenever the vehicle stops reporting, so losing the stream degrades to
-  the old behaviour rather than freezing every timeout.
-  Paired change: leg abandonment is now **progress-based**
-  (`mission.py::_ProgressGuard`) — a leg is dropped when it stops CLOSING
-  (no 1 m of closure for 25 s), with the old `2 x dist/speed + 20 s` kept only
-  as an 8x hard ceiling. The real bird hits the same failure without any clock
-  trickery: a headwind or a re-planned longer leg stretches wall time past 2x
-  nominal while the aircraft is flying perfectly well.
-  ⚠ RTF is much better headless: the failing run had the dashboard up (0.57
-  average), the passing one did not (0.95).
+- **The `mission:` block in a config does NOT set the envelope (re-learnt
+  2026-08-24).** `altitude_ceiling_m`, `transit_alt_m` and `search_floor_m`
+  there are documentation; the flown values come from
+  `mission_brain/profile.py` via `AAVC_PROFILE`, and the sweep altitude is
+  clamped to the PROFILE's ceiling with `min()`. A SITL run started without
+  `AAVC_PROFILE=competition` silently flies the practice envelope (transit
+  9 m, ceiling 10) whatever the config says — a test of KMITL behaviour then
+  measures the wrong aircraft, and the run looks completely normal while doing
+  it. Check the startup line: it prints `transit N pts @ X m, sweep N legs @ Y m`.
+- **Killing an orchestrator mid-flight strands the SITL aircraft in the air
+  (2026-08-24).** The next launch dies at `unmet critical checks: on_ground`
+  and the truth audit reads 0/6 with `frames=0` — which reads exactly like a
+  dead camera and is not. Restart the stack; do not retry the run.
 - **Restart SITL before a scored run if anything else flew first (2026-07-22):**
   a sys-ID sweep lands wherever the chirps drifted it, and the next mission then
   takes off from THERE. PX4 re-captures home at that arm, so the mission's own
