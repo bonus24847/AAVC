@@ -521,3 +521,37 @@ def test_an_unverifiable_rung_altitude_falls_back_to_the_old_rule(monkeypatch) -
         "centred pad + unverifiable altitude must still land (old rule)")
     assert any("rung5m_alt_unverified_fallback" in a for a in state.anomalies), state.anomalies
 
+
+def test_a_low_reading_height_frame_is_corrected_to_the_true_rung(monkeypatch) -> None:
+    """17:28 flight: the aircraft's AGL read 0.4-1.4 m LOW at the pads, so
+    "descend to 2 m" parked it at a true ~3 m. The rung goto must be
+    corrected by the measured (AGL − marker altitude) so the TRUE height
+    reaches the rung — quickly, without the 18 s fallback."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = LaggingCommander(state)
+    BIAS = 1.0                                  # true height = AGL + 1.0
+    trace: list[float] = []
+
+    def fake(frame_path, min_conf, assigned_id):
+        t = state_ref.telemetry
+        if cmd.target_alt is not None and t.relative_alt_m > cmd.target_alt:
+            t.relative_alt_m = max(cmd.target_alt, t.relative_alt_m - 1.0)
+        true_alt = max(t.relative_alt_m + BIAS, 0.5)
+        trace.append(true_alt)
+        exp = 423.1 * 0.2 / true_alt            # the marker's size is the TRUTH
+        return PadHit(cx=320, cy=240, marker_id=3, radius_px=exp,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", fake)
+    _patch_live_camera(monkeypatch)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rung_timeout_s=2.0)))
+    assert res.landed and cmd.landed_calls
+    # LAND was commanded with the TRUE height at the 5 m rung — i.e. the
+    # aircraft's own frame read ~4 m — not parked at a true 6 m.
+    assert cmd.alt_at_land is not None and cmd.alt_at_land + BIAS <= 5.0 + 0.6, (
+        f"LAND at a true {cmd.alt_at_land + BIAS:.1f} m — the frame bias was not corrected")
+    assert not any("alt_unverified" in a for a in state.anomalies), state.anomalies
+
