@@ -660,6 +660,24 @@ of this section.
   is NOT needed for a no-swap flight; the manual fallback is checklist §10
   (restart stack → re-rack from AUX4 → re-pick the remaining ids → RC arm +
   OFFBOARD).
+- **SITL E2E of the whole change set (19:26-19:36, practice field, competition
+  profile, ids 4/6/3, seed 1301): 3/3 delivered, releases 0.03 / 0.07 / 0.11 m
+  from the truth pads, id-correct 6/6; every rung locked on the way down
+  (2 m rung errors 0.05 / 0.01 / 0.05 m), NO ground-contact and NO lost-pad
+  event, transit 6/6, 554 s, landed 1.9 m from L&R, PX4's land detector
+  latched all three pad landings (SITL ULog `12_23_49`).** The SITL height
+  frame read +1.9 m at the 2 m rung and +2.8..+3.7 m at the releases (0 at
+  L&R) while the lidar-fed rungs locked at the true height — the 29-Aug shape
+  in miniature, handled. `verify_flight` 11 OK; its 6 "violations" are
+  artefacts of the profile/config mix (the practice config's `mission:` block
+  says ceiling 10 / transit 9 / sweep 8 m; the release-altitude check reads the
+  drifted frame, the search-floor advisory fired once on the 8 m practice
+  sweep under the 10 m competition floor). Runtime files removed afterwards.
+- **DEPLOYED to the CM4 at 19:45** (`cm4/deploy.sh --repo ~/Desktop/aavc-comp`,
+  `--check` MD5 MATCH fdb7d297…; comp 6b665b4 = practice 7be38ca; aavc-gcs
+  7d104fd). `tools/lidar_check.py` + the `field-check`/`lidar-check` Makefile
+  targets are on the CM4 now; `.aavc_site` = competition; no orchestrator
+  running.
 - **Bench items still owed before the flight (the FC was unpowered at
   19:20):** `MPC_THR_HOVER 0.65` written to the board + BOARD 100 %;
   `tools/lidar_check.py` on the CM4 (now on the `sync_core.sh` allowlist —
