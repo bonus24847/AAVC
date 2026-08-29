@@ -966,6 +966,19 @@ align:
                           # marker's apparent size. The KMITL 17:28 flight locked
                           # every rung in 1-2 s while still at 5-9 m and handed
                           # PX4 LAND a 16-26 s blind descent → 0.5-0.7 m off.
+  rung_bias_max_m: 3.0    # FRAME-BIAS CLAMP (1.5 -> 3.0 on 2026-08-29, KMITL
+                          # scored flight 1): the rung goto is corrected by the
+                          # median (AGL - marker altitude), and that bias GROWS
+                          # with flight time — GPS altitude drifted +8.96 m
+                          # ground-to-ground that flight while the baro moved
+                          # +0.34, and EKF2_GPS_CTRL=7 lets the height blend
+                          # follow it. It reached 2.4 m on the second delivery,
+                          # saturated the old 1.5 clamp, and every rung flew
+                          # ~0.9 m low: the 2 m rung at a true ~1.1 m where the
+                          # marker leaves the frame -> pad lost, no LAND, no
+                          # release. DOCUMENTATION (the flown value is the
+                          # AlignParams default; only the rate trio is read
+                          # from this block) — keep the two in step.
   max_lost_cycles: 24     # 2.0 s of lost pad before climbing back
   median_window: 3        # fixes fused per command (lag = window / cycle_hz
                           # = 0.25 s; keep ODD and small — see the dataclass)

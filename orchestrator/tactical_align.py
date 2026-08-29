@@ -149,8 +149,37 @@ class AlignParams:
     # Only DECODED marker hits feed it: a white-pad blob's marker-equivalent
     # size is an inference (the size band admits 0.4-2.5x), and a wrong
     # bias steers the aircraft LOWER than it thinks — the one direction that
-    # must never come from a guess. The observed bias was 0.4-1.4 m.
-    rung_bias_max_m: float = 1.5
+    # must never come from a guess.
+    #
+    # ⚠ THE CLAMP IS SIZED BY MEASUREMENT, and 1.5 was too tight (2026-08-29,
+    # KMITL scored flight 1, ULog ``2026-08-29/05_56_59``). The bias is not a
+    # fixed mounting offset — it GROWS with flight time, because GPS altitude
+    # drifts (that flight: +8.96 m ground-to-ground while the baro moved
+    # +0.34) and ``EKF2_GPS_CTRL=7`` lets the height blend follow it. Per
+    # flight, the bias measured in the rung band (true 1.5-9 m, aircraft AGL
+    # vs the TFmini, which stayed truthful and fused throughout):
+    #
+    #   08-26 (98-165 s)      -0.84 .. +0.19       short flights, well inside
+    #   08-27 07_51_21 (171)  -1.33                     "
+    #   08-27 08_25_52 (253)  -1.62
+    #   08-28 08_05_29 (374)  -1.02
+    #   08-28 10_28_22 (312)  -1.36
+    #   08-27 05_44_48 (356)  +1.69  (max +3.03)   ← over the 1.5 clamp
+    #   08-29 05_56_59 (349)  +2.63  (max +3.25)   ← over the 1.5 clamp
+    #
+    # Both flights that busted it were LONG ones — the shape of a four-egg
+    # sortie. What it cost on 08-29: egg 1 went out at t=121 with the bias
+    # still ~0.7 m, then on pad 5 the bias reached 2.4 m, the clamp saturated
+    # at 1.5, every rung was commanded ~0.9 m LOW, the 3 m rung flew at a true
+    # 2.1 m (gate correctly refused it), the fallback took the ladder to the
+    # 2 m rung which flew at a true ~1.1 m — where the 400 mm marker leaves
+    # the frame — so the pad was lost, LAND was never commanded, the aircraft
+    # settled onto the ground still believing it was 2.4 m up (PX4 held
+    # AUTO_LOITER, so the land detector never latched and the touchdown-gated
+    # release never fired), climbed out, retried, and the pilot killed it.
+    # 3.0 covers every per-flight median above with margin and is still a
+    # clamp: a wilder disagreement remains "no information".
+    rung_bias_max_m: float = 3.0
     rung_bias_min_samples: int = 3    # fixes before the correction is applied
     min_confidence: float = 0.45      # pad-hit acceptance
     max_lost_cycles: int = 24         # lost detections before climbing (2.0 s)

@@ -286,11 +286,87 @@ own Python built the spec from the deployed config: 4 legs / 8 waypoints @
   egg — a confirmed assigned pad is served immediately and the sweep resumes
   (§2 search bullet, `orchestrator/mission.py::_serve_found`). Tests:
   `test_a_pad_confirmed_mid_sweep_is_served_before_the_sweep_goes_on` and
-  neighbours in `tests/test_delivery_mission.py`. ⚠ Unflown as of this
-  writing — first real exercise is the 29-Aug scored flight; the crew
-  should expect the aircraft to LEAVE the sweep line and descend as soon as
-  a pad confirms (typically on the first or second leg), then climb back
-  and continue.
+  neighbours in `tests/test_delivery_mission.py`. ✅ **FLOWN 2026-08-29
+  (scored flight 1, §0d) and it works**: pad 1 confirmed at t=68.9 s on the
+  first leg, `SWEEP paused … delivering now`, egg away at t=118.6 (err
+  0.13 m), `SWEEP resumed at wp 0` at t=137.4 — 68 s from confirmation to
+  back on the line. The crew should expect exactly that: the aircraft LEAVES
+  the sweep line and descends as soon as a pad confirms, then climbs back
+  and continues.
+
+---
+
+## 0d. Scored flight 1, 29 Aug 2026 — 1 of 3 eggs, and the height frame is why
+
+ULog `2026-08-29/05_56_59` (armed 12:57:00, killed 13:02:48, 349 s), pulled off
+the SD card at 14:00 with the two 13:07 re-arms; evidence archived to
+`captures/ulog_2026-08-29/`. Card itself is CLEAN — no `fault_*.log`, no
+`param_import_fail.txt`, 26 ULogs all parse, `parameters_backup.bson` current
+(153 params, `SYS_AUTOSTART=6001`, `PWM_MAIN_FUNC1..6=101..106`,
+`PWM_AUX_FUNC1..4=301..304`, `RTL_RETURN_ALT=25`, `GF_ACTION=3`,
+`GF_MAX_VER_DIST=50`, `EKF2_HGT_REF=0`, `SENS_TFMINI_CFG=103`).
+
+**What flew:** three eggs aboard, sweep held 14.9 m, all three pads found —
+1 (ENU 113.5, 66.7), 4 (187.0, 72.1 — in the E 180-192 pocket cut at 12:04,
+so serviceable) and 5 (126.3, 104.8). **Egg 1 delivered at t=121** (land →
+release → climb-back, the whole DELIVER-WHEN-FOUND chain, first time flown).
+Pad 5 then failed TWICE (t=231-279, t=296-338) and the pilot killed it at
+t=342.9. Battery 100 → 31 %, 3563 mAh, 35.8 A mean.
+
+- **ROOT CAUSE — the AGL frame the mission steers by drifted 2.4 m HIGH.**
+  At t=306-318, held for 12 s: mission AGL **4.48-4.50 m**, TFmini **1.81-2.00**,
+  `dist_bottom` **2.11-2.20** (`valid=1`, `fused=1`, never rejected). The
+  aircraft was at a true ~1.9 m believing 4.5. Source is **GPS, not baro**:
+  ground-to-ground the baro moved **+0.34 m** and GPS altitude **+8.96 m**, and
+  `EKF2_GPS_CTRL=7` (bit 2 = altitude) lets the height blend follow it, so local
+  z drifted +3.37 m over the flight. ⚠ The bias GROWS WITH FLIGHT TIME, which is
+  why egg 1 (t=121, bias ~0.7 m) went out fine and egg 2 could not: the failure
+  mode is "first egg lands, later eggs don't" — exactly the shape of a 4-egg
+  sortie.
+- **HOW it cost the egg (chain).** `rung_bias_max_m` was **1.5**, sized from the
+  0.4-1.4 m seen on 08-28. The real 2.4 m saturated it, so every rung was
+  commanded ~0.9 m low → the 3 m rung flew at a true 2.1 m and the **altitude
+  gate correctly refused it** (the gate is not at fault; its input was) →
+  `rung3m_alt_unverified_fallback` → the 2 m rung flew at a true ~1.1 m, where
+  the 400 mm marker leaves the frame → pad lost → **LAND was never commanded**
+  (nav stayed AUTO_LOITER the whole time, PX4's land detector never latched,
+  the touchdown-gated release never fired) → the aircraft settled onto the
+  ground still reading 2.4 m, climbed out, retried, and was killed.
+- **FIX (2026-08-29): `AlignParams.rung_bias_max_m` 1.5 → 3.0.** One number,
+  through machinery that had already flown successfully that same morning on
+  egg 1. Sized by measurement — the bias in the rung band (true 1.5-9 m, AGL vs
+  TFmini) across the last ten flights runs **−1.62 … +2.63** per-flight median,
+  and **both** flights that busted 1.5 were the long ones (08-27 `05_44_48`
+  356 s at +1.69/max +3.03, and this one at +2.63/max +3.25). Documented in
+  both field configs' `align:` blocks; `tests/test_config.py` keeps them in
+  step and `test_a_high_reading_height_frame_is_corrected_to_the_true_rung`
+  (`tests/test_tactical_align.py`) pins it — it asserts the COMMANDED rung
+  altitude, because a telemetry-sampled check cannot tell "settled at the right
+  height" from "swept through it" and passed at 1.5.
+- **STILL OPEN — the drift itself.** The clamp absorbs it; it does not remove
+  it. Two candidates, neither flown: **`EKF2_GPS_CTRL` 7 → 3** (drop GPS height
+  aiding, leaving the baro reference `EKF2_HGT_REF=0` alone — the honest fix,
+  but an unflown estimator change that also moves what PX4's own RTL/fence
+  ride on), and **steering the ladder on `dist_bottom`/TFmini below
+  `EKF2_RNG_A_HMAX=7`** — the truthful signal, valid and fused all the way down
+  on this flight, which **the flight core does not read at all today** (nothing
+  under `orchestrator/` touches `distance_sensor`; the lidar only aids the EKF).
+- **⚠ A PILOT KILL ENDS THE MISSION PROCESS — restart the stack before the
+  recovery flight.** The pack was swapped and the pilot armed twice (13:07:12,
+  13:07:36, fresh pack 25.04 V / 99 %). Both times: armed fine, then
+  `[commander] Switching to Offboard is currently not available`, then
+  `Disarmed by auto preflight disarming` at 11 s. `offboard_control_mode` was
+  **never published in either log** — PX4 refuses OFFBOARD without that stream,
+  and there was no stream because the orchestrator had stood down at the kill
+  (beacon `p=done` / `why=pilot` / `stale=266` then `289` s). The beacon keeps
+  running, so the aircraft looks alive and the GCS control bar just sits on
+  "waiting for the drone to answer". Swapping the battery does not restart it —
+  the orchestrator died with the kill, not with the pack. Restart via the
+  launcher (NONINTERACTIVE — see the GCS-console note), wait for the preflight
+  gate, then GO; the recovery flight serves from the unfired latches by itself.
+- Confirmed working from the 28-Aug fixes: `MAV_1_RATE=0`, `MPC_XY_CRUISE=5.0`
+  as flown, the 15 m sweep, the ladder ending at 2 m, `MPC_YAW_MODE=5`,
+  `COM_DISARM_LAND=-1`, and the rung altitude gate (which did exactly its job).
 
 ---
 
