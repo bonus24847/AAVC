@@ -998,8 +998,12 @@ class DroneCommander:
             await self.system.action.set_actuator(
                 ch, _pwm_to_norm(self.config.drop_servo_pwm_release)
             )
+            # Dwell either way: the servo needs ~0.3 s to travel and the box
+            # ~0.2 s to fall clear before the caller lifts off (the flown
+            # release -> takeoff gap was 0.8 s with this dwell; without it the
+            # takeoff would follow the release command by ~0.2 s).
+            await asyncio.sleep(0.6)
             if self.config.drop_servo_relatch:
-                await asyncio.sleep(0.6)
                 await self.system.action.set_actuator(
                     ch, _pwm_to_norm(self.config.drop_servo_pwm_hold)
                 )

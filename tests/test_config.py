@@ -170,7 +170,8 @@ def test_align_rungs_are_altitude_gated() -> None:
     a = AlignParams()
     assert a.rung_alt_tol_m == 0.3
     assert a.rung_alt_tol_frac == 0.12
-    assert a.rung_bias_max_m == 2.0
+    assert a.rung_bias_max_m == 1.5
+    assert a.rung_bias_min_samples == 3
     import yaml
     for path in ("sitl/kmitl_config.yaml", "sitl/aavc_config.yaml"):
         blk = yaml.safe_load(open(path, encoding="utf-8"))["align"]
