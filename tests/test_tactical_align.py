@@ -1051,3 +1051,191 @@ def test_the_last_attempt_still_defers_when_the_pad_was_not_seen_at_the_bottom_r
                             rung_descent_mps=(3.0, 1.0, 0.5), rung_timeout_s=0.5,
                             max_lost_cycles=3, last_attempt=True)))
     assert not res.landed and not res.dropped, res.notes
+
+
+# ── review 2026-08-30 (pre-competition): four defects in the ladder found by an
+# adversarial read of the code that had flown exactly one successful flight ────
+
+_PROD_RUNGS = dict(rungs=(12.0, 8.0, 5.0, 3.0, 2.0),
+                   rung_tol_m=(1.5, 1.0, 0.6, 0.35, 0.2),
+                   rung_descent_mps=(3.0, 2.0, 1.0, 0.6, 0.4))
+
+
+class LandHeightCommander(LaggingCommander):
+    """Records the TRUE height (what the lidar reads) at the LAND command."""
+
+    def __init__(self, state: OrchestratorState) -> None:
+        super().__init__(state)
+        self.land_true_alt = float("nan")
+
+    async def land(self, *, disarm: bool = True) -> None:
+        self.land_true_alt = self.state.telemetry.rangefinder_m
+        await super().land(disarm=disarm)
+
+
+def _biased_frame_detector(monkeypatch, cmd, bias_m: float, *, step_m: float = 1.0):
+    """Pad centred every cycle. The aircraft's own AGL frame is wrong by
+    ``bias_m``: TRUE height = AGL + bias_m (so a POSITIVE bias is a frame that
+    reads LOW — the sign measured on five of the last seven flights). The
+    lidar and the marker size both report the TRUE height."""
+    def fake(frame_path, min_conf, assigned_id):
+        t = state_ref.telemetry
+        if cmd.target_alt is not None:
+            step = cmd.target_alt - t.relative_alt_m
+            t.relative_alt_m += max(-step_m, min(step_m, step))
+        true_alt = max(t.relative_alt_m + bias_m, 0.3)
+        t.rangefinder_m = true_alt
+        t.rangefinder_min_m, t.rangefinder_max_m = 0.4, 12.0
+        t.rangefinder_ts = time.monotonic()
+        return PadHit(cx=320, cy=240, marker_id=3,
+                      radius_px=423.1 * 0.2 / true_alt,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", fake)
+    _patch_live_camera(monkeypatch)
+
+
+def test_a_frame_that_reads_LOW_still_reaches_the_true_bottom_rung(monkeypatch) -> None:
+    """The closed-loop rung command was floored in the UNTRUSTED frame —
+    ``max(rungs[-1] * 0.5, agl - step)``. With the frame reading low (−0.93,
+    −1.02, −1.03, −1.33, −1.36, −1.62 m on the recent flights) that floor
+    clips the descent before the aircraft reaches the rung: it parks at a true
+    ``1.0 + |bias|`` m, the altitude gate can never pass, the rung burns its
+    whole budget and PX4 is handed a blind LAND from 2.6-3.5 m — the mechanism
+    behind the 0.5-0.7 m placement errors. The step is already clamped to
+    ``lidar − rung_alt``, so the floor must be expressed in the MEASURED
+    frame, where it protects the same metre without lying about it."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = LandHeightCommander(state)
+    _biased_frame_detector(monkeypatch, cmd, bias_m=+1.6)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 0,
+        params=_fast_params(rung_timeout_s=3.0, **_PROD_RUNGS)))
+
+    assert res.landed and cmd.landed_calls
+    assert abs(cmd.land_true_alt - 2.0) <= 0.35, (
+        f"LAND was commanded from a TRUE {cmd.land_true_alt:.2f} m instead of "
+        "the 2 m rung — the frame-space floor clipped the descent")
+    assert not any("alt_unverified" in a for a in state.anomalies), state.anomalies
+
+
+def test_a_lost_pad_goto_carries_the_frame_bias_like_every_other_goto(
+        monkeypatch) -> None:
+    """Every in-view rung goto is commanded at ``rung + frame_bias``; the two
+    lost-pad gotos (the rung re-command and the climb-back) were commanded at
+    the RAW rung. With the 2026-08-29 frame reading +2.4 m high that is a true
+    −0.4 m for the re-command and a true 0.6 m for the "climb" — the aircraft
+    is pressed into the grass, which is exactly the ``lost@2m→climb`` ×5
+    sequence that ended in the tip-over. The ground-contact guard only masks
+    it while the lidar is alive."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = GroundedLateralCommander(state)
+    t = state.telemetry
+    t.rangefinder_min_m, t.rangefinder_max_m = 0.4, 12.0
+    t.rangefinder_m, t.rangefinder_ts = 12.0, time.monotonic()
+    BIAS = 2.4                     # the frame reads 2.4 m HIGH: true = agl - 2.4
+    lost_from = {"i": None}
+
+    def detect(frame_path, min_conf, assigned_id):
+        tt = state_ref.telemetry
+        if cmd.target_alt is not None and tt.relative_alt_m > cmd.target_alt:
+            tt.relative_alt_m = max(cmd.target_alt, tt.relative_alt_m - 1.0)
+        true_alt = max(tt.relative_alt_m - BIAS, 0.3)
+        tt.rangefinder_m, tt.rangefinder_ts = true_alt, time.monotonic()
+        if true_alt <= 2.5:
+            # the 400 mm marker leaves the frame at the bottom rung (measured
+            # on the 2026-08-28 trial) — from here the ladder is blind
+            if lost_from["i"] is None:
+                lost_from["i"] = len(cmd.gotos)
+            return None
+        return PadHit(cx=320, cy=240, marker_id=3,
+                      radius_px=423.1 * 0.2 / true_alt,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", detect)
+    _patch_live_camera(monkeypatch)
+
+    asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 0,
+        params=_fast_params(rung_timeout_s=1.0, lock_cycles=2, max_lost_cycles=3,
+                            ground_contact_cycles=10_000, **_PROD_RUNGS)))
+
+    assert lost_from["i"] is not None, "the pad was never lost — test is inert"
+    after = [alt for _, _, alt in cmd.gotos[lost_from["i"]:]]
+    assert after, cmd.gotos
+    assert min(after) >= 3.5, (
+        f"a lost-pad goto commanded {min(after):.2f} m in a frame reading "
+        f"{BIAS:.1f} m HIGH — a TRUE {min(after) - BIAS:.2f} m, i.e. into the "
+        f"ground (gotos after the loss: {after})")
+
+
+class NoLandDetectAtHeight(FakeCommander):
+    """PX4's land detector never reports (measured: 226 s on the grass on
+    2026-08-29) and the height frame reads ~2 m LOW, while the lidar — alive
+    and in range — says the aircraft is still 3.5 m up."""
+
+    async def land(self, *, disarm: bool = True) -> None:
+        self.landed_calls.append(disarm)
+        t = self.state.telemetry
+        t.relative_alt_m = 1.4                      # under land_alt_threshold_m
+        # The lidar STREAMS at 10 Hz on the aircraft, so it is still answering
+        # while the touchdown waits run — model that, not a single stale
+        # sample (a stale reading is NaN and deliberately vetoes nothing).
+        t.rangefinder_agl_m = lambda max_age_s=1.0: 3.5   # type: ignore[method-assign]
+        # landed_state stays UNKNOWN
+
+
+def test_the_altitude_fallback_cannot_release_while_the_lidar_says_airborne(
+        monkeypatch) -> None:
+    """The last-resort touchdown fallback reads ``relative_alt_m`` — the one
+    frame known to be up to 3.4 m wrong — and sets ``landed = True`` with no
+    further check, so the egg goes out. With the frame reading 2 m low the
+    aircraft is at a TRUE 3.5 m when the frame shows 1.4: a broken egg and the
+    forfeited "landed on the pad BEFORE releasing" line. A live rangefinder
+    that says otherwise must veto it; when the lidar is dead (NaN) the old
+    behaviour stands."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = NoLandDetectAtHeight(state)
+    _patch_detector(monkeypatch, marker_id=3)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1,
+        params=_fast_params(touchdown_timeout_s=0.3)))
+
+    assert not res.dropped and not cmd.released, (
+        "the egg was released from a TRUE 3.5 m on a height frame reading 1.4")
+    assert any("release_skipped_touchdown_unconfirmed" in a
+               for a in state.anomalies), state.anomalies
+
+
+class PinnedDescentCommander(FakeCommander):
+    """Knows its pinned MPC_Z_V_AUTO_DN, like the real board."""
+
+    async def get_param_float(self, name: str) -> float:
+        return 0.4
+
+
+def test_an_acquire_timeout_hands_the_descent_cap_back(monkeypatch) -> None:
+    """The ladder caps MPC_Z_V_AUTO_DN at 3.0 m/s before ACQUIRE and restores
+    the pin after the rungs — but the acquire-timeout return skipped the
+    restore, leaving 3.0 on the board (7.5x the validated 0.4). The leak is
+    sticky: the next delivery's align reads 3.0 as its own "pin", so every
+    AUTO descent that does not set its own cap — the 10.5 m decode visits, an
+    RTL's descend phase — runs at 3 m/s until the flight ends."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = PinnedDescentCommander(state)
+    monkeypatch.setattr(ta, "_detect_nadir",
+                        lambda frame_path, min_conf, assigned_id: None)
+    _patch_live_camera(monkeypatch)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, Coordinate(lat=_LAT, lon=_LON), 1,
+        params=_fast_params(acquire_timeout_s=0.2)))
+
+    assert not res.acquired
+    assert cmd.params.get("MPC_Z_V_AUTO_DN") == 0.4, (
+        f"the descent cap was left at {cmd.params.get('MPC_Z_V_AUTO_DN')} m/s "
+        "after an acquire timeout")

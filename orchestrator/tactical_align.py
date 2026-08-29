@@ -673,6 +673,12 @@ async def acquire_and_land_drop(
             logger.warning(f"[align] sortie #{stop_index}: not acquired — deferring "
                            "(no coarse-GPS fallback)")
             res.notes.append("acquire-timeout: deferred")
+            # The ladder's fast top cap (3.0 m/s) was set before ACQUIRE and
+            # this return used to skip the restore (review 2026-08-30). The
+            # leak is sticky — the NEXT align reads 3.0 as its own pin — so
+            # every AUTO descent that does not set its own cap (the 10.5 m
+            # decode visits, an RTL's descend) ran at 7.5x the validated 0.4.
+            await _restore_descent_cap()
             return res
         logger.warning(f"[align] sortie #{stop_index}: not acquired — "
                        "falling back to coarse GPS land")
@@ -856,7 +862,21 @@ async def acquire_and_land_drop(
                         bias_window.append(agl - lidar)
                         step = max(-params.rung_step_max_m,
                                    min(params.rung_step_max_m, lidar - rung_alt))
-                        cmd_alt = max(params.rungs[-1] * 0.5, agl - step)
+                        # Floor the DESCENT in the measured frame, never in the
+                        # frame being corrected (review 2026-08-30). The old
+                        # `max(rungs[-1] * 0.5, agl - step)` clipped in the
+                        # untrusted frame, so a frame reading LOW — the sign on
+                        # five of the last seven flights, -0.93 to -1.62 m —
+                        # parked the aircraft at a true `1 + |bias|` m: the
+                        # altitude gate could never pass, the rung burned its
+                        # whole budget and PX4 was handed a blind LAND from
+                        # 2.6-3.5 m (the 0.5-0.7 m placement errors). `step` is
+                        # already clamped to (lidar - rung_alt), so the
+                        # predicted MEASURED height after the move never goes
+                        # under the rung; this keeps the same 1 m hard floor
+                        # against a lidar spike while telling the truth.
+                        cmd_alt = agl - min(
+                            step, max(0.0, lidar - params.rungs[-1] * 0.5))
                     else:
                         cmd_alt = rung_alt + _frame_bias()
                 else:
@@ -890,7 +910,13 @@ async def acquire_and_land_drop(
                 climb = params.rungs[rung_i - 1]
                 logger.info(f"[align] #{stop_index}: lost lock at {rung_alt:.0f} m "
                             f"→ climb to {climb:.0f} m")
-                await _goto(*_lost_xy(rung_alt), climb)
+                # + the frame bias, exactly like the in-view rung command
+                # (review 2026-08-30): commanded RAW, a frame reading 2.4 m
+                # high — measured on 2026-08-29 — turned this "climb to 3 m"
+                # into a true 0.6 m and the re-command below into a true
+                # -0.4 m, pressing the aircraft into the grass. That is the
+                # `lost@2m→climb` x5 sequence that ended in the tip-over.
+                await _goto(*_lost_xy(rung_alt), climb + _frame_bias())
                 res.notes.append(f"lost@{rung_alt:.0f}m→climb")
                 lost = 0
                 # The lock evidence is stale once the pad has been lost long
@@ -900,7 +926,7 @@ async def acquire_and_land_drop(
                 # 17:28 shape — LAND from 5-9 m, eggs 0.5-0.7 m off).
                 in_tol = in_tol_raw = 0
             else:
-                await _goto(*_lost_xy(rung_alt), rung_alt)
+                await _goto(*_lost_xy(rung_alt), rung_alt + _frame_bias())
             await pacer.wait()
         final_locked = in_tol >= params.lock_cycles
         if not final_locked and in_tol_raw >= params.lock_cycles:
@@ -1046,11 +1072,21 @@ async def acquire_and_land_drop(
             logger.warning(
                 f"[align] sortie #{stop_index}: landed_state never reported "
                 "ON_GROUND — falling back to the altitude threshold (audited)")
-            landed = await _wait_until(
-                state, lambda t: (not math.isnan(t.relative_alt_m)
-                                  and t.relative_alt_m <= params.land_alt_threshold_m),
-                timeout_s=5.0,
-            )
+            def _alt_says_landed(t: Any) -> bool:
+                # The threshold reads the ONE frame known to be up to 3.4 m
+                # wrong (review 2026-08-30). With it reading ~2 m LOW — the
+                # common sign — a TRUE 3.5 m shows as 1.4 and the egg would
+                # go out in mid-air: a broken egg and the forfeited "landed
+                # on the pad BEFORE releasing" line. A live rangefinder that
+                # says otherwise vetoes it; a dead one (NaN) leaves the old
+                # last-resort behaviour exactly as it was.
+                alt = t.relative_alt_m
+                if math.isnan(alt) or alt > params.land_alt_threshold_m:
+                    return False
+                r = _lidar_agl()
+                return math.isnan(r) or r <= params.land_alt_threshold_m
+
+            landed = await _wait_until(state, _alt_says_landed, timeout_s=5.0)
     res.landed = landed
     await asyncio.sleep(params.settle_after_land_s)
 
@@ -1071,8 +1107,11 @@ async def acquire_and_land_drop(
     # (V1.3 reverses the old "an attempt beats no drop" doctrine).
     _phase(MissionPhase.DROP)
     alt_now = state.telemetry.relative_alt_m
+    _r_now = _lidar_agl()          # NaN = no measurement, so no veto
     near_ground = (not math.isnan(alt_now)
-                   and alt_now <= params.land_alt_threshold_m + 1.0)
+                   and alt_now <= params.land_alt_threshold_m + 1.0
+                   and (math.isnan(_r_now)
+                        or _r_now <= params.land_alt_threshold_m + 1.0))
     if not landed:
         if not near_ground:
             logger.critical(

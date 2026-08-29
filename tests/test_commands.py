@@ -668,10 +668,17 @@ def test_the_vertical_radius_is_pinned_in_both_field_configs() -> None:
 
 # ── expected_mode: the mode WE asked for, so safety can tell an FC failsafe ──
 
-def test_land_and_rth_record_the_mode_they_ask_for_and_goto_clears_it() -> None:
+def test_land_and_rth_record_the_mode_they_ask_for() -> None:
     """2026-08-26: PX4's own geofence RTL looked, to the watchdog, exactly like
-    the mission's own RTL/LAND. The commander now records which AUTO mode it
-    requested; a movement command clears it (the aircraft is ours again)."""
+    the mission's own RTL/LAND. The commander records which AUTO mode it
+    requested.
+
+    ⚠ The expectation is NOT cleared by the next movement command any more
+    (2026-08-30): PX4 needs ~0.1-0.5 s to leave AUTO.LAND, and clearing it
+    ahead of that hands un-debounced safety D3 a mode=LAND with no expectation
+    — our own landing read as an FC failsafe. The watchdog consumes it when
+    the FC actually leaves the mode. See
+    test_goto_does_not_clear_an_expectation_the_fc_has_not_left_yet."""
     import asyncio as _a
     from types import SimpleNamespace as N
     c = DroneCommander.__new__(DroneCommander)
@@ -688,7 +695,7 @@ def test_land_and_rth_record_the_mode_they_ask_for_and_goto_clears_it() -> None:
     _a.run(c.land(disarm=False))
     assert c.expected_mode == "LAND"
     _a.run(c.goto(13.7, 100.7, 8.0))
-    assert c.expected_mode is None
+    assert c.expected_mode == "LAND"      # consumed by the watchdog, not here
     assert calls == ["land", "goto"]
 
 
@@ -730,3 +737,33 @@ def test_drop_payload_relatch_is_opt_in():
     assert action.calls[0][1] == pytest.approx(0.8)
     assert action.calls[1][1] == pytest.approx(-0.8)
 
+
+
+# ── goto must not CLEAR an expectation the FC has not yet left (2026-08-30) ──
+
+def test_goto_does_not_clear_an_expectation_the_fc_has_not_left_yet() -> None:
+    """`land()` records `expected_mode = "LAND"` so safety D3 knows the LAND it
+    can see is OURS. `goto()` used to clear that expectation immediately — but
+    PX4 needs ~0.1-0.5 s to leave LAND, and in that window D3 (deliberately
+    un-debounced) sees mode=LAND with no expectation and stands the whole
+    mission down. The ground-contact guard makes this reachable for the first
+    time: it commands LAND, and the gate right after it can issue a deferral
+    goto ~0.2 s later.
+
+    The rule the repo already adopted for `arm_and_takeoff` on 2026-08-27 is
+    that an expectation is CONSUMED by the watchdog when the FC actually
+    leaves the mode — never cleared ahead of time by the next command. `goto`
+    now follows it."""
+    c = DroneCommander.__new__(DroneCommander)
+    c.expected_mode = "LAND"
+    c._guard_pilot = lambda _what: None           # type: ignore[method-assign]
+    c._home_alt_msl = 0.0
+    c.home_alt_source = None
+    class _Action:
+        async def goto_location(self, lat, lon, alt, yaw):
+            self.sent = (lat, lon, alt, yaw)
+    c.system = type("_S", (), {"action": _Action()})()
+    asyncio.run(c.goto(13.7, 100.7, 8.0))
+    assert c.expected_mode == "LAND", (
+        "goto cleared the LAND expectation before PX4 left the mode — safety "
+        "D3 will read our own landing as an FC failsafe and stand down")

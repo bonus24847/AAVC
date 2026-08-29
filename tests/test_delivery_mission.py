@@ -2113,3 +2113,112 @@ def test_delivery_gate_refuses_below_the_egress_floor(monkeypatch):
         ("P3", "egress"), ("P2", "egress"), ("P1", "egress")]
     assert cmd.landings == [True]
     assert state.delivered_marker_ids == [3]
+
+
+# ── review 2026-08-30 (pre-competition), three mission-level defects ──────────
+
+def test_the_serve_keeps_the_profiles_accept_radius_not_the_practice_field_one(
+        monkeypatch) -> None:
+    """`accept_radius_m` follows the FIELD (mission_brain/profile.py
+    terminal_accept_radius_m: 5 m at KMUTNB where pads sit 14.5 m apart,
+    15 m on the wide KMITL field). `_serve` pinned the KMUTNB 5 m on every
+    delivery, so the competition value was dead code.
+
+    It is both the identity gate and the cap on the expanding acquire search,
+    so a registry fix more than 5 m out — routine at the 15 m sweep, whose
+    `max_fix_ground_dist_m` is 20 and whose corner-pixel projections were
+    measured 8-10 m out on 2026-08-29 — is rejected on every frame: the pad is
+    seen, never acquired, and the egg comes home. The assigned-id gate is the
+    neighbouring-pad defence, not this radius."""
+    state = _state()
+    tracker = TargetTracker()
+    seen: list[float] = []
+    inner = _fake_serve(state)
+
+    async def serve(commander, st, target, *, stop_index, params, **kw):
+        seen.append(params.accept_radius_m)
+        return await inner(commander, st, target, stop_index=stop_index,
+                           params=params, **kw)
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", serve)
+    _preload_pad(tracker, PAD3, 3)
+    asyncio.run(run_delivery_mission(
+        RecordingCommander(state), state, tracker, _spec(), home=HOME,
+        transit_route=TRANSIT, sortie_gate=_gate_from([3]), profile=COMPETITION,
+        align=AlignParams(accept_radius_m=15.0)))
+    assert seen, "the pad was never served"
+    assert seen[0] == 15.0, (
+        f"the serve flew accept_radius_m={seen[0]} m — the KMUTNB pin, not the "
+        "competition profile's 15 m")
+
+
+def test_the_decode_visit_pass_stops_at_the_planned_battery_egress_floor(
+        monkeypatch) -> None:
+    """Every other discovery excursion re-reads the live gauge; the decode
+    visits checked only the latched flag, so a sweep that ended just above the
+    30 % floor could fly 40-60 s visits straight through it into the 20 %
+    companion RTH — a failsafe return that skips the scored egress transit and
+    brings every remaining egg home."""
+    state = _state()
+    tracker = TargetTracker()
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", _fake_serve(state))
+    cmd = RecordingCommander(state)
+    # TWO undecoded candidates for the post-sweep pass, and a pack that is
+    # ABOVE the floor while the sweep runs (so the sweep's own egress check
+    # never latches) and crosses it during the FIRST visit — the real shape:
+    # 40-60 s per visit against a 30 -> 20 % band that is 1-2 minutes wide.
+    CAND_B = (13.731150, 100.789400)
+    for k, t in enumerate((0.0, 0.4, 0.8)):
+        tracker.ingest(_fix(PAD5[0], PAD5[1], None, t=t + 9.0))
+        tracker.ingest(_fix(CAND_B[0], CAND_B[1], None, t=t + 12.0))
+    state.telemetry.battery_percent = COMPETITION.egress_battery_pct + 2.0
+    real_goto = cmd.goto
+
+    async def goto_draining(lat, lon, alt_m, yaw_deg=float("nan")):
+        await real_goto(lat, lon, alt_m, yaw_deg)
+        if abs(lat - PAD5[0]) < 1e-6 and abs(lon - PAD5[1]) < 1e-6:
+            state.telemetry.battery_percent = COMPETITION.egress_battery_pct - 2.0
+    monkeypatch.setattr(cmd, "goto", goto_draining)
+
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([3]), profile=COMPETITION))
+
+    second = [g for g in cmd.gotos
+              if abs(g[0] - CAND_B[0]) < 1e-6 and abs(g[1] - CAND_B[1]) < 1e-6]
+    assert not second, (
+        "the decode-visit pass flew to a second candidate after the gauge "
+        f"crossed the {COMPETITION.egress_battery_pct:.0f}% planned-egress floor")
+    assert any("decode-visits stopped (battery egress" in a
+               for a in state.anomalies), state.anomalies
+
+
+def test_marker_id_0_is_an_id_to_the_decode_visits_not_the_any_id_sentinel(
+        monkeypatch) -> None:
+    """`_decode_visits` used `assigned > 0` to mean "a specific id was asked
+    for" — but the sentinel is -1, and id **0** is a real marker: the rules
+    PDF's Figure 7 encodes 1,2,0,4,5,6 and a live id-0 pad was found in flight
+    on 2026-08-27 (CLAUDE.md §8 warns about exactly this falsy-id class).
+
+    With id 0 assigned, the top-up visit dropped its id filter and queued
+    clusters of ANY id — each a 40-60 s excursion at the search floor, in the
+    phase where the battery floor is closest."""
+    state = _state()
+    tracker = TargetTracker()
+    monkeypatch.setattr(mission_mod, "acquire_and_land_drop", _fake_serve(state))
+    cmd = RecordingCommander(state)
+    # id 0 identified but short of confirm_votes (the top-up's own case), and
+    # an unrelated id-5 cluster in the same state.
+    for t in (0.0, 0.4):
+        tracker.ingest(_fix(PAD3[0], PAD3[1], 0, t=t))
+        tracker.ingest(_fix(PAD5[0], PAD5[1], 5, t=t + 6.0))
+    n_before = len(cmd.gotos)
+
+    asyncio.run(run_delivery_mission(
+        cmd, state, tracker, _spec(), home=HOME, transit_route=TRANSIT,
+        sortie_gate=_gate_from([0]), profile=COMPETITION))
+
+    wrong = [g for g in cmd.gotos[n_before:]
+             if abs(g[0] - PAD5[0]) < 1e-6 and abs(g[1] - PAD5[1]) < 1e-6]
+    assert not wrong, (
+        "the id-0 top-up visited the id-5 cluster — `assigned > 0` read the "
+        "real id 0 as the -1 'any id' sentinel")
