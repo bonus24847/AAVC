@@ -354,6 +354,21 @@ t=342.9. Battery 100 → 31 %, 3563 mAh, 35.8 A mean.
   `EKF2_RNG_A_HMAX=7`** — the truthful signal, valid and fused all the way down
   on this flight, which **the flight core does not read at all today** (nothing
   under `orchestrator/` touches `distance_sensor`; the lidar only aids the EKF).
+- **Marker 6 was never seen at all — the west half of the sweep was never
+  flown.** Zero frames of 1412 contain it. The sweep had reached **waypoint 6
+  of 17** when the pilot killed it (`FLIGHT 1 SWEEP resumed at wp 6`), so
+  waypoints 7-16 — **the entire west field, E 46-116 / N 53-100** — were never
+  covered. The three pads it did find (1 at ENU 113.5/66.7, 4 at 187.0/72.1,
+  5 at 126.3/104.8) all sit inside the part it did sweep. Pad 6 is almost
+  certainly in the west field. ⚠ An earlier reading of this session claimed a
+  pad-6 candidate at ENU ~115/75 from six undecoded blob frames; that was
+  WRONG — frame-by-frame the blobs track continuously with the id-1 hits
+  either side of them (276 id1 (1147,26) → 277-279 blob → 280 id1 (944,81) →
+  281 blob → 285 id1 (575,149)): one object crossing the frame, decoding
+  intermittently at ~10 px. They are pad 1. The 8-10 m projection offset came
+  from projecting a blob sitting in the extreme frame CORNER at 16.5 m; the
+  one blob nearer the centre projected 1.7 m from pad 1. **Do not project
+  corner pixels and treat the result as a position.**
 - **⚠ A PILOT KILL ENDS THE MISSION PROCESS — restart the stack before the
   recovery flight.** The pack was swapped and the pilot armed twice (13:07:12,
   13:07:36, fresh pack 25.04 V / 99 %). Both times: armed fine, then
