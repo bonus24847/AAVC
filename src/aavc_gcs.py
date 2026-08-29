@@ -619,6 +619,33 @@ def _mission_cmd_remote_dir(cmd):
     return None
 
 
+_NIGHT_CAM_DEV = "/dev/v4l/by-id/usb-Generic_USB_Camera_200901010001-video-index0"
+
+
+def _infra_remote_cmd(remote_dir):
+    """The ssh command that brings the CM4 infra up — with the camera on its
+    DAYTIME settings, whatever the previous night left behind.
+
+    Bang Bo night test (29-30 Aug 2026): a ``~/.bashrc`` hook on the CM4, gated
+    on ``~/.aavc_night_cam``, exports CAM_EXPOSURE=180 CAM_GAIN=128 and sets
+    v4l2 ``exposure_dynamic_framerate=1`` so the floodlit pitch was not black.
+    The aircraft was powered down before the flag could be removed, and in sun
+    those settings turn every frame white — the mission decodes nothing all
+    day. The console is the first thing to ssh the CM4 on a field morning, so
+    it (1) removes the flag, (2) resets the v4l2 flag, (3) restarts a grabber
+    that is still running on the night args — and ONLY that one, a daytime
+    grabber is left alone — and (4) starts the infra with the CAM_* env
+    explicitly unset: the remote shell has already sourced ~/.bashrc (flag
+    still present at that instant) before this command runs.
+    """
+    return (
+        "rm -f ~/.aavc_night_cam; "
+        f"v4l2-ctl -d {_NIGHT_CAM_DEV} -c exposure_dynamic_framerate=0 >/dev/null 2>&1; "
+        'pgrep -f "camera_grabbe[r].py.*--gain 128" >/dev/null && pkill -f "camera_grabbe[r].py"; '
+        f"env -u CAM_EXPOSURE -u CAM_GAIN -u CAM_AE_MAX -u CAM_AE_INIT bash {remote_dir}/cm4/start_infra.sh"
+    )
+
+
 def _maybe_start_infra(host):
     """REAL console only: once the CM4 is reachable over ssh, bring up ONLY the
     aircraft's infra (mavlink-router + camera grabber + status beacon) via the
@@ -644,7 +671,7 @@ def _maybe_start_infra(host):
             "-o", "ConnectTimeout=6", "-o", "BatchMode=yes"]
     if identity:
         argv += ["-i", identity]
-    argv += [target, f"{remote_dir}/cm4/start_infra.sh"]
+    argv += [target, _infra_remote_cmd(remote_dir)]
 
     def _run():
         global _INFRA_STARTED, _INFRA_INFLIGHT, _INFRA_BACKOFF_S, _INFRA_RETRY_AT
