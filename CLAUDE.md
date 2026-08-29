@@ -496,16 +496,45 @@ flown. `make test` 803 green, ruff + mypy clean, deployed to the CM4.
   protection stays vertical — `RTL_RETURN_ALT` 25 m against 18 m trees.
 - **`rung_bias_max_m` 1.5 → 3.0** (§0d).
 
-**OPEN, and the operator's call — nothing detects "we are on the ground and
-the software does not know".** That state is what tipped the aircraft over
-(§0d) and it is not fully closed by the lidar ladder: the ladder stops at a
-true 2 m now, but if it ever does reach the ground again — a lidar dropout, a
-pad on a slope — the same wind-up is available. The honest fixes are a
-ground-contact detector (a sustained below-minimum lidar reading during a
-descent is the strongest evidence available, since PX4's land detector
-demonstrably will not latch there) and/or resetting the position
-controller's integrator when it fires. Both are new failsafe behaviour and
-neither is in.
+- **GROUND-CONTACT GUARD (A) + RANGEFINDER TOUCHDOWN (B)** — the operator
+  approved both on 2026-08-29 after the tip-over was traced (§0d). **A**: the
+  rung loop checks the lidar FIRST and unconditionally, every cycle including
+  cycles with no pad detection — on the ground the pad is far too close to
+  read, so a check inside the detection branch is the check that never runs.
+  Ground contact = an in-range reading ≤ `ground_contact_alt_m` (0.45), or a
+  BELOW-BEAM 0.00 m having last measured something within
+  `ground_contact_from_m` (2.5), held for `ground_contact_cycles` (6, ~0.5 s).
+  The from-distance is what disambiguates the TFmini's 0.00: past its 12 m
+  maximum it reports the same value. On contact the ladder STOPS and
+  `land()` goes out at once — AUTO.LAND ramps thrust down, which both prevents
+  the integrator wind-up that tipped the aircraft and is the only state PX4's
+  own detector will latch in. **B**: when `landed_state` never reports
+  ON_GROUND, the rangefinder is asked BEFORE the altitude-threshold fallback —
+  it is far better evidence than the very frame that was 2.4 m wrong, and PX4's
+  detector demonstrably refuses (`landed` stayed False for 226 s with the
+  aircraft on the grass). Audited as `ground_contact_at_rungNm` and
+  `touchdown_from_rangefinder`. ⚠ B is a deliberate softening of "touchdown is
+  PX4's land detector, never an altitude": it is the OPERATOR'S CALL, taken
+  because the detector failed in exactly the way that costs an egg. Neither
+  guard costs a normal delivery any time — in the normal case neither fires.
+  Tests: three at the end of `tests/test_tactical_align.py`; **with A disabled
+  the ground-contact test does not fail, it HANGS** — which is the 29-Aug
+  behaviour exactly (five climb-and-retry cycles until the pilot killed it).
+- **The beacon now says a stood-down mission out loud.** One ERROR line,
+  `AAVC STOOD DOWN - RESTART STACK, THEN ARM`, when a stand-down reason stands
+  AND the status has not updated for 45 s. On 29 Aug the two facts that spelled
+  this out — `stale=266` and `why=pilot` — were separate WARN lines among a
+  dozen, and neither said what to do, so the crew swapped the pack and armed
+  twice into a mission that had already ended (`cm4/status_beacon.py`,
+  `tests/test_status_beacon.py`).
+
+**STILL OPEN: the drift itself.** `EKF2_GPS_CTRL` 7 → 3 would stop GPS
+altitude leaking into the height frame at all, instead of correcting for it
+afterwards. Unflown, and it moves what PX4's own RTL and fence ride on, so it
+is the operator's call. Also still open: nothing RESETS the position
+controller's integrator when ground contact is detected — guard A avoids the
+wind-up by landing instead of holding, which is enough for the failure that
+actually happened, but a PX4-side reset would be belt and braces.
 
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 

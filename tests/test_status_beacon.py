@@ -384,3 +384,34 @@ def test_the_camera_liveness_line_still_comes_first() -> None:
     lines = [t for _, t in beacon.compose_lines(None, 90.0, None, _decode())]
     assert any(t.startswith("AAVC cam=DEAD") for t in lines)
     assert any(t.startswith("AAVC cam=GOOD") for t in lines)
+
+
+def test_a_stood_down_mission_says_so_at_error_and_says_what_to_do() -> None:
+    """2026-08-29: the pilot killed the flight, the orchestrator stood down for
+    good, and the crew swapped the pack and armed twice — both times PX4
+    answered "Switching to Offboard is currently not available" because nothing
+    was publishing setpoints any more. Everything visible said the aircraft was
+    fine: this beacon still arriving every 5 s, the camera line still OK. The
+    two facts that spelled it out were `stale=266` and `why=pilot` — two WARN
+    lines among a dozen, neither of which says what to DO."""
+    status = {"phase": "done", "home_reason_code": "pilot"}
+    lines = beacon.compose_lines(status, 1.0, status_age_s=266.0)
+    sd = [(sev, t) for sev, t in lines if "STOOD DOWN" in t]
+    assert sd, [t for _, t in lines]
+    assert sd[0][0] == 3, "MAV_SEVERITY_ERROR — louder than the WARN lines"
+    assert "RESTART STACK" in sd[0][1]
+    assert len(sd[0][1]) <= 50 and sd[0][1].isascii()
+
+
+def test_a_live_mission_is_never_told_to_restart() -> None:
+    """A flight in progress publishes continuously, so `status_age_s` stays
+    small; and a stand-down reason with FRESH status is the normal
+    coming-home-early case, which the why= line already covers."""
+    flying = {"phase": "deliver (localize)", "home_reason_code": "batt"}
+    for age in (0.0, 5.0, 44.0):
+        assert not [t for _, t in beacon.compose_lines(flying, 1.0, status_age_s=age)
+                    if "STOOD DOWN" in t], age
+    # …and no reason at all is never a stand-down, however stale
+    assert not [t for _, t in beacon.compose_lines({"phase": "done"}, 1.0,
+                                                   status_age_s=900.0)
+                if "STOOD DOWN" in t]

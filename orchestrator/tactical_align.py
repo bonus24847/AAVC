@@ -203,6 +203,23 @@ class AlignParams:
     # instead of the TOTAL keeps a wild reading from commanding a wild move
     # while still converging over a few cycles.
     rung_step_max_m: float = 3.0
+    # GROUND-CONTACT GUARD (2026-08-29, after the aircraft tipped over).
+    # The failure it exists for: the ladder walked the aircraft onto the grass
+    # while the height frame still read 2.4 m, PX4 stayed in AUTO.LOITER
+    # holding position, and its land detector never latched — it will not
+    # latch while the controller is demanding movement, and nothing resets the
+    # controller while the detector says airborne. The commanded pitch wound
+    # up +1.4° → +20.3° over ~10 s at idle thrust, and the next climb-out
+    # levered the airframe onto its tail in one second.
+    #   Detection is the lidar's, because PX4's is the thing that failed: a
+    # reading at or under ``ground_contact_alt_m``, or a BELOW-BEAM 0.00 m
+    # having last measured something within ``ground_contact_from_m``, held
+    # for ``ground_contact_cycles``. The from-distance is what disambiguates
+    # the TFmini's 0.00: it means "closer than 0.4 m" only when the beam was
+    # just measuring 2.5 m or less — past its 12 m maximum it reports 0.00 too.
+    ground_contact_alt_m: float = 0.45     # an in-range reading this low IS the ground
+    ground_contact_from_m: float = 2.5     # a 0.00 only counts as ground after this
+    ground_contact_cycles: int = 6         # ~0.5 s at cycle_hz 12
     min_confidence: float = 0.45      # pad-hit acceptance
     max_lost_cycles: int = 24         # lost detections before climbing (2.0 s)
     search_radius_m: float = 4.0      # expanding-box search step if not acquired
@@ -642,6 +659,9 @@ async def acquire_and_land_drop(
         b = statistics.median(bias_window)
         return max(-params.rung_bias_max_m, min(params.rung_bias_max_m, b))
 
+    gc_last_valid = math.nan     # last IN-RANGE lidar reading (see _lidar_agl)
+    gc_streak = 0                # consecutive cycles reading ground contact
+
     def _lidar_agl() -> float:
         """Height above the ground from the downward lidar, or ``nan``.
 
@@ -666,8 +686,52 @@ async def acquire_and_land_drop(
             return math.nan
         if math.isnan(d) or d > params.rangefinder_max_alt_m:
             return math.nan
+        # Remembered HERE, not in the detector below, so it is current no
+        # matter which caller asked. Doing it in _ground_contact_tick left it
+        # one cycle stale, and a rung that locks on its first fix exits the
+        # loop before that cycle ever comes — so the value the ground-contact
+        # test compares against was the PREVIOUS rung's height.
+        nonlocal gc_last_valid
+        gc_last_valid = d
         return d
 
+    def _ground_contact_tick() -> bool:
+        """One cycle of the ground-contact detector; True once it has held.
+
+        Call it EVERY cycle, including cycles with no pad detection — on the
+        ground the pad is far too close to read, so a check that lived inside
+        the detection branch would be exactly the check that never runs.
+        """
+        nonlocal gc_streak
+        d = _lidar_agl()          # also refreshes gc_last_valid
+        if not math.isnan(d):
+            gc_streak = gc_streak + 1 if d <= params.ground_contact_alt_m else 0
+        else:
+            below = getattr(getattr(state, "telemetry", None),
+                            "rangefinder_below_beam", None)
+            under = False
+            if below is not None:
+                try:
+                    under = bool(below(max_age_s=params.rangefinder_max_age_s))
+                except Exception:
+                    under = False
+            if (under and not math.isnan(gc_last_valid)
+                    and gc_last_valid <= params.ground_contact_from_m):
+                gc_streak += 1
+            else:
+                gc_streak = 0
+        return gc_streak >= params.ground_contact_cycles
+
+    async def _await_ground_contact(timeout_s: float) -> bool:
+        """Poll the ground-contact detector for up to ``timeout_s``."""
+        t_end = state.now() + timeout_s
+        while _running(state) and state.now() < t_end:
+            if _ground_contact_tick():
+                return True
+            await pacer.wait()
+        return False
+
+    ground_contact = False
     for rung_i, rung_alt in enumerate(params.rungs):
         tol = params.rung_tol_m[min(rung_i, len(params.rung_tol_m) - 1)]
         if (abort_if is not None and rung_alt >= params.abort_above_m
@@ -690,6 +754,13 @@ async def acquire_and_land_drop(
         lost = 0
         t_rung = state.now()
         while _running(state) and (state.now() - t_rung) < params.rung_timeout_s:
+            # GROUND CONTACT — checked FIRST, and unconditionally. On the
+            # ground the pad is too close to read, so every gate below this
+            # (tilt, frame age, detection) would skip the check exactly when
+            # it matters. See AlignParams.ground_contact_alt_m.
+            if _ground_contact_tick():
+                ground_contact = True
+                break
             # Tilt gate: while the quad is banked past the gate the projection is
             # least trustworthy — wait it out WITHOUT counting it as a lost
             # detection (else a multi-cycle correction trips the climb-back).
@@ -770,6 +841,30 @@ async def acquire_and_land_drop(
             final_locked = True
         logger.info(f"[align] #{stop_index}: rung {rung_alt:.0f} m err="
                     f"{last_err:.2f} m locked={final_locked}")
+        if ground_contact:
+            # The aircraft is DOWN and the ladder did not put it there. Take
+            # PX4 out of position hold this instant: in AUTO.LOITER it goes on
+            # demanding a horizontal correction it cannot achieve, the demand
+            # winds up (measured +1.4° → +20.3° of pitch in ~10 s on
+            # 2026-08-29), and the next thrust command levers the airframe over.
+            # AUTO.LAND ramps thrust down instead, which is also the only state
+            # in which PX4's own land detector will latch.
+            state.record_anomaly(f"ground_contact_at_rung{rung_alt:.0f}m")
+            res.notes.append(f"ground contact at the {rung_alt:.0f} m rung")
+            logger.warning(
+                f"[align] #{stop_index}: the rangefinder says the aircraft is "
+                f"ON THE GROUND at the {rung_alt:.0f} m rung — stopping the "
+                "ladder and commanding LAND (audited)")
+            try:
+                await commander.land(disarm=False)
+            except Exception as e:
+                logger.warning(f"[align] #{stop_index}: land() on ground contact "
+                               f"failed: {e}")
+            # Centring still decides whether the egg goes out; the altitude
+            # half of the lock is moot once the wheels are on the pad.
+            if in_tol_raw >= params.lock_cycles:
+                final_locked = True
+            break
     res.aligned = res.acquired and not math.isnan(last_err)
     res.final_error_m = last_err
     # Hand the descent speed back to the PINNED value, not to the ladder's fast
@@ -839,15 +934,30 @@ async def acquire_and_land_drop(
         timeout_s=params.touchdown_timeout_s,
     )
     if not landed:
-        state.record_anomaly("landed_state_timeout_alt_fallback")
-        logger.warning(
-            f"[align] sortie #{stop_index}: landed_state never reported "
-            "ON_GROUND — falling back to the altitude threshold (audited)")
-        landed = await _wait_until(
-            state, lambda t: (not math.isnan(t.relative_alt_m)
-                              and t.relative_alt_m <= params.land_alt_threshold_m),
-            timeout_s=5.0,
-        )
+        # THE RANGEFINDER FIRST, then the altitude threshold. PX4's land
+        # detector is not merely slow here, it can refuse outright: on
+        # 2026-08-29 `landed` stayed False for 226 s with the aircraft sitting
+        # on the grass, because the detector will not latch while the position
+        # controller is demanding movement. The lidar had the answer the whole
+        # time (0.11 m). And it is far better evidence than the altitude
+        # threshold below, which reads the very frame that was 2.4 m wrong.
+        if await _await_ground_contact(timeout_s=3.0):
+            state.record_anomaly("touchdown_from_rangefinder")
+            logger.warning(
+                f"[align] sortie #{stop_index}: landed_state never reported "
+                "ON_GROUND, but the rangefinder confirms ground contact — "
+                "treating it as touchdown (audited)")
+            landed = True
+        else:
+            state.record_anomaly("landed_state_timeout_alt_fallback")
+            logger.warning(
+                f"[align] sortie #{stop_index}: landed_state never reported "
+                "ON_GROUND — falling back to the altitude threshold (audited)")
+            landed = await _wait_until(
+                state, lambda t: (not math.isnan(t.relative_alt_m)
+                                  and t.relative_alt_m <= params.land_alt_threshold_m),
+                timeout_s=5.0,
+            )
     res.landed = landed
     await asyncio.sleep(params.settle_after_land_s)
 
