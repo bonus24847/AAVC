@@ -898,11 +898,14 @@ async def run_delivery_mission(
         pre-sweep top-up). ``assigned`` = a specific id to hunt (stop as soon
         as it confirms), or -1 to decode every leftover candidate (registry
         completion for later flights)."""
-        cands = tracker.identified_unconfirmed(assigned if assigned > 0 else None)
+        # `assigned >= 0`, not `> 0`: id 0 is a REAL marker (the rules PDF's
+        # Figure 7 encodes 1,2,0,4,5,6 and a live id-0 pad was found on
+        # 2026-08-27). The "any id" sentinel is -1 (registry completion).
+        cands = tracker.identified_unconfirmed(assigned if assigned >= 0 else None)
         if not identified_only:
             cands += tracker.unidentified_candidates()
         for cand in cands:
-            if not _running() or (assigned > 0 and
+            if not _running() or (assigned >= 0 and
                                   tracker.confirmed_by_marker(assigned) is not None):
                 return
             if _in_keepout(cand.lat, cand.lon):
@@ -924,6 +927,17 @@ async def run_delivery_mission(
                     f"t={state.time_elapsed_s():.1f}s decode-visits stopped "
                     "(time reserve)")
                 return
+            # …and the LIVE battery floor (review 2026-08-30). Every other
+            # excursion re-reads it; this pass checked only the latch, so a
+            # sweep that ended at 32 % could fly 40-60 s visits straight
+            # through the 30 % planned-egress floor into the 20 % companion
+            # RTH — a failsafe return that skips the scored egress transit and
+            # brings every remaining egg home.
+            if _battery_egress_due():
+                state.record_audit(
+                    f"t={state.time_elapsed_s():.1f}s decode-visits stopped "
+                    f"(battery egress, batt={state.telemetry.battery_percent:.0f}%)")
+                return
             _phase(MissionPhase.SEARCH)
             logger.info(f"[mission] decode visit → candidate #{cand.target_id} "
                         f"({cand.lat:.7f},{cand.lon:.7f}) @ {decode_alt:.0f} m")
@@ -933,7 +947,7 @@ async def run_delivery_mission(
             t0 = state.now()
             while _running() and (state.now() - t0) < decode_dwell_s:
                 _drain_tracker()
-                if assigned > 0 and tracker.confirmed_by_marker(assigned) is not None:
+                if assigned >= 0 and tracker.confirmed_by_marker(assigned) is not None:
                     return
                 await asyncio.sleep(_LOOKOUT_POLL_S)
             _drain_tracker()
@@ -1066,8 +1080,17 @@ async def run_delivery_mission(
             await _wait_arrival(
                 (claimed.lat, claimed.lon),
                 timeout_s=2.0 * d0 / max(spec.speed_mps, 0.1) + _WAIT_PAD_S)
+            # accept_radius_m comes from the PROFILE (mission_brain/profile.py
+            # terminal_accept_radius_m: 5 m at KMUTNB, 15 m at KMITL — it
+            # follows the FIELD). Pinning the KMUTNB 5 m here (review
+            # 2026-08-30) made the competition value dead code: it is both the
+            # identity gate and the cap on the expanding acquire search, so a
+            # registry fix more than 5 m out — routine at the 15 m sweep, whose
+            # max_fix_ground_dist_m is 20 — could never be acquired, and the
+            # egg came home. The assigned-id gate is the neighbouring-pad
+            # defence, not this radius.
             serve_params = replace(
-                align_p, accept_radius_m=_SERVE_ACCEPT_RADIUS_M,
+                align_p,
                 assigned_marker_id=assigned,
                 # the retry is the LAST attempt: an egg at the pad's edge beats
                 # an egg brought home (AlignParams.land_ok_err_last_m)

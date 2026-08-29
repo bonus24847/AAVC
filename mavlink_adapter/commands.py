@@ -686,7 +686,16 @@ class DroneCommander:
         PX4 treats NaN yaw as "hold current heading".
         """
         self._guard_pilot("goto")
-        self.expected_mode = None
+        # ⚠ Do NOT clear `expected_mode` here (2026-08-30). PX4 takes ~0.1-0.5 s
+        # to leave AUTO.LAND for the reposition, and safety D3 is deliberately
+        # un-debounced: in that window a cleared expectation reads as an
+        # FC-initiated LAND and stands the whole mission down. The
+        # ground-contact guard made this reachable — it commands land(), and
+        # the gate right after it can issue a deferral goto a fifth of a second
+        # later. The watchdog CONSUMES the expectation the moment the FC
+        # actually leaves the mode (safety.py D3), which is the same rule
+        # `arm_and_takeoff` adopted on 2026-08-27 after D3 fired 0.3 s after
+        # the first real egg.
         home_alt = self._home_alt_msl
         if self.home_alt_source is not None:
             latched = self.home_alt_source()

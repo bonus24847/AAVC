@@ -26,7 +26,8 @@
       "Bash(git -C /home/pakin-champasak/Desktop/AAVC config user.email)",
       "Bash(chmod +x sitl/launch_stack.sh)",
       "Bash(bash -n sitl/launch_stack.sh)",
-      "Bash(curl -s http://127.0.0.1:8020/)"
+      "Bash(curl -s http://127.0.0.1:8020/)",
+      "Bash(grep -v \"^$\")"
     ]
   }
 }
