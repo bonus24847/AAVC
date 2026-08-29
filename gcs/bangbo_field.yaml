@@ -1,0 +1,28 @@
+# Bang Bo Witthayakhom School football field — LANDING TEST map for the AAVC GCS
+# console (2026-08-29). Every number here is GENERATED from
+# scratchpad/bangbo_geom.json by gen_bangbo.py, the same source as
+# sitl/bangbo_config.yaml — regenerate there, never hand-edit one side.
+geofence:
+  controlled_airspace:
+    - [13.5784833, 100.8577794]   # SW
+    - [13.5784545, 100.8583513]   # SE
+    - [13.5793295, 100.8583974]   # NE
+    - [13.5793583, 100.8578254]   # NW
+  search_area:
+    - [13.5788074, 100.8578981]
+    - [13.5787906, 100.8582303]
+    - [13.5791517, 100.8582493]
+    - [13.5791684, 100.8579171]
+  local_origin: [13.5785879, 100.8578589]
+
+aruco_assignment: [1, 2, 3, 4]
+
+transit_waypoints:
+  - {id: 1, lat: 13.5787020, lon: 100.8579297}
+  - {id: 2, lat: 13.5788161, lon: 100.8580004}
+  - {id: 3, lat: 13.5789302, lon: 100.8580712}
+
+payload_servos:
+  outputs: [1, 2, 3, 4]   # actuator-set index = AUX pin (one button per latch)
+  released_us: 1900       # -> +0.8: opens the latch (drops the payload)
+  held_us: 1100           # -> -0.8: holds it shut (reset, ready to reload)
