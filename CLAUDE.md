@@ -896,6 +896,43 @@ the airspace, 10 m off the trees), and `marker.valid_ids: [1..6]` in both
 field configs is read only by the SITL spawner — the flight detector is
 `VALID_MARKER_IDS = 0..6`, so an assigned id 0 decodes normally.
 
+## 0i. 30 Aug 03:20 — the gauge, settled from the parallel-pack logs (V_EMPTY 3.40)
+
+The operator's question was the right one: *will it RTL with plenty of charge
+left?* Measured from the two Bang Bo flights that ran WITH the 3.65 +
+`BAT1_R_INTERNAL 0.004` gauge (`17_32_04`, `17_41_39`), in flight, under 52-55 A:
+the gauge falls **7.7 points per Ah** (the old 3.77 with no compensation fell
+**14.4** — that change halved the error). The 3-egg mission draws **≈ 9.9 Ah at
+54 A over 11 min**, so at 3.65 it ends at **gauge 24 %** and crosses the 30 %
+planned-egress floor at **minute 10 — during the third delivery** — with the
+pack under load still at 21.6 V. Resting-voltage deltas between flights
+(0.028 V/cell per Ah) put the two used packs' real usable capacity at
+**~17-20 Ah**, not the 24 Ah the 32000 nameplate implied: the mission uses about
+half of it, and the margin is ~2x, not the 2.9x first estimated.
+
+**`BAT1_V_EMPTY` 3.65 → 3.40** (operator-approved, written + read back +
+**reboot-verified** on the board). Same mission now ends at **~48 %**, the 30 %
+floor moves to minute 15, and every floor finally means what it says: 30 % =
+20.5 V under load, 20 % = 20.0 V, PX4 crit 15 % = 19.8 V, emergency 7 % =
+19.5 V. **No floor value was changed** — only what "0 %" means.
+`tools/preflight_params.py` BOARD, its tests, `tests/test_battery_consistency.py`
+(the plausible-pack band 22.0 → 20.0 V) and PX4MASTER `power-battery.md` all
+follow, so the field-day check passes instead of stopping the flight.
+
+⚠ **The first write did NOT survive the battery being unplugged** — it read back
+3.65 afterwards, with `R_INTERNAL`/`THR_HOVER`/`V_CHARGED` all intact. This
+board has a history of failed `/fs/mtd_params` imports (§G5), so **re-read the
+battery params after ANY power cycle**; the second write was proved across a
+deliberate `action.reboot()`. Pilot's rule if the gauge is ever in doubt — the
+raw pack voltage under load: **< 21.0 V head home, < 20.4 V land now.**
+
+Bench state at 03:30: BOARD 24/24 ✔ (motor map, AUX 301-304, `MAV_1_RATE=0`,
+`SENS_TFMINI_CFG=103`, `EKF2_HGT_REF=0`, `MPC_THR_HOVER=0.70`,
+`BAT1_V_EMPTY=3.40`, `R_INTERNAL=0.004`), pack **25.13 V / 4.189 V per cell /
+gauge 100 %** on the parallel pair, CM4 tree **MD5 MATCH** with the seven review
+fixes, camera back on **daytime highlight-AE** (no `--gain 128`, dynamic
+framerate 0, sensor gain 64).
+
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 
 An autonomous **PX4 hexacopter** (EFT X6100 frame; Pixhawk 6X + Raspberry Pi CM4

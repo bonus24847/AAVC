@@ -20,7 +20,7 @@ deliberate, all checked:
 
 ## The gauge is interpolate(cell_v, V_EMPTY, V_CHARGED) — nothing else
 Endpoints on the board (17000 semi-solid, since 2026-08-19):
-`BAT1_V_CHARGED=4.18`, `BAT1_V_EMPTY = 3.65` (25.1 V full / ~22.6 V empty).
+`BAT1_V_CHARGED=4.18`, `BAT1_V_EMPTY = 3.40` (25.1 V full / ~22.6 V empty).
 BOARD-checked every preflight. Two claims, verify separately: a correct
 VOLTAGE (divider) and a correct PERCENTAGE (endpoints).
 ✅ `BAT1_V_DIV` RE-CLOSED ON THE PM02D 2026-08-23. Its earlier closure was on
@@ -124,3 +124,26 @@ Operator-approved: **`BAT1_R_INTERNAL = 0.004`** (PX4 adds I·R back to the cell
 reserves of ~35 % egress-30 / ~28 % RTH-20 / ~22 % PX4-crit-15 / ~15 % land-10).
 `BAT1_CAPACITY` stays −1: 1.17's fusion is `min(voltage-based, coulomb)` and can only read
 lower, so the coulomb counter cannot fix a pessimistic voltage gauge.
+
+
+## 2026-08-30 03:20 — V_EMPTY 3.65 -> 3.40, measured in flight on the parallel pack
+
+The 3.65 + `BAT1_R_INTERNAL 0.004` gauge was itself measured in flight (Bang Bo
+`17_32_04`, `17_41_39`): it falls **7.7 gauge points per Ah** (the old 3.77 with
+no compensation fell 14.4 — the change halved the error but did not remove it).
+The 3-egg competition mission draws **≈ 9.9 Ah at 54 A over 11 min**, so at 3.65
+it would end at **gauge 24 %** and cross the 30 % planned-egress floor at minute
+10 — during the third delivery — with the pack under load still at 21.6 V.
+Resting-voltage deltas between flights put the real usable capacity of the two
+used packs at ~17-20 Ah, i.e. the mission uses about half of it.
+
+At **`BAT1_V_EMPTY = 3.40`** the same mission ends at ~48 %, the 30 % floor moves
+to minute 15, and each floor lands where the pack really is: 30 % = 20.5 V under
+load, 20 % = 20.0 V, PX4 `BAT_CRIT_THR` 15 % = 19.8 V, `BAT_EMERGEN_THR` 7 % =
+19.5 V. No floor was changed. ⚠ The first write did NOT survive a battery
+unplug (read back 3.65) — this board's param storage has a history of failed
+imports, so ALWAYS re-read after any power cycle; the second write was verified
+across a deliberate `action.reboot()`.
+
+Pilot's rule when the gauge is in doubt — the raw pack voltage under load:
+**< 21.0 V head home, < 20.4 V land now.**

@@ -93,7 +93,20 @@ BOARD: dict[str, float] = {
     # the LiPo defaults (4.05 / 3.60) reads a wrong %. Set + read-back verified
     # on the board 2026-08-19.
     "BAT1_V_CHARGED": 4.18,
-    # 3.77 -> 3.65 + R_INTERNAL 0.004 (2026-08-29 night, Bang Bo ULogs
+    # 3.77 -> 3.65 -> 3.40 (the last step 2026-08-30 03:20, from the SAME
+    # Bang Bo logs measured in flight WITH the 3.65 + R_INTERNAL gauge: it
+    # still fell 7.7 points per Ah, so the 3-egg competition mission — 9.9 Ah
+    # at 54 A over 11 min — would have ended at gauge 24 % and tripped the
+    # 30 % planned-egress floor at minute 10, i.e. during the third delivery,
+    # with the pack under load still reading 21.6 V (over half of it left).
+    # At 3.40 the same mission ends at ~48 %, the 30 % floor moves to minute
+    # 15, and the floors finally mean what they say: 30 % = 20.5 V under load,
+    # 20 % = 20.0 V, PX4 crit 15 % = 19.8 V — genuinely low for a 6S pack.
+    # Written + read back + REBOOT-verified on the board 2026-08-30 03:25.
+    # Pilot's raw-voltage rule if the gauge is ever in doubt: under load
+    # < 21.0 V head home, < 20.4 V land now.
+    # (superseded reasoning, kept for the chain of evidence) 3.77 -> 3.65
+    # + R_INTERNAL 0.004 (2026-08-29 night, Bang Bo ULogs
     # 15_54_13 / 15_58_06 / 16_03_38, operator-approved): the parallel pack
     # sagged 1.3-1.5 V at 54 A (R = 0.0038-0.0043 ohm/cell on all three
     # flights) and the gauge read 33-45 % under load with ~65 % really left —
@@ -104,7 +117,7 @@ BOARD: dict[str, float] = {
     # 20) / ~22 % (PX4 crit 15) / ~15 % (land 10) instead of 30 points higher.
     # NOT BAT1_CAPACITY>0: 1.17's fusion is min(voltage, coulomb) and can only
     # read lower.
-    "BAT1_V_EMPTY": 3.65,
+    "BAT1_V_EMPTY": 3.40,
     "BAT1_R_INTERNAL": 0.004,
     "SENS_TFMINI_CFG": 103,           # TFmini-S on TELEM3
     # TELEM2 -> CM4 byte budget. 1200 B/s (the PX4 default) starves the
