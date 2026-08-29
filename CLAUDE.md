@@ -822,6 +822,80 @@ below is evidence for or against it.
   `--ae-highlight` and no `--gain 128` (checklist §3, first item). Then
   `cm4/deploy.sh --check` — the CM4 tree is one docs commit behind.
 
+## 0h. Pre-competition review, 30 Aug 02:00-02:40 — SEVEN defects fixed, ⚠ NOT YET DEPLOYED
+
+Two adversarial reviews of exactly what flies at KMITL (the landing chain; the
+mission loop + config + routing + policies), each finding verified against the
+source before anything was touched. `make test` **826 green**, ruff + mypy
+clean, and **every fix has a test that was proven to fail without it** (the
+mission ones by reverting the fix and re-running). Practice `6b96ac5` = comp
+`cf34f55`. ⚠ **The CM4 was powered down at 02:40 — `cm4/deploy.sh --repo
+~/Desktop/aavc-comp` + `--check` MD5 MATCH is the FIRST thing to do at the
+field**, before `make preflight`.
+
+`orchestrator/tactical_align.py`
+1. **The closed-loop rung command was floored in the UNTRUSTED frame** —
+   `max(rungs[-1] * 0.5, agl - step)`. With the frame reading LOW (−0.93 …
+   −1.62 m, the sign on five of the last seven flights) the floor clips the
+   descent and the aircraft parks at a true `1 + |bias|` m: the altitude gate
+   can never pass, the rung burns its whole 18 s budget, `alt_unverified_
+   fallback` fires and PX4 gets a blind LAND from **2.6-3.5 m** — the
+   mechanism behind the 0.5-0.7 m placements. Now floored in the MEASURED
+   frame (`agl - min(step, max(0, lidar - rungs[-1]*0.5))`); the step clamp
+   already guarantees the rung is never overshot.
+2. **The two lost-pad gotos commanded the RAW rung** while every in-view goto
+   carries `+ _frame_bias()`. At the 29-Aug +2.4 m that is a true −0.4 m
+   re-command and a true 0.6 m "climb" — the `lost@2m→climb` ×5 sequence that
+   ended in the tip-over. The ground-contact guard masks it only while the
+   lidar is alive.
+3. **The last-resort touchdown fallback could release the egg airborne.** It
+   read only `relative_alt_m`; with the frame 2 m low a TRUE 3.5 m shows as
+   1.4 → `landed = True` → release. A live rangefinder now vetoes it (and
+   `near_ground`); a dead one (NaN) leaves the old behaviour untouched.
+4. **The acquire-timeout return skipped `_restore_descent_cap()`**, leaving
+   `MPC_Z_V_AUTO_DN` at 3.0 m/s — stickily, since the next align reads 3.0 as
+   its own pin, so the 10.5 m decode visits and any RTL descend at 7.5× the
+   validated 0.4.
+
+`mavlink_adapter/commands.py`
+5. **`goto()` cleared `expected_mode` while PX4 was still in our AUTO.LAND**,
+   so the deliberately un-debounced safety D3 read our own landing as an FC
+   failsafe and stood the mission down. The ground-contact guard made this
+   reachable for the first time (it commands LAND, and the gate right after it
+   can defer with a goto ~0.2 s later). The watchdog consumes the expectation
+   when the FC actually leaves the mode — the rule `arm_and_takeoff` adopted
+   on 2026-08-27.
+
+`orchestrator/mission.py`
+6. **`_serve` pinned the KMUTNB `accept_radius_m` (5 m) over the competition
+   profile's 15 m**, making `terminal_accept_radius_m` dead code. It is both
+   the identity gate and the cap on the expanding acquire search, so a
+   registry fix further out than 5 m — routine at the 15 m sweep, whose
+   `max_fix_ground_dist_m` is 20 and whose corner-pixel projections measured
+   8-10 m out on 29 Aug — is rejected on every frame: pad seen, never
+   acquired, egg home. The assigned-id gate is the neighbour defence.
+7. **The decode-visit pass read only the LATCHED battery flag** (every other
+   excursion re-reads the gauge), so a sweep ending at 32 % could fly 40-60 s
+   visits straight through the 30 % planned-egress floor into the 20 %
+   companion RTH — a failsafe return that skips the scored egress transit; and
+   **`assigned > 0` treated the real marker id 0** (Figure 7 encodes
+   1,2,0,4,5,6; a live id-0 pad was found on 27 Aug) as the −1 "any id"
+   sentinel, dropping the filter and the early exit.
+
+**Verified clean in the same pass** (ran against the real config): the 15-wp
+579 m sweep crosses no keep-out and stays inside the airspace; P1→P2′→P3′ and
+the last-wp→P3′ egress are straight-line clear; 291 plausible pad sites × 9
+start points produced 0 unroutable and 0 airspace-leaving routes; a 3-id queue
+makes exactly ONE flight firing AUX 4/1/2 with no slot re-fire; the battery
+ladder 30 > 20 > 15 > 10 cannot invert or deadlock; the whole 3-egg flight
+budgets ≈750 s of the 1200 s window with the last delivery gated at ≈650 s
+against a 300 s floor; the console map is digit-for-digit in sync; and
+`verify_flight.py` parses every line a 3-delivery flight writes. Two cosmetic
+notes: sweep wp3/wp4 sit 0.9-2.1 m north of the RULES search-area edge (inside
+the airspace, 10 m off the trees), and `marker.valid_ids: [1..6]` in both
+field configs is read only by the SITL spawner — the flight detector is
+`VALID_MARKER_IDS = 0..6`, so an assigned id 0 decodes normally.
+
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 
 An autonomous **PX4 hexacopter** (EFT X6100 frame; Pixhawk 6X + Raspberry Pi CM4
