@@ -339,3 +339,22 @@ def test_plan_pusher_writes_the_console_map_path(tmp_path: Path) -> None:
     assert writes == 0
     push(plan, 0)
     assert writes == 1 and _read(p)["plan_ptr"] == 1
+
+
+def test_home_reason_maps_the_planned_battery_egress(tmp_path: Path) -> None:
+    """The planned 30 % egress (operator 2026-08-27) audits its own lines —
+    `FLIGHT n SWEEP battery egress …` from the sweep, `FLIGHT n BATTERY EGRESS
+    …` from the delivery gate — and neither matched the reason table, so a
+    flight that came home to swap the pack showed NO reason on the console
+    and no `why=` on the radio (found 2026-08-29)."""
+    for line in ("t=300.0s FLIGHT 1 SWEEP battery egress batt=29% < 30% — "
+                 "returning via the corridor for resupply",
+                 "t=300.0s FLIGHT 1 BATTERY EGRESS batt=41% < 30% floor + 12% "
+                 "delivery cost before a delivery — returning via the corridor "
+                 "for resupply"):
+        p = tmp_path / f"s{abs(hash(line))}.json"
+        g = GcsMissionStatus(p, _LAT0, _LON0, assigned=[1, 2, 3])
+        g.on_audit(line)
+        doc = _read(p)
+        assert doc["home_reason_code"] == "batt-egress", (line, doc)
+        assert "แบต" in doc["home_reason"], doc

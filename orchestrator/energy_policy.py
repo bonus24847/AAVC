@@ -86,7 +86,8 @@ class EnergyPolicy:
     reserve_frac: float = 0.25
     # ⚠ HEADLESS FALLBACK ONLY. sitl/aavc_config.yaml `battery` overrides all
     # four of these, and the real aircraft flies ONE 6S 17000 mAh semi-solid
-    # pack (capacity 17000 in config; pack/AUW measured 2026-08-19). These
+    # pack (capacity 17000 in config; pack/AUW measured 2026-08-19; for the
+    # 30-Aug flight a 15000 spare rides in PARALLEL, capacity 32000). These
     # fallback numbers rest on a smaller, heavier-hover basis on PURPOSE: if the
     # config battery block is ever absent, the GO gate must err STRICT (assume
     # too little charge), never optimistic. Do NOT read them as a description of

@@ -141,7 +141,14 @@ BOARD: dict[str, float] = {
     # converged in flights this short, so the SEED is what the takeoff ramp,
     # the land detector and every post-reset first flight actually fly on.
     # Written + read-back on the board 2026-08-21 (operator-approved).
-    "MPC_THR_HOVER": 0.58,
+    # 0.58 -> 0.65 (2026-08-29): the 30-Aug flight carries a second pack in
+    # parallel (17000 semi-solid || 15000), +1.3 kg on a 7.2 kg AUW. Hover
+    # motor mean was 0.53-0.67 at 7.2 kg; thrust ~ throttle^2 scales that by
+    # sqrt(8.5/7.2) = 1.09 -> ~0.65. It is a SEED: MPC_USE_HTE refines it in
+    # flight, but the takeoff ramp and the land detector's minimal-thrust
+    # threshold (MPC_THR_MIN + 0.1*(HOVER - THR_MIN)) fly on this number.
+    # Re-seed from the motor mean of the first hover with the pack fitted.
+    "MPC_THR_HOVER": 0.65,
 }
 
 # ── pushed by orchestrator/main.py at mission start; bench values are fine ──
