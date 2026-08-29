@@ -55,6 +55,11 @@ from pathlib import Path
 _MAX_TEXT = 50
 _SEV_INFO = 6      # MAV_SEVERITY_INFO
 _SEV_WARN = 4      # MAV_SEVERITY_WARNING
+_SEV_ERR = 3       # MAV_SEVERITY_ERROR — the console's loudest line
+# The mission publishes its status continuously while it runs, so a status
+# this old ALONGSIDE a stand-down reason means one thing only: the
+# orchestrator has ended and is not coming back by itself.
+_STOOD_DOWN_S = 45.0
 
 # A frame older than this means the grabber is wedged or dead, not merely slow
 # (the real grabber writes at several Hz; the mission's own vision gate is 2 s).
@@ -190,6 +195,18 @@ def compose_lines(status: dict | None, frame_age_s: float | None,
     why = (status or {}).get("home_reason_code")
     if why:
         lines.append((_SEV_WARN, f"AAVC why={why}"[:_MAX_TEXT]))
+
+    # THE ONE LINE THAT WAS MISSING ON 2026-08-29. After the pilot killed the
+    # flight the orchestrator stood down for good; the crew swapped the pack and
+    # armed twice, and both times PX4 answered "Switching to Offboard is
+    # currently not available" — because nothing was publishing setpoints any
+    # more. Everything the crew could see said the aircraft was fine: this
+    # beacon was still arriving every 5 s, the camera line still read OK, and
+    # the console's control bar just sat there waiting. The two facts that
+    # spelled it out, `stale=266` and `why=pilot`, were two separate WARN lines
+    # among a dozen, and neither says what to DO. Say it, once, at ERROR.
+    if (why and status_age_s is not None and status_age_s > _STOOD_DOWN_S):
+        lines.append((_SEV_ERR, "AAVC STOOD DOWN - RESTART STACK, THEN ARM"))
 
     if frame_age_s is None:
         lines.append((_SEV_WARN, "AAVC cam=NONE no frame file"))

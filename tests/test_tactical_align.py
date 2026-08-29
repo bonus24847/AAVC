@@ -689,6 +689,140 @@ def test_a_below_minimum_lidar_reading_is_not_treated_as_the_ground(monkeypatch)
     assert math.isnan(t.rangefinder_agl_m()), "a 5 s old reading is not current"
 
 
+def _sized(marker_id, alt_m):
+    """A centred hit whose marker size matches ``alt_m`` — the size prior gates
+    on it, so a fixed radius is rejected at every altitude but one."""
+    return PadHit(cx=320, cy=240, marker_id=marker_id,
+                  radius_px=423.1 * 0.2 / max(alt_m, 0.5),
+                  confidence=0.9, corners=(), pad_side_px=0.0)
+
+
+class GroundedCommander(LaggingCommander):
+    """Tracks land(); optionally makes PX4's land detector refuse forever."""
+
+    def __init__(self, state: OrchestratorState) -> None:
+        super().__init__(state)
+        self.land_calls: list[float] = []
+        #: when True the fake PX4 land detector NEVER latches — which is what
+        #: the real one did for 226 s on 2026-08-29 with the aircraft on the
+        #: grass, because it will not latch while the position controller is
+        #: still demanding movement.
+        self.refuse_land_detector = False
+
+    async def land(self, *, disarm: bool = True) -> None:
+        self.land_calls.append(self.state.telemetry.relative_alt_m)
+        await super().land(disarm=disarm)
+        if self.refuse_land_detector:
+            t = self.state.telemetry
+            t.landed_state = "IN_AIR"
+            t.rangefinder_m, t.rangefinder_ts = 0.0, time.monotonic()
+
+
+def test_ground_contact_stops_the_ladder_and_lands_instead_of_climbing(monkeypatch) -> None:
+    """2026-08-29, the tip-over. The ladder walked the aircraft onto the grass
+    while the height frame still read 2.4 m; PX4 stayed in AUTO.LOITER holding
+    position, its land detector never latched, the commanded pitch wound up
+    +1.4° → +20.3° over ~10 s at idle thrust, and the next climb-out levered
+    the airframe onto its tail. The guard must see the ground on the lidar and
+    command LAND — which ramps thrust down, and is the only state PX4's own
+    detector will latch in — instead of leaving it pressed into the grass."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = GroundedCommander(state)
+    state.telemetry.rangefinder_min_m, state.telemetry.rangefinder_max_m = 0.4, 12.0
+    state.telemetry.rangefinder_m = 12.0
+    state.telemetry.rangefinder_ts = time.monotonic()
+    # the real sequence: the beam walks down through its range, then the
+    # aircraft is ON the grass — 0.00 m (below the minimum) and no pad to see
+    touchdown = iter([4.0, 3.0, 2.0, 1.2, 0.8, 0.5] + [0.0] * 200)
+
+    def detect(frame_path, min_conf, assigned_id):
+        t = state_ref.telemetry
+        if cmd.target_alt is not None and cmd.target_alt < 8.0:
+            v = next(touchdown)
+            t.rangefinder_m, t.rangefinder_ts = v, time.monotonic()
+            if v == 0.0:
+                return None
+        else:
+            t.rangefinder_m, t.rangefinder_ts = 12.0, time.monotonic()
+        return _sized(3, t.relative_alt_m)
+    monkeypatch.setattr(ta, "_detect_nadir", detect)
+    _patch_live_camera(monkeypatch)
+
+    asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rung_timeout_s=2.0, ground_contact_cycles=3)))
+    assert any("ground_contact_at_rung" in a for a in state.anomalies), state.anomalies
+    assert cmd.land_calls, "the guard must command LAND, not leave it in position hold"
+
+
+def test_the_rangefinder_confirms_touchdown_when_px4s_land_detector_will_not(
+        monkeypatch) -> None:
+    """On 2026-08-29 `vehicle_land_detected.landed` stayed False for 226 s with
+    the aircraft on the grass. The lidar had the answer the whole time
+    (0.11 m). It must be believed BEFORE the altitude-threshold fallback, which
+    reads the very frame that was 2.4 m wrong."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = GroundedCommander(state)
+    cmd.refuse_land_detector = True
+    state.telemetry.landed_state = "IN_AIR"
+    state.telemetry.rangefinder_min_m, state.telemetry.rangefinder_max_m = 0.4, 12.0
+    state.telemetry.rangefinder_m = 12.0
+    state.telemetry.rangefinder_ts = time.monotonic()
+
+    def detect(frame_path, min_conf, assigned_id):
+        t = state_ref.telemetry
+        if cmd.target_alt is not None:
+            step = cmd.target_alt - t.relative_alt_m
+            t.relative_alt_m += max(-1.0, min(1.0, step))
+        alt = max(t.relative_alt_m, 0.5)
+        t.rangefinder_m, t.rangefinder_ts = alt, time.monotonic()
+        return _sized(3, alt)
+    monkeypatch.setattr(ta, "_detect_nadir", detect)
+    _patch_live_camera(monkeypatch)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rungs=(12.0, 5.0, 2.0), rung_tol_m=(1.5, 0.6, 0.3),
+                            rung_descent_mps=(3.0, 1.0, 0.5),
+                            rung_timeout_s=3.0, touchdown_timeout_s=0.2,
+                            ground_contact_cycles=3,
+                            rangefinder_max_age_s=3600.0)))
+    assert res.landed, "the rangefinder's ground contact must count as touchdown"
+    assert any("touchdown_from_rangefinder" in a for a in state.anomalies), state.anomalies
+    assert not any("alt_fallback" in a for a in state.anomalies), (
+        "the lidar must be tried BEFORE the altitude threshold", state.anomalies)
+    assert res.dropped, "and the egg goes out"
+
+
+def test_a_0_00_reading_from_ABOVE_the_beam_is_not_ground_contact(monkeypatch) -> None:
+    """The TFmini-S reports 0.00 past its 12 m maximum as well as under its
+    0.4 m minimum. At sweep altitude that must never read as "on the ground" —
+    the guard requires the beam to have just measured something within
+    ground_contact_from_m."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = GroundedCommander(state)
+    state.telemetry.rangefinder_min_m, state.telemetry.rangefinder_max_m = 0.4, 12.0
+
+    def detect(frame_path, min_conf, assigned_id):
+        t = state_ref.telemetry
+        t.rangefinder_m, t.rangefinder_ts = 0.0, time.monotonic()   # out of range: HIGH
+        if cmd.target_alt is not None and t.relative_alt_m > cmd.target_alt:
+            t.relative_alt_m = max(cmd.target_alt, t.relative_alt_m - 1.0)
+        return _sized(3, t.relative_alt_m)
+    monkeypatch.setattr(ta, "_detect_nadir", detect)
+    _patch_live_camera(monkeypatch)
+
+    asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rung_timeout_s=0.4, ground_contact_cycles=3)))
+    assert not any("ground_contact_at_rung" in a for a in state.anomalies), (
+        "a 0.00 m never preceded by a close reading is out-of-range, not the ground",
+        state.anomalies)
+
+
 def test_undecoded_blob_hits_never_feed_the_frame_bias(monkeypatch) -> None:
     """A white-pad blob's marker-equivalent size is an inference; if it read
     2.5x too small the bias would steer the aircraft LOWER than it thinks.

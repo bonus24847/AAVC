@@ -158,6 +158,25 @@ class CurrentTelemetry:
             return math.nan
         return d
 
+    def rangefinder_below_beam(self, *, max_age_s: float = 1.0) -> bool:
+        """A fresh reading that is UNDER the sensor's own minimum.
+
+        The TFmini-S reports **0.00 m** when the target is closer than its
+        0.4 m floor. On its own this is AMBIGUOUS — the beam reports the same
+        0.00 past its 12 m maximum — so a caller must only read it as ground
+        contact when it arrived from a CLOSE in-range reading. That is exactly
+        the sequence the 2026-08-29 flight recorded: 1.80 m, 0.81 m, then 0.00
+        held for 25 s with the aircraft sitting on the grass.
+        """
+        if (time.monotonic() - self.rangefinder_ts) > max_age_s:
+            return False
+        d = float(self.rangefinder_m)
+        if not math.isfinite(d):
+            return False
+        lo = self.rangefinder_min_m
+        lo = 0.4 if not math.isfinite(lo) or lo <= 0.0 else lo
+        return d < lo
+
     battery_consumed_mah: float = math.nan
     # When that coulomb count last ARRIVED. It rides the optional raw-MAVLink
     # listener, so it can go quiet while MAVSDK telemetry keeps flowing —
