@@ -327,8 +327,11 @@ t=342.9. Battery 100 → 31 %, 3563 mAh, 35.8 A mean.
   0.4-1.4 m seen on 08-28. The real 2.4 m saturated it, so every rung was
   commanded ~0.9 m low → the 3 m rung flew at a true 2.1 m and the **altitude
   gate correctly refused it** (the gate is not at fault; its input was) →
-  `rung3m_alt_unverified_fallback` → the 2 m rung flew at a true ~1.1 m, where
-  the 400 mm marker leaves the frame → pad lost → **LAND was never commanded**
+  fallback → the 2 m rung was commanded at a true ~1.1 m and the aircraft went
+  ON DOWN to the ground (t=323: lidar 0.52 m falling to 0.10, mission AGL still
+  reading 2.4) → on the ground the pad is far too close to read → pad lost,
+  climb a rung, retry — the audit's `lost@2m→climb` ×5 → **LAND was never
+  commanded**
   (nav stayed AUTO_LOITER the whole time, PX4's land detector never latched,
   the touchdown-gated release never fired) → the aircraft settled onto the
   ground still reading 2.4 m, climbed out, retried, and was killed.
