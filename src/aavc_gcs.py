@@ -619,6 +619,34 @@ def _mission_cmd_remote_dir(cmd):
     return None
 
 
+CM4_SILENT_S = 15.0   # beacon silence, airborne, before the banner
+
+
+def cm4_silent(s, now):
+    """True when the companion has gone quiet IN FLIGHT: the FC (over the
+    radio) says armed + in the air and the radio itself is alive, but no
+    ``AAVC …`` beacon line has arrived for ``CM4_SILENT_S``.
+
+    Bang Bo flight 5 (2026-08-30 00:41, ULog 17_41_39): TELEM2 from the CM4
+    died at t=39 s — orchestrator and beacon silent together — and PX4 held
+    the last reposition setpoint, so the aircraft hovered on one spot for a
+    minute while the crew wondered why it "would not turn". Nothing on the
+    FC side acts on a lost companion (the radio console still counts as a
+    live GCS, so no datalink failsafe), which makes the pilot the only net —
+    and the pilot needs to be told within seconds, not after a minute.
+    Not raised on the ground, not before the first beacon line of the
+    session, and not when the RADIO is what died (the 📻 badge owns that)."""
+    if not (s.get("armed") and s.get("in_air")):
+        return False
+    last_hb = s.get("last_hb") or 0.0
+    if now - last_hb > 5.0:
+        return False
+    last = s.get("radio_last_aavc")
+    if not last:
+        return False
+    return (now - last) > CM4_SILENT_S
+
+
 _NIGHT_CAM_DEV = "/dev/v4l/by-id/usb-Generic_USB_Camera_200901010001-video-index0"
 
 
@@ -1424,6 +1452,7 @@ class Link:
         40-line log. Camera state TRANSITIONS still get logged so a mid-flight
         death leaves a visible trace."""
         now = time.time()
+        self.s["radio_last_aavc"] = now   # any beacon line = the CM4 is alive
         if txt.startswith("AAVC STOOD DOWN"):
             # cm4/status_beacon.py, at ERROR, once a stand-down reason stands
             # and the status file has stopped updating (2026-08-29: the crew
@@ -2642,6 +2671,9 @@ class Link:
         # the line keeps arriving; the beacon repeats it every tick.
         sd = self.s.get("radio_stood_down")
         snap["stood_down"] = bool(sd and time.time() - sd["t"] <= 45)
+        # The CM4 has gone quiet IN FLIGHT (Bang Bo flight 5): the aircraft is
+        # hovering on its last setpoint and only the pilot can end it.
+        snap["cm4_silent"] = cm4_silent(self.s, time.time())
         bb = snap.get("blackbox") or {}
         bb["age_s"] = (round(time.time() - bb["t"], 1)
                        if bb.get("t") else None)   # seconds since last recorded fix
@@ -4106,6 +4138,10 @@ function renderMissionLock(s){
  if(!sb){sb=document.createElement('div');sb.id='stoodbar';document.body.appendChild(sb);}
  if(s.stood_down){sb.style.display='block';
   sb.textContent='⛔ ระบบหยุดสั่งแล้ว (STOOD DOWN) — restart stack ด้วยไอคอน COMP ก่อน arm/OFFBOARD · ห้ามกด 🚀 ซ้ำขณะ orchestrator ยังรัน';}
+ else if(s.cm4_silent){sb.style.display='block';
+  // Bang Bo flight 5 (2026-08-30): CM4 link died in flight, aircraft hovered
+  // on its last setpoint for a minute — PX4 will not act on a lost companion.
+  sb.textContent='🛑 CM4 เงียบ > 15 วิ ขณะบิน — โดรนจะลอยนิ่งที่จุดสุดท้าย ไม่บินต่อเอง → นักบิน POSCTL แล้วลง · ลงแล้ว restart stack ก่อนบินใหม่';}
  else sb.style.display='none';
  var ms=s.mission||{};
  var fresh=ms.age_s!=null&&ms.age_s<=45;
