@@ -27,7 +27,11 @@ def test_competition_field_carries_the_whole_planned_route(monkeypatch):
     z = _zones(_COMP_FIELD, monkeypatch)
     assert z["transit"] and len(z["transit"]) == 3            # root-level {id,lat,lon} rows
     assert z["transit"][0] == z["home"]                        # P1 = L&R
-    assert len(z["sweep"]) == 17                               # + pocket pass at E 186 (2026-08-29 12:13)
+    # 15 since the 2026-08-29 evening redraw (the operator's line over the
+    # coverage map): waypoint 6 straight into ONE middle column at E 110, and
+    # the strip legs reaching back to E 122. The digit-for-digit check against
+    # the flight config is the test below; this one just pins the shape.
+    assert len(z["sweep"]) == 15
     assert len(z["keepout"]) == 4 and all(len(p) == 4 for p in z["keepout"])   # building, courtyard, east, trees (2026-08-29)
     assert len(z["gateways"]) == 4 and z["gateway"] == z["gateways"][0]
     # the sweep's east ends stop short of the east band, its west ends inside the airspace

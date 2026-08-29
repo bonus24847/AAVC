@@ -74,24 +74,28 @@ transit_waypoints:
 # apart), `gateway` = routing.gateway (the one via-point every goto detours
 # through when its straight line would cross a keep-out polygon).
 planned_path:
-  sweep:                              # [lat, lon], flying order — 17 points at 15 m: north strip + pocket pass + tree-side pass + lane + lower band + west column (2026-08-29)
-    - [13.731095, 100.788519]
-    - [13.731095, 100.789166]
-    - [13.730897, 100.789166]
-    - [13.731095, 100.789166]
-    - [13.731095, 100.789369]
-    - [13.731238, 100.789369]
-    - [13.731238, 100.788389]
-    - [13.730915, 100.788389]
-    - [13.730915, 100.788519]
-    - [13.730798, 100.788519]
-    - [13.730798, 100.787871]
-    - [13.730969, 100.787871]
-    - [13.730969, 100.788093]
-    - [13.731095, 100.788093]
-    - [13.731095, 100.787871]
-    - [13.731220, 100.787871]
-    - [13.731220, 100.788093]
+  sweep:                              # [lat, lon], flying order — 15 points at 15 m.
+                                      # REDRAWN 2026-08-29 evening (operator's line over the
+                                      # coverage map): waypoint 6 goes straight into ONE middle
+                                      # column at E 110, and the strip legs reach back to E 122.
+                                      # 579 m / ~166 s; 3 m2 of the RULES polygon unseen (0.04 %),
+                                      # 10 m clear of the 18 m trees. Digit-for-digit
+                                      # aavc-comp sitl/kmitl_config.yaml search.sweep_waypoints_enu.
+    - [13.730753, 100.788565]   # E 121.0 / N  48.0  S1 east (from P3')
+    - [13.730753, 100.787853]   # E  44.0 / N  48.0  S1 west
+    - [13.730870, 100.787908]   # E  50.0 / N  61.0  W1 bottom
+    - [13.731256, 100.787908]   # E  50.0 / N 104.0  W1 top
+    - [13.731256, 100.788093]   # E  70.0 / N 104.0  W2 top
+    - [13.730870, 100.788093]   # E  70.0 / N  61.0  W2 bottom
+    - [13.730870, 100.788565]   # E 121.0 / N  61.0  S2 east
+    - [13.730987, 100.788463]   # E 110.0 / N  74.0  middle column bottom
+    - [13.731256, 100.788463]   # E 110.0 / N 104.0  middle column top
+    - [13.731238, 100.789434]   # E 215.0 / N 102.0  strip NE
+    - [13.731077, 100.789434]   # E 215.0 / N  84.0  step down
+    - [13.731077, 100.789166]   # E 186.0 / N  84.0  pocket gate
+    - [13.730771, 100.789166]   # E 186.0 / N  50.0  pocket bottom
+    - [13.731077, 100.789166]   # E 186.0 / N  84.0  pocket gate
+    - [13.731077, 100.788574]   # E 122.0 / N  84.0  strip SW - egress
   gateways:                           # via-points the routing chains around the keep-outs
     - [13.731068, 100.788509]   # NE  ENU 115 / 83
     - [13.730843, 100.788482]   # SE  ENU 112 / 58
