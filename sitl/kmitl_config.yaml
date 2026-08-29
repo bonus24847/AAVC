@@ -204,6 +204,7 @@ routing:
     - [13.731068, 100.788509]   # NE  ENU 115 / 83 — off the building band's NW corner
     - [13.730843, 100.788482]   # SE  ENU 112 / 58 — the lane between the trees and the building
     - [13.730843, 100.788001]   # SW  ENU  60 / 58 — south of the trees, west field
+    - [13.731041, 100.789166]   # PK  ENU 186 / 80 — top of the building-courtyard pocket (2026-08-29): the pocket pass bottom (186,64) has no clear line to NE/SE/SW, this one does
 
 # Ground operations — the Launch & Recovery point: on the pitch long axis,
 # field-frame s=+24 (6 m in from the SE airspace edge, inside the penalty
@@ -258,7 +259,7 @@ search:
   # over the building. Laid out BY HAND for the
   # L-shaped area minus the tree block (sweep_waypoints_enu below; the
   # generated pattern would run through the building band and the trees).
-  # At 15 m (swath 22.7): 7 legs, 466 m of legs+turns at 3.5 m/s, ~184 s;
+  # At 15 m (swath 22.7): 7 legs, 510 m of legs+turns at 3.5 m/s, ~206 s;
   # marker 22.6 px, pad 56 px (the trial at 20 m / 17 px decoded 20-33 % of
   # frames per pass — 15 m is the altitude that turns that into a margin).
   # ⚠ NOT YET FLOWN: the 28-Aug trial slot is the one test — pass = every
@@ -292,7 +293,10 @@ search:
   # three short legs reached from the south, the north strip (E 110-205)
   # two, reached from the corridor gate. Held heading = sweep_axis_deg (87)
   # minus the camera mount, as always.
-  #   N1  (116,86) → (208,86)   north strip; starts 10 m east of the lane, ends 15 m short of the east band
+  #   N1a (116,86) → (186,86)   north strip; starts 10 m east of the lane
+  #   P↓  (186,86) → (186,64)   POCKET PASS down at E 186 — the operator's purple line (2026-08-29 12:13): the free gap between the building (E<=180) and the courtyard (E>=192), 6 m from each
+  #   P↑  (186,64) → (186,86)   back up to the north strip
+  #   N1b (186,86) → (208,86)   north strip continues, ends 15 m short of the east band
   #   N2  (208,102) → (102,102)   north strip, ends 4 m east of the tree keep-out (E 97)
   #   T   (102,102) → (102,66)   tree-side pass at E 102: covers the strip the smaller keep-out freed (E 97-107), 5 m from its edge
   #   →   (102,66) → (116,66)   transition east, along the keep-out's south edge (N 66)
@@ -308,6 +312,9 @@ search:
   # usable half-swath at 15 m). Re-run it after ANY edit.
   sweep_waypoints_enu:
     - [116.0, 86.0]
+    - [186.0, 86.0]
+    - [186.0, 64.0]
+    - [186.0, 86.0]
     - [208.0, 86.0]
     - [208.0, 102.0]
     - [102.0, 102.0]
@@ -417,8 +424,8 @@ search:
                            # legs+turns at 3.5) + 2 decode visits x 40 = 80 (at
                            # 22.6 px most pads decode IN the sweep) + 4 x
                            # serve_cost_s 90 = 360 + 22 exit via the SW gateway
-                           # + egress 32 + land 35 = 762 s. Egg 4's gate runs with
-                           # 617 s left against its 300 s floor; the launch gate
+                           # + egress 32 + land 35 = 784 s. Egg 4's gate runs with
+                           # 595 s left against its 300 s floor; the launch gate
                            # stacks 180 + this + 30 = 1030 <= 1200.
                            # (Earlier today: 985 capped for the 4-leg 3 m/s plan;
                            # 2026-08-24: 900 at the 12 m sweep of the full
