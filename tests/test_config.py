@@ -155,7 +155,11 @@ def test_field_configs_keep_the_latch_open_after_release() -> None:
     for path in ("sitl/kmitl_config.yaml", "sitl/aavc_config.yaml"):
         cfg = yaml.safe_load(open(path, encoding="utf-8"))
         assert cfg["connection"]["drop_servo_relatch"] is False, path
-        assert _build_connection(cfg["connection"], None).drop_servo_relatch is False
+        cc = _build_connection(cfg["connection"], None)
+        assert cc.drop_servo_relatch is False
+        # The pymavlink fallback must aim at the CM4 router's loopback server
+        # (what the status beacon uses), not PX4 SITL's 18570 (dead on the bird).
+        assert cc.drop_fallback_endpoint == "udpout:127.0.0.1:14550", path
     assert _build_connection({"drop_servo_relatch": True}, None).drop_servo_relatch is True
 
 

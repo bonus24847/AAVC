@@ -647,6 +647,13 @@ connection:
   # PWM_AUX_DISn (1100 = closed) at DISARM, so the rack closes itself at L&R
   # for the resupply crew. true = the old release -> 0.6 s -> hold pulse.
   drop_servo_relatch: false
+  # Fallback release path (raw COMMAND_LONG over pymavlink) if MAVSDK's
+  # set_actuator is ever rejected. The dataclass default is PX4 SITL's 18570 —
+  # nothing listens there on the CM4 (found 2026-08-29). 14550 is the
+  # mavlink-router's loopback Server endpoint that the status beacon already
+  # speaks to every second, so a client heartbeat there registers and the
+  # command is routed to the FC.
+  drop_fallback_endpoint: udpout:127.0.0.1:14550
   # Four INDEPENDENT release mechanisms (briefing override: all four eggs fly
   # in one flight; rules §7 permits multiple cargo only with independent
   # release mechanisms, never simultaneous).
