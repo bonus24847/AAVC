@@ -382,6 +382,10 @@ WHY_TH = {
     "datalink": "ลิงก์สั่งการหลุด — กลับบ้าน (RTH)",
     "time": "หมดงบเวลา — กลับบ้าน (RTH)",
     "pilot": "นักบินยึดเครื่องคืน — ระบบหยุดสั่งแล้ว",
+    "fc": "FC เข้า failsafe เอง (RTL/LAND) — ระบบหยุดสั่งแล้ว",
+    # the PLANNED 30 % egress (2026-08-27 policy): home to swap the pack,
+    # not a failure — the recovery flight serves what is still owed
+    "batt-egress": "แบตถึงเกณฑ์ 30 % — กลับมาเปลี่ยนแบต แล้ว arm + OFFBOARD เที่ยวกู้",
 }
 
 # Phase -> the caption under the %-bar, for the RADIO feed. The WiFi feed sends
@@ -1393,6 +1397,20 @@ class Link:
         40-line log. Camera state TRANSITIONS still get logged so a mid-flight
         death leaves a visible trace."""
         now = time.time()
+        if txt.startswith("AAVC STOOD DOWN"):
+            # cm4/status_beacon.py, at ERROR, once a stand-down reason stands
+            # and the status file has stopped updating (2026-08-29: the crew
+            # swapped a pack and armed twice into a mission that had already
+            # ended, because nothing on screen said the orchestrator was
+            # gone). Its own slot drives the red banner; it also goes to the
+            # log once a minute so it survives in the scrollback.
+            prev = self.s.get("radio_stood_down")
+            self.s["radio_stood_down"] = {"t": now, "txt": txt}
+            if prev is None or now - prev["t"] > 60:
+                buf = self.s["messages"]
+                buf.append({"t": time.strftime("%H:%M:%S"), "txt": txt})
+                del buf[:-40]
+            return
         if txt.startswith("AAVC pads"):
             # pad coordinates (ENU m about the field origin), chunked lines:
             #   "AAVC pads 1:12.3,-8.1 3:5.0,14.2"
@@ -1484,6 +1502,18 @@ class Link:
             self.s["radio_mission"] = {"t": now, "phase": m.group(1),
                                        "delivered_n": 0, "assigned_n": 0,
                                        "mapped_n": 0, "ok": []}
+            return
+        # CATCH-ALL: a beacon line this parser does not know is LOGGED, never
+        # dropped. The STOOD DOWN line above spent a day being discarded here
+        # (2026-08-29) — a new line on the radio must at least reach the
+        # scrollback until the console learns it. Once a minute per text so a
+        # repeating tick cannot drown the 40-line log.
+        seen = self.s.setdefault("radio_unknown", {})
+        if now - seen.get(txt, 0.0) > 60:
+            seen[txt] = now
+            buf = self.s["messages"]
+            buf.append({"t": time.strftime("%H:%M:%S"), "txt": txt})
+            del buf[:-40]
 
     ACC_SIDES = ["down", "up", "left", "right", "front", "back"]
 
@@ -2581,6 +2611,10 @@ class Link:
         _rt = [v["t"] for k, v in self.s.items()
                if k.startswith("radio_") and isinstance(v, dict) and v.get("t")]
         snap["radio_age"] = round(time.time() - max(_rt), 1) if _rt else None
+        # The orchestrator is GONE (beacon ERROR line, 2026-08-29): true while
+        # the line keeps arriving; the beacon repeats it every tick.
+        sd = self.s.get("radio_stood_down")
+        snap["stood_down"] = bool(sd and time.time() - sd["t"] <= 45)
         bb = snap.get("blackbox") or {}
         bb["age_s"] = (round(time.time() - bb["t"], 1)
                        if bb.get("t") else None)   # seconds since last recorded fix
@@ -3265,6 +3299,7 @@ body.fieldmode #fmbtn{background:#238636;color:#fff;border-color:#3fb950}
  font-size:13px;color:#c9d1d9;font-family:ui-monospace,monospace}
 .mtstats b{font-weight:700}
 .mtstats .sep{color:#455060}
+#stoodbar{display:none;position:fixed;top:0;left:0;right:0;z-index:9999;padding:10px 14px;background:#7f1d1d;color:#fff;font-weight:700;font-size:15px;text-align:center;border-bottom:2px solid #f85149;animation:stagedpulse 1.4s ease-in-out infinite}
 .mtwhy{margin-top:5px;padding:4px 8px;border:1px solid #9e6a03;border-radius:6px;background:rgba(187,128,9,.15);color:#e3b341;font-size:13px}
 .mapcard>h3,.instr>h3{font-size:11px;letter-spacing:.10em;color:#7d8b99;
  margin:0 0 13px;font-weight:700;text-transform:uppercase;text-align:left}
@@ -4037,6 +4072,14 @@ async function selectMission(){
  }catch(e){alert(e);sel.value=cur;}
 }
 function renderMissionLock(s){
+ // ⛔ STOOD DOWN banner (2026-08-29): the beacon says the orchestrator has
+ // stood down for good — a battery swap will not bring it back and PX4 will
+ // refuse OFFBOARD ("Switching to Offboard is currently not available").
+ var sb=document.getElementById('stoodbar');
+ if(!sb){sb=document.createElement('div');sb.id='stoodbar';document.body.appendChild(sb);}
+ if(s.stood_down){sb.style.display='block';
+  sb.textContent='⛔ ระบบหยุดสั่งแล้ว (STOOD DOWN) — restart stack ด้วยไอคอน COMP ก่อน arm/OFFBOARD · ห้ามกด 🚀 ซ้ำขณะ orchestrator ยังรัน';}
+ else sb.style.display='none';
  var ms=s.mission||{};
  var fresh=ms.age_s!=null&&ms.age_s<=45;
  var live=(!s.demo)&&fresh&&!!ms.phase&&ms.phase!=='done';
