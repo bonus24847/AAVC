@@ -30,7 +30,7 @@ def test_board_checks_the_17000_pack_endpoints() -> None:
     # the measured sag (1.3-1.5 V at 54 A, three flights) so the % under load
     # reads like the resting %.
     assert BOARD["BAT1_V_CHARGED"] == 4.18
-    assert BOARD["BAT1_V_EMPTY"] == 3.65
+    assert BOARD["BAT1_V_EMPTY"] == 3.40
     assert BOARD["BAT1_R_INTERNAL"] == 0.004
 
 

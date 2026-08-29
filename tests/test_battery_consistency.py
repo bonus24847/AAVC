@@ -97,7 +97,9 @@ def test_the_endpoints_are_a_plausible_pack_not_a_typo() -> None:
     cells = BOARD["BAT1_N_CELLS"]
     full, empty = BOARD["BAT1_V_CHARGED"] * cells, BOARD["BAT1_V_EMPTY"] * cells
     assert 24.5 <= full <= 25.5, f"pack full = {full:.2f} V"
-    # empty floor 22.0 -> 21.5 on 2026-08-29: V_EMPTY 3.65 (21.9 V) approved from
-    # the Bang Bo ULogs — see tools/preflight_params.py BOARD.
-    assert 21.5 <= empty <= 23.0, f"pack empty = {empty:.2f} V"
+    # empty floor 22.0 -> 20.0 across 2026-08-29/30: V_EMPTY 3.77 -> 3.65 -> 3.40
+    # (20.4 V), each step measured from the Bang Bo parallel-pack ULogs — see
+    # tools/preflight_params.py BOARD. Below 20.0 V (3.33 V/cell) a 6S LiPo IS
+    # empty, so that stays the floor of the band.
+    assert 20.0 <= empty <= 23.0, f"pack empty = {empty:.2f} V"
     assert full - empty >= 1.5, "usable voltage band collapsed"
