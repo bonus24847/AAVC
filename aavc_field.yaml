@@ -74,8 +74,11 @@ transit_waypoints:
 # apart), `gateway` = routing.gateway (the one via-point every goto detours
 # through when its straight line would cross a keep-out polygon).
 planned_path:
-  sweep:                              # [lat, lon], flying order — 9 segments at 15 m around the trees (2026-08-29)
+  sweep:                              # [lat, lon], flying order — 17 points at 15 m: north strip + pocket pass + tree-side pass + lane + lower band + west column (2026-08-29)
     - [13.731095, 100.788519]
+    - [13.731095, 100.789166]
+    - [13.730897, 100.789166]
+    - [13.731095, 100.789166]
     - [13.731095, 100.789369]
     - [13.731238, 100.789369]
     - [13.731238, 100.788389]
@@ -93,6 +96,7 @@ planned_path:
     - [13.731068, 100.788509]   # NE  ENU 115 / 83
     - [13.730843, 100.788482]   # SE  ENU 112 / 58
     - [13.730843, 100.788001]   # SW  ENU  60 / 58
+    - [13.731041, 100.789166]   # PK  ENU 186 / 80 (pocket top, 2026-08-29)
 
 # Plan-level keep-out polygons (= flight config routing.keepout_zones) — the
 # no-fly bands the operator marked on the gridded map at the 28-Aug briefing
