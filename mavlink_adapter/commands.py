@@ -1241,6 +1241,20 @@ class DroneCommander:
                             DEFAULT_PX4_TUNING.get("RTL_RETURN_ALT", 20.0)))
         logger.info(f"[mavlink] RTH routes around the keep-out bands: "
                     f"{len(vias)} via-point(s) at {alt:.0f} m before PX4 RTL")
+        # CLIMB IN PLACE FIRST, exactly as PX4's own RTL does. A goto both
+        # climbs and translates, so flying straight at the first via-point from
+        # a 2 m rung over a pad would cross the ground BELOW the return
+        # altitude — and the bands being routed around are 18 m trees and a
+        # building. Vertical margin before horizontal movement, always.
+        try:
+            await self.goto(lat, lon, alt)
+            await self._wait_until_altitude_reached(alt, timeout_s=60.0)
+        except PilotInControlError:
+            raise
+        except Exception as e:
+            logger.warning(f"[mavlink] RTH climb to {alt:.0f} m failed: {e} — "
+                           "handing over to the straight-line RTL")
+            return
         for i, (vlat, vlon) in enumerate(vias, 1):
             try:
                 await self.goto(vlat, vlon, alt)

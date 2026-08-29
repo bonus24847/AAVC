@@ -483,12 +483,16 @@ def _rth_commander(vias_from):
     async def _arrive(lat, lon, *, timeout_s, radius_m=3.0):
         return True
 
+    async def _climbed(target_m, tolerance_m=None, timeout_s=60.0):
+        return True
+
     async def _landed(**kw):
         return True
 
     async def _disarmed(**kw):
         return True
     c._current_position = _pos
+    c._wait_until_altitude_reached = _climbed
     c.goto = _goto
     c._wait_arrival = _arrive
     c._wait_until_landed = _landed
@@ -506,7 +510,10 @@ def test_the_companion_rth_flies_the_gateway_chain_before_px4_takes_over() -> No
     c, act = _rth_commander(
         lambda lat, lon: gateway_route((lat, lon), (HOME.lat, HOME.lon),
                                        [BOX], [GATE]))
-    assert [g[:2] for g in c.gotos] == [GATE], c.gotos
+    # climb IN PLACE first (PX4's RTL does; a goto climbs and translates at the
+    # same time, which from a 2 m rung would cross the ground below the return
+    # altitude — and the bands are 18 m trees and a building), then the chain.
+    assert [g[:2] for g in c.gotos] == [(PAD5[0], PAD5[1]), GATE], c.gotos
     assert all(g[2] == 25.0 for g in c.gotos), "vias must be flown at RTL altitude"
     assert act.rtl_calls == 1, "PX4 RTL still flies the last leg and lands"
 
