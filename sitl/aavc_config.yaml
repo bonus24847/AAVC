@@ -998,6 +998,15 @@ align:
                           # LAND, no release. DOCUMENTATION (the flown value is the
                           # AlignParams default; only the rate trio is read
                           # from this block) — keep the two in step.
+  # "วางไม่ตรง ดีกว่าไม่วาง" (operator 2026-08-29, before the last flight): when
+  # the 2 m rung's 0.25 m lock never holds but the pad is still IN VIEW, land
+  # anyway if the last centring error is within land_ok_err_m (the aircraft's
+  # centre stays on the 1 m pad with room for AUTO.LAND's drift); on the
+  # mission's single retry — the LAST attempt — widen to land_ok_err_last_m
+  # (an egg at the pad's edge beats an egg brought home). A pad not seen at
+  # the bottom rung never licenses this, and the id gate is untouched.
+  land_ok_err_m: 0.45
+  land_ok_err_last_m: 1.0
   max_lost_cycles: 24     # 2.0 s of lost pad before climbing back
   median_window: 3        # fixes fused per command (lag = window / cycle_hz
                           # = 0.25 s; keep ODD and small — see the dataclass)

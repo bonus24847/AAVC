@@ -291,6 +291,23 @@ class AlignParams:
     # mission can defer/re-try — landing on coarse GPS wastes the sortie's only
     # egg and scores nothing (V1.3 reverses "an attempt beats no drop").
     gps_fallback: bool = False
+    # "วางไม่ตรง ดีกว่าไม่วาง" — an off-centre placement beats none (operator,
+    # 2026-08-29 evening, before the last scored flight). The centred-LAND gate
+    # below used to DEFER whenever the bottom rung's 0.25 m lock never held —
+    # the 29-Aug audit deferred at err 0.17 m — and a deferred egg that the
+    # single retry cannot land comes home for zero. Scoring pays for an egg on
+    # the pad, not for a centred one: if the pad is still IN VIEW at the bottom
+    # rung and the last centring error is within ``land_ok_err_m`` (the
+    # aircraft's centre stays on the 1 m pad with room for AUTO.LAND's drift),
+    # land anyway, audited. On the mission's LAST attempt the choice is between
+    # an egg at the pad's edge and an egg brought home, so the limit widens to
+    # ``land_ok_err_last_m``. A pad NOT seen at the bottom rung never licenses
+    # this — a 400 mm marker that has left the frame at 2 m is >1.3 m off, next
+    # to the pad, not on it — and the id gate above is untouched: the wrong
+    # pad is worse than no placement.
+    land_ok_err_m: float = 0.45
+    land_ok_err_last_m: float = 1.0
+    last_attempt: bool = False        # set by the mission on its retry
     # In-flight frame-staleness gate (S2): reject a nadir frame older than this
     # (a dead camera writer freezes the last frame — see vision_worker). A stale
     # frame reads as NO detection so the loss/climb-back machinery kicks in and
@@ -775,6 +792,7 @@ async def acquire_and_land_drop(
         return False
 
     ground_contact = False
+    bottom_err = float("nan")     # centring error measured AT the bottom rung
     for rung_i, rung_alt in enumerate(params.rungs):
         tol = params.rung_tol_m[min(rung_i, len(params.rung_tol_m) - 1)]
         if (abort_if is not None and rung_alt >= params.abort_above_m
@@ -822,6 +840,8 @@ async def acquire_and_land_drop(
             fix = _accept(hit, _projection_pose(pose, lidar))
             if fix is not None:
                 last_err = fix.ground_dist_m
+                if rung_i == len(params.rungs) - 1:
+                    bottom_err = last_err
                 lost = 0
                 mlat, mlon = _commanded_latlon(fix)
                 best_latlon = (mlat, mlon)
@@ -860,6 +880,11 @@ async def acquire_and_land_drop(
                 continue
             # lost / unprojectable / off-target / wrong-size
             lost += 1
+            if rung_i == len(params.rungs) - 1 and lost >= params.max_lost_cycles:
+                # "in view" expires with the pad: a fix from the start of the
+                # bottom rung must not license the relaxed landing once the
+                # marker has left the frame (see AlignParams.land_ok_err_m).
+                bottom_err = float("nan")
             if lost >= params.max_lost_cycles and rung_i > 0:
                 # back off one rung to re-acquire (the descend gate's safety arm)
                 climb = params.rungs[rung_i - 1]
@@ -868,6 +893,12 @@ async def acquire_and_land_drop(
                 await _goto(*_lost_xy(rung_alt), climb)
                 res.notes.append(f"lost@{rung_alt:.0f}m→climb")
                 lost = 0
+                # The lock evidence is stale once the pad has been lost long
+                # enough to climb back: centred frames from BEFORE the loss
+                # must not satisfy the centring-only fallback below and hand
+                # PX4 LAND a blind descent from the rung above (the 28-Aug
+                # 17:28 shape — LAND from 5-9 m, eggs 0.5-0.7 m off).
+                in_tol = in_tol_raw = 0
             else:
                 await _goto(*_lost_xy(rung_alt), rung_alt)
             await pacer.wait()
@@ -951,14 +982,33 @@ async def acquire_and_land_drop(
     # gps_fallback=True (bench-only) deliberately allows the blind/uncentred
     # landing, matching its acquire-timeout semantics above.
     if not params.gps_fallback and not final_locked:
-        logger.warning(
-            f"[align] sortie #{stop_index}: final rung never locked "
-            f"(err={last_err:.2f} m > tol {params.rung_tol_m[-1]:.2f} m) — "
-            "NOT landing off-centre; climbing to defer")
-        state.record_anomaly("land_gate_not_centred")
-        res.notes.append(f"not-centred (err={last_err:.2f} m) → defer")
-        await _goto(*_lost_xy(params.rungs[-1]), params.rungs[0])
-        return res
+        limit = (params.land_ok_err_last_m if params.last_attempt
+                 else params.land_ok_err_m)
+        if not math.isnan(bottom_err) and bottom_err <= limit:
+            # Off-centre but ON the pad and in view: place it (see
+            # AlignParams.land_ok_err_m — operator doctrine 2026-08-29).
+            which = "last attempt" if params.last_attempt else "first attempt"
+            logger.warning(
+                f"[align] sortie #{stop_index}: final rung never locked "
+                f"(err={bottom_err:.2f} m > tol {params.rung_tol_m[-1]:.2f} m) "
+                f"but the pad is in view within {limit:.2f} m ({which}) — "
+                "landing off-centre rather than deferring (audited)")
+            state.record_anomaly("land_gate_relaxed")
+            state.record_audit(
+                f"t={state.time_elapsed_s():.1f}s LAND GATE relaxed "
+                f"err={bottom_err:.2f}m limit={limit:.2f}m ({which}) — "
+                "landing off-centre rather than bringing the egg home")
+            res.notes.append(f"relaxed-land err={bottom_err:.2f} m")
+        else:
+            logger.warning(
+                f"[align] sortie #{stop_index}: final rung never locked "
+                f"(err={last_err:.2f} m > tol {params.rung_tol_m[-1]:.2f} m, "
+                f"bottom-rung err={bottom_err:.2f} m) — "
+                "NOT landing off-centre; climbing to defer")
+            state.record_anomaly("land_gate_not_centred")
+            res.notes.append(f"not-centred (err={last_err:.2f} m) → defer")
+            await _goto(*_lost_xy(params.rungs[-1]), params.rungs[0])
+            return res
 
     _phase(MissionPhase.LAND)
     logger.info(f"[align] sortie #{stop_index}: final err={last_err:.2f} m "

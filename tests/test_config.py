@@ -53,6 +53,9 @@ def test_align_params_competition_defaults_are_locked() -> None:
     assert a.land_alt_threshold_m == 1.5         # touchdown-confirm altitude
     assert a.gps_fallback is False               # defer, never land blind
     assert a.require_id_votes == 1               # decoded assigned id before LAND
+    assert a.land_ok_err_m == 0.45               # off-centre but ON the pad → land (2026-08-29)
+    assert a.land_ok_err_last_m == 1.0           # the retry lands on any pad still in view
+    assert a.last_attempt is False               # per-call, set by the mission's retry
     assert a.target_radius_m == 0.2              # marker-equivalent size prior
     assert a.frame_max_age_s == 2.0              # in-flight staleness gate (S2)
 

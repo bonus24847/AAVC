@@ -229,6 +229,7 @@ PIC & \underline{\hspace{3.6cm}} & OP & \underline{\hspace{3.0cm}} & ids & \unde
 \item \who{OP} คืนก่อน: \code{make lidar-check} บน CM4 ผ่าน (stream DISTANCE_SENSOR 10 Hz มาถึงจริง) — \hlr{ไม่ผ่าน = บันไดลงจอดถอยไปใช้ขนาด marker เงียบ ๆ}
 \item \who{OP} \code{MPC_THR_HOVER = 0.65} บนบอร์ด (BOARD ผ่าน) · ถ้ามี hover ทดสอบ: motor mean จาก log → เขียนค่าจริง
 \item \who{PIC} ARM → OFFBOARD ภายใน 10 วิ (\code{COM_DISARM_PRFLT}) · ลงจอด pad: บันไดลงตาม lidar ถึง 2 m จริง → LAND 0.3 m/s → ปล่อยไข่หลัง touchdown (คาดผิด 0.2–0.3 m)
+\item \hl{วางไม่ตรง ดีกว่าไม่วาง} (operator 29 ส.ค.): rung 2 m lock ไม่ทันแต่ยังเห็น pad ภายใน 0.45 m → ระบบ \textbf{ลงเลย} (audit \code{LAND GATE relaxed}); ครั้งที่สอง (retry) ลงถ้าเห็น pad ภายใน 1.0 m · ยังไม่ลงถ้า \textbf{ไม่เห็น pad ที่ 2 m} หรือ \textbf{ไม่เคย decode id ที่ถูกต้อง} (ผิด pad แย่กว่าไม่วาง)
 \item \textbf{ถ้ายังต้องบินเที่ยวกู้} (kill / RTL กลางทาง — ไม่ใช่แผน): \who{OP} restart stack ด้วยไอคอน COMP (console จะขึ้น \hlr{STOOD DOWN}) → \who{ENG} \textbf{ย้ายไข่ที่เหลือมาเริ่มที่ AUX4 ใหม่} (เที่ยวใหม่ยิงจาก AUX4 เสมอ) → \who{OP} กดเฉพาะ id ที่ยังไม่ส่ง → ปุ่ม Up → รอ staged → \who{PIC} kill OFF → ARM → OFFBOARD · นาฬิกา window เดินต่อ ห้ามกด ปุ่ม Up ซ้ำขณะ orchestrator ยังรัน · TX ห้ามปิด
 \end{cl}
 
