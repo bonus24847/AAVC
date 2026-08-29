@@ -1611,10 +1611,26 @@ class DroneCommander:
             tolerance_m = self._altitude_tolerance_m(target_m)
         last_alt = float("nan")
 
+        # Judge "reached" in the MISSION's frame — MSL minus the home latched at
+        # arming — the same frame every goto flies in, and fall back to PX4's
+        # home-relative number only when no latch exists. PX4 1.17 rewrites
+        # home.alt in flight (#25003; Bang Bo flight 3, 2026-08-29: +2.56 m at
+        # the takeoff moment), and its relative_altitude_m moves with it: the
+        # aircraft sat at a TRUE 6.5 m (lidar) reading 3.9 in PX4's frame, this
+        # wait timed out and the orchestrator flew an emergency RTH before the
+        # first transit leg. The max() keeps the old pass when PX4's frame is
+        # the higher one (a rewrite DOWN): the gotos that follow are in the
+        # latched frame and finish the climb en route, exactly as before.
+        source = getattr(self, "home_alt_source", None)
+        latched = source() if source is not None else float("nan")
+
         async def _watch() -> bool:
             nonlocal last_alt
             async for pos in self.system.telemetry.position():
-                last_alt = pos.relative_altitude_m
+                rel = pos.relative_altitude_m
+                msl = getattr(pos, "absolute_altitude_m", float("nan"))
+                agl = msl - latched if math.isfinite(latched) and math.isfinite(msl) else rel
+                last_alt = max(rel, agl) if math.isfinite(rel) else agl
                 if last_alt >= target_m - tolerance_m:
                     return True
             return False
