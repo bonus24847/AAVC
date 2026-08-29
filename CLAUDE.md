@@ -722,6 +722,57 @@ of this section.
   DISTANCE_SENSOR at 10 Hz is the input of the whole landing chain; an ACK
   is not proof, the stream is); deploy `--check` MD5 MATCH after the sync.
 
+## 0g. Night of 29 Aug — Bang Bo landing test: three flights, no pad seen, two real bugs fixed
+
+Practice envelope (ceiling 10 / transit 9 / sweep 8), parallel pack, pad id 1
+under the school's floodlights. Three RC-GO flights 22:54-23:05 (ULogs
+`2026-08-29/15_54_13`, `15_58_06`, `16_03_38` + the 6-s re-arm `15_56_27`, copied
+to the laptop; card clean). **The landing chain was never exercised** — nothing
+below is evidence for or against it.
+
+- **The camera saw NOTHING: all 1699 recorded frames are black (mean 1.0/255),
+  2 decodes in 3909 frames, 0 blob hits.** The highlight-AE's exposure ceiling
+  is 4 ms (`AE_DEFAULT_MAX_100US=40`, sized against smear at 3 m/s) and the
+  floodlit pitch is ~300× darker than sun. The pad IS in the frames — a ~44/255
+  white patch with the marker readable to a human at ×8 — but ArUco refuses it
+  even after a software ×8. Sweep 1 `not_found`; flight 2 identified id 1 once,
+  flew two 3 m decode visits over it and still could not confirm. **Night
+  setting installed on the CM4 for the test only**: a `~/.bashrc` hook gated
+  on `~/.aavc_night_cam` exports `CAM_EXPOSURE=180 CAM_GAIN=128` and sets v4l2
+  `exposure_dynamic_framerate=1` (the stream negotiates 120 fps, so an 18 ms
+  exposure was silently capped at 8.3 ms until that flag — measured ×2.8 on the
+  same scene). ⚠ **REVERT BEFORE THE MORNING FLIGHT** (operator's own
+  instruction; checklist §3 + memory `night-camera-override-bangbo`): `rm -f
+  ~/.aavc_night_cam`, `exposure_dynamic_framerate=0`, restart the grabber, argv
+  must show `--ae-highlight` and no `--gain 128`. The flag survives a CM4 reboot.
+- **Flight 3: "altitude 6.5 m NOT reached" after 60 s at a TRUE 6.5 m →
+  emergency RTH before the first leg. FIXED (3d50b0d / comp 09586bc, deployed
+  MD5 MATCH).** PX4 rewrote `home.alt` +2.56 m at the takeoff moment (2.24 →
+  4.80 at t=4 s), so its `relative_altitude_m` held 3.9 while the lidar read
+  6.5 and the EKF MSL sat exactly at latched-home + 6.5. `_wait_until_altitude_
+  reached` read PX4's number; it now takes `max(PX4 relative, MSL − latched
+  home)` — the frame every goto flies in — with PX4's number as the fallback
+  when no latch exists. Home was rewritten on all three flights tonight
+  (+2.07 / −3.58 / +2.56 m); only flight 3 had it land inside the takeoff wait.
+  Three tests in `tests/test_commands_waits.py`, 818 green.
+- **Battery on the parallel pack, measured: 53-55 A mean in flight (not the
+  predicted 46), peaks 80 A, hover motor mean 0.69-0.72, 5.6 Ah for 6.3 min of
+  flying (17 % of 32 Ah) while the voltage gauge fell 83 → 52 % resting / 33 %
+  under load.** Sag 1.3-1.5 V at 54 A on every flight = **0.0038-0.0043
+  Ω/cell**. Operator-approved and WRITTEN + READ BACK on the board 23:45:
+  `BAT1_R_INTERNAL 0.004` (PX4 adds I·R to the cell voltage, so the loaded %
+  reads like the resting %), `BAT1_V_EMPTY 3.77 → 3.65` (3.77 called the pack
+  empty with ~30 % real charge left; the 30 % egress floor would have fired at
+  minute 5-6 of the 11-minute mission), `MPC_THR_HOVER 0.65 → 0.70`. NOT
+  `BAT1_CAPACITY>0`: 1.17's fusion is `min(voltage-based, coulomb)` (battery.cpp
+  `estimateStateOfCharge`, weight 3e-2) and can only read lower. Pins in
+  `tools/preflight_params.py` BOARD, tests, PX4MASTER `power-battery.md`,
+  checklist §3 (5cf06cc / comp 6b84ee0).
+- Also seen: the laptop auto-joined the ELRS TX backpack's WiFi after the
+  flight (ssh to the CM4 timed out until `nmcli con up id AAVC-DRONE`); the
+  crew re-armed and re-launched twice without waiting for the debrief; the
+  first two landings at L&R were clean (`Landing detected`, d_home 1.9 m).
+
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 
 An autonomous **PX4 hexacopter** (EFT X6100 frame; Pixhawk 6X + Raspberry Pi CM4

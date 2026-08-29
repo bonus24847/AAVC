@@ -148,13 +148,13 @@ PIC & \underline{\hspace{3.6cm}} & OP & \underline{\hspace{3.0cm}} & ids & \unde
 \code{PWM_AUX_FUNC1..4} & 301..304 & latch ไข่ (เคยเป็น RC passthrough — ไข่หล่นตอนเอียง)\\
 \code{SYS_AUTOSTART} / \code{CA_ROTOR_COUNT} & 6001 / 6 & Generic Hexarotor X\\
 \code{BAT1_CAPACITY} & $-1$ & voltage-only gauge (ไม่มี current sensor)\\
-\code{BAT1_N_CELLS} / \code{V_CHARGED} / \code{V_EMPTY} & 6 / 4.18 / 3.77 & endpoints ของแพ็ค 17000 semi-solid — ใช้กับแพ็คขนานด้วย (conservative สำหรับ LiPo 15000)\\
+\code{BAT1_N_CELLS} / \code{V_CHARGED} / \code{V_EMPTY} / \code{R_INTERNAL} & 6 / 4.18 / \hl{3.65} / \hl{0.004} & re-fit จาก ULog แพ็คขนานคืน 29 ส.ค. (sag 1.3–1.5 V @ 54 A = 0.004 $\Omega$/เซลล์; 3.77 เรียก ``หมด'' ทั้งที่เหลือจริง ~30\%) — เกจใต้โหลดจะอ่านเท่าตอนพัก; พื้น 30/20/15/10\% = สำรองจริง ~35/28/22/15\%\\
 \code{SENS_TFMINI_CFG} / \code{EKF2_RNG_CTRL} & 103 / 1 & TFmini-S บน TELEM3 · aiding $<$7 m\\
 \code{EKF2_OF_CTRL} & 0 & ไม่มี optical flow\\
 \code{EKF2_HGT_REF} & 0 (baro) & \hl{boot-latched} — GPS ref เคย RTH เที่ยวหนึ่งเพราะสูงเพี้ยน 10.8 m\\
 \code{MAV_0_CONFIG} / \code{MAV_1_CONFIG} / \code{MAV_1_FORWARD} & ตาม config & TELEM2 ตาย = อาการเหมือน ``กล้องตาย''\\
 \code{SYS_HITL} & 0 & ห้ามเป็น firmware HIL\\
-\code{MPC_THR_HOVER} & \hl{0.65} & seed hover ที่ AUW 8.5 kg (0.58 @ 7.2 kg × $\sqrt{8.5/7.2}$; เขียนคืน 29 ส.ค.) — ถ้าได้ hover ทดสอบ อ่าน motor mean แล้วแก้ให้ตรง\\
+\code{MPC_THR_HOVER} & \hl{0.70} & วัดจริงกับแพ็คขนานที่ Bang Bo คืน 29 ส.ค.: motor mean 0.69–0.72 ใน 3 ไฟลท์ (เขียนบอร์ด + อ่านกลับแล้ว 23:45)\\
 \code{RTL_RETURN_ALT} / \code{GF_MAX_VER_DIST} / \code{GF_ACTION} & \textbf{25} / 50 / 3 & Return ที่ 25 m ใต้เพดาน 30 (เดิม 19.5) · ตาข่ายใหญ่ · \textbf{3 = Return} (ห้าม 2 = Hold)\\
 \code{MPC_Z_V_AUTO_DN} / \code{MPC_YAW_MODE} / \code{COM_DISARM_LAND} & 0.4 / 5 / $-1$ & ลง pad ช้า · ถือหัวทิศ · ลง pad กลางภารกิจไม่ disarm\\
 \bottomrule
@@ -170,6 +170,7 @@ PIC & \underline{\hspace{3.6cm}} & OP & \underline{\hspace{3.0cm}} & ids & \unde
 \item \who{OP} \code{preflight_params.py} → \hl{BOARD 24/24} (§\ref{sec:board})
 \item \who{PIC} NOMAD ↔ FC (telemetry) · ELRS RC ↔ FC · \code{rc_check.py} = RC healthy · kill switch ปลด
 \item \who{ENG} \textbf{egg latch 4 ตัว} bench test (ถอดใบพัด/ตำแหน่ง DISARMED) แล้วใส่ใบพัด · น็อตใบพัดแน่น
+\item \who{ENG} \hl{\textbf{คืนค่ากล้องจากโหมดกลางคืน (Bang Bo) ก่อนทุกอย่าง}}: \code{ssh drone@10.42.0.1} → \code{rm -f ~/.aavc_night_cam} · \code{v4l2-ctl -d /dev/v4l/by-id/usb-Generic_USB_Camera_200901010001-video-index0 -c exposure_dynamic_framerate=0} · \code{pkill -f \"camera_grabbe[r].py\"} · \code{bash ~/mission/cm4/start_infra.sh} → argv ของ grabber ต้องมี \code{--ae-highlight} และ \textbf{ไม่มี} \code{--gain 128} (ถ้าไม่คืน: กลางแดดภาพขาวโพลน decode 0 ทั้งวัน)
 \item \who{OP} \textbf{กล้อง}: chip เขียว ~15 วิ หลัง GCS ต่อ CM4 · \hl{\code{CAM_AE=highlight} (auto)} — ถ้ามีเวลาก่อน trial: \code{tools/hover_decode.py} กับ pad พิมพ์กลางแดด ผ่านเมื่อ ขาวของ pad ~200 และ decode ได้ที่ 28 px
 \item \who{OP} รอ \textbf{GPS 3D fix + HDOP $\leq$ 2} (ที่โล่ง) · chip ``ในรั้ว'' เขียว · TFmini บนพื้นอ่านขยะ = ปกติ (ต่ำกว่า 0.4 m)
 \item \who{OP} \textbf{ตำแหน่ง L\&R ใน config = จุดที่วางเครื่องจริง} — \code{main.py} จะ ERROR ถ้า \code{site.center} ≠ \code{launch_recovery}
@@ -227,7 +228,7 @@ PIC & \underline{\hspace{3.6cm}} & OP & \underline{\hspace{3.0cm}} & ids & \unde
 \begin{cl}
 \item \textbf{ทำไมทำได้}: ULog 29 ส.ค. = 36 A เฉลี่ย, 3.6 Ah ใน 349 s บนแพ็คเดียว · ขนาน 32 Ah, AUW +18\% → ≈ 46 A, 3 ไข่ ≈ 10–11 นาที ≈ 8 Ah (usable 24) · เกจใต้โหลดจบ ≈ 55–60\% (ย้อยน้อยลงเพราะแบ่งกระแส) — \textbf{ตัวจำกัดคือเวลา 20 นาทีกับการลงจอด ไม่ใช่แบต}
 \item \who{OP} คืนก่อน: \code{make lidar-check} บน CM4 ผ่าน (stream DISTANCE_SENSOR 10 Hz มาถึงจริง) — \hlr{ไม่ผ่าน = บันไดลงจอดถอยไปใช้ขนาด marker เงียบ ๆ}
-\item \who{OP} \code{MPC_THR_HOVER = 0.65} บนบอร์ด (BOARD ผ่าน) · ถ้ามี hover ทดสอบ: motor mean จาก log → เขียนค่าจริง
+\item \who{OP} \code{MPC_THR_HOVER = 0.70} บนบอร์ด (BOARD ผ่าน; วัดจริง 0.69–0.72 คืน 29 ส.ค.)
 \item \who{PIC} ARM → OFFBOARD ภายใน 10 วิ (\code{COM_DISARM_PRFLT}) · ลงจอด pad: บันไดลงตาม lidar ถึง 2 m จริง → LAND 0.3 m/s → ปล่อยไข่หลัง touchdown (คาดผิด 0.2–0.3 m)
 \item \hl{วางไม่ตรง ดีกว่าไม่วาง} (operator 29 ส.ค.): rung 2 m lock ไม่ทันแต่ยังเห็น pad ภายใน 0.45 m → ระบบ \textbf{ลงเลย} (audit \code{LAND GATE relaxed}); ครั้งที่สอง (retry) ลงถ้าเห็น pad ภายใน 1.0 m · ยังไม่ลงถ้า \textbf{ไม่เห็น pad ที่ 2 m} หรือ \textbf{ไม่เคย decode id ที่ถูกต้อง} (ผิด pad แย่กว่าไม่วาง)
 \item \textbf{ถ้ายังต้องบินเที่ยวกู้} (kill / RTL กลางทาง — ไม่ใช่แผน): \who{OP} restart stack ด้วยไอคอน COMP (console จะขึ้น \hlr{STOOD DOWN}) → \who{ENG} \textbf{ย้ายไข่ที่เหลือมาเริ่มที่ AUX4 ใหม่} (เที่ยวใหม่ยิงจาก AUX4 เสมอ) → \who{OP} กดเฉพาะ id ที่ยังไม่ส่ง → ปุ่ม Up → รอ staged → \who{PIC} kill OFF → ARM → OFFBOARD · นาฬิกา window เดินต่อ ห้ามกด ปุ่ม Up ซ้ำขณะ orchestrator ยังรัน · TX ห้ามปิด
