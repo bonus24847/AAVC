@@ -697,6 +697,25 @@ of this section.
   followed by a lost pad and a climb-back still licensed a LAND from the rung
   above (the 28-Aug 17:28 shape); the lock counters now reset on every
   climb-back. Unflown; SITL-covered by the 19:26 run only in the locked case.
+- **Bench DONE 21:10 (FC powered, laptop on the AP):** `MPC_THR_HOVER` 0.58 →
+  **0.65 written + read back**, BOARD ✔ on every param, `lidar_check.py` ✔
+  (120 samples / 12 s = 10 Hz, parked readings below the 0.4 m minimum as
+  expected), deploy `--check` MATCH.
+- **LANDING TEST FIELD — Bang Bo Witthayakhom School football pitch, night of
+  29 Aug under floodlights (operator).** Third field config
+  `sitl/bangbo_config.yaml` = the practice config with ONLY the geometry
+  replaced (generated from `docs/evidence/bangbo_field_proposal_2026-08-29.png`
+  — ESRI z19 imagery, NOT ground-surveyed: L&R 13.5785879, 100.8578589 at the
+  SW corner 8 m off the west stands; fence = the bare pitch inset 8 m, 16 m on
+  the stands side; search area 36 × 40 m mid-pitch; P1–P3 15 m legs; sweep
+  axis 2.9°); console map `gcs/bangbo_field.yaml` + `missions.yaml` row
+  `bangbo` (entry `REAL=1 AAVC_PROFILE=kmutnb_skyfield AAVC_CONFIG=
+  sitl/bangbo_config.yaml`), tiles z15–19 pre-fetched; on the sync list and
+  deployed (MD5 MATCH). Flown with the parallel pack and the 0.65 seed so it
+  doubles as the dress rehearsal; runbook
+  `docs/BANGBO_LANDING_TEST_2026-08-29.md`. The KMUTNB profile's 10 m ceiling
+  / 9 m transit / 8 m sweep fit the school; the ladder below 8 m is the KMITL
+  one. Confirm the aircraft's GPS against the L&R marker before staging.
 - **Bench items still owed before the flight (the FC was unpowered at
   19:20):** `MPC_THR_HOVER 0.65` written to the board + BOARD 100 %;
   `tools/lidar_check.py` on the CM4 (now on the `sync_core.sh` allowlist —

@@ -52,7 +52,7 @@ for f in launch_stack.sh launch_sitl.sh camera_view.sh gz_camera_bridge.py \
     [ -f "$SRC/sitl/$f" ] && rsync -a "$SRC/sitl/$f" "$DST/sitl/$f"
 done
 # Both field configs (see the note above). .aavc_site stays put.
-rsync -a "$SRC/sitl/aavc_config.yaml" "$SRC/sitl/kmitl_config.yaml" "$DST/sitl/"
+rsync -a "$SRC/sitl/aavc_config.yaml" "$SRC/sitl/kmitl_config.yaml" "$SRC/sitl/bangbo_config.yaml" "$DST/sitl/"
 # AIRCRAFT-level tools are shared too — same airframe, same board, so the same
 # truth. Left out until 2026-08-21, and the drift it allowed was found by that
 # day's review: the comp repo had no px4_type_audit.py at all and a
