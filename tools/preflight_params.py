@@ -93,7 +93,19 @@ BOARD: dict[str, float] = {
     # the LiPo defaults (4.05 / 3.60) reads a wrong %. Set + read-back verified
     # on the board 2026-08-19.
     "BAT1_V_CHARGED": 4.18,
-    "BAT1_V_EMPTY": 3.77,
+    # 3.77 -> 3.65 + R_INTERNAL 0.004 (2026-08-29 night, Bang Bo ULogs
+    # 15_54_13 / 15_58_06 / 16_03_38, operator-approved): the parallel pack
+    # sagged 1.3-1.5 V at 54 A (R = 0.0038-0.0043 ohm/cell on all three
+    # flights) and the gauge read 33-45 % under load with ~65 % really left —
+    # the 30 % egress floor would have fired at minute 5-6 of the 11-minute
+    # competition mission. With R_INTERNAL PX4 adds I*R back to the cell
+    # voltage (battery.cpp l.226), so the loaded % reads like the resting %;
+    # 3.65 puts the floors at real reserves of ~35 % (egress 30) / ~28 % (RTH
+    # 20) / ~22 % (PX4 crit 15) / ~15 % (land 10) instead of 30 points higher.
+    # NOT BAT1_CAPACITY>0: 1.17's fusion is min(voltage, coulomb) and can only
+    # read lower.
+    "BAT1_V_EMPTY": 3.65,
+    "BAT1_R_INTERNAL": 0.004,
     "SENS_TFMINI_CFG": 103,           # TFmini-S on TELEM3
     # TELEM2 -> CM4 byte budget. 1200 B/s (the PX4 default) starves the
     # onboard stream set: PX4 scales EVERY stream down to fit, and on the
@@ -148,7 +160,9 @@ BOARD: dict[str, float] = {
     # flight, but the takeoff ramp and the land detector's minimal-thrust
     # threshold (MPC_THR_MIN + 0.1*(HOVER - THR_MIN)) fly on this number.
     # Re-seed from the motor mean of the first hover with the pack fitted.
-    "MPC_THR_HOVER": 0.65,
+    # 0.65 -> 0.70 (2026-08-29 night): measured with the parallel pack aboard
+    # at Bang Bo — motor mean median 0.694 / 0.712 / 0.718 over three flights.
+    "MPC_THR_HOVER": 0.70,
 }
 
 # ── pushed by orchestrator/main.py at mission start; bench values are fine ──

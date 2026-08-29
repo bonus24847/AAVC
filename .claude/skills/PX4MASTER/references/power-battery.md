@@ -20,7 +20,7 @@ deliberate, all checked:
 
 ## The gauge is interpolate(cell_v, V_EMPTY, V_CHARGED) — nothing else
 Endpoints on the board (17000 semi-solid, since 2026-08-19):
-`BAT1_V_CHARGED=4.18`, `BAT1_V_EMPTY=3.77` (25.1 V full / ~22.6 V empty).
+`BAT1_V_CHARGED=4.18`, `BAT1_V_EMPTY = 3.65` (25.1 V full / ~22.6 V empty).
 BOARD-checked every preflight. Two claims, verify separately: a correct
 VOLTAGE (divider) and a correct PERCENTAGE (endpoints).
 ✅ `BAT1_V_DIV` RE-CLOSED ON THE PM02D 2026-08-23. Its earlier closure was on
@@ -110,3 +110,17 @@ A tie between the companion and PX4 (15/15 until 2026-08-29) always went to
 PX4 (no sustain). Only the 30 % egress keeps the orchestrator alive for a
 next gate — and on the real bird that gate refuses at once (CLAUDE.md §0f,
 deferred item).
+
+
+## 2026-08-29 night (Bang Bo, parallel pack): endpoints + internal resistance re-fitted
+
+Three ULogs (`15_54_13`, `15_58_06`, `16_03_38`), 17000 ∥ 15000 aboard: flight current
+**53–55 A mean** (max 80 A), hover motor mean **0.69–0.72** (→ `MPC_THR_HOVER 0.70`),
+5.6 Ah drawn in total while the voltage gauge fell 83 → 52 % resting / **33 % under
+load**. Sag was 1.3–1.5 V at 54 A on every flight = **R = 0.0038–0.0043 Ω/cell**.
+Operator-approved: **`BAT1_R_INTERNAL = 0.004`** (PX4 adds I·R back to the cell voltage,
+`battery.cpp` l.226, so the loaded % reads like the resting %) and **`BAT1_V_EMPTY = 3.65`**
+(3.77 called the pack empty with ~30 % real charge left; at 3.65 the floors sit at real
+reserves of ~35 % egress-30 / ~28 % RTH-20 / ~22 % PX4-crit-15 / ~15 % land-10).
+`BAT1_CAPACITY` stays −1: 1.17's fusion is `min(voltage-based, coulomb)` and can only read
+lower, so the coulomb counter cannot fix a pessimistic voltage gauge.

@@ -23,9 +23,15 @@ def test_board_checks_the_17000_pack_endpoints() -> None:
     # After the 2026-08-19 pack swap the field-day check must verify the voltage
     # endpoints too: with BAT1_CAPACITY=-1 the whole gauge is interpolate(cell_v,
     # V_EMPTY, V_CHARGED), so a board still holding the LiPo defaults reads a
-    # wrong %. 25.1 V / 6 = 4.18; 22.6 V / 6 = 3.77.
+    # wrong %. 25.1 V / 6 = 4.18. V_EMPTY 3.77 -> 3.65 on 2026-08-29 (Bang Bo
+    # ULogs, operator-approved): 3.77 called the pack "empty" with ~30 % real
+    # charge left, and with the parallel pack's load sag it put the 30 % egress
+    # floor at minute 5-6 of an 11-minute mission. R_INTERNAL 0.004 ohm/cell is
+    # the measured sag (1.3-1.5 V at 54 A, three flights) so the % under load
+    # reads like the resting %.
     assert BOARD["BAT1_V_CHARGED"] == 4.18
-    assert BOARD["BAT1_V_EMPTY"] == 3.77
+    assert BOARD["BAT1_V_EMPTY"] == 3.65
+    assert BOARD["BAT1_R_INTERNAL"] == 0.004
 
 
 def test_wrong_endpoint_is_flagged() -> None:
