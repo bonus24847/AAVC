@@ -445,15 +445,44 @@ flown. `make test` 803 green, ruff + mypy clean, deployed to the CM4.
   the TFmini reported for the last 25 s of the flight while the aircraft sat
   on the grass. Tests: the two at the end of `tests/test_tactical_align.py`
   (one pins a 4 m bias — past even the new clamp — being walked off).
-- **The KMITL sweep was redrawn: 18 waypoints, 629 m, ~180 s.** It now covers
+- **The KMITL sweep was redrawn: 15 waypoints, 579 m, ~166 s.** It now covers
   the RULES polygon minus the bands (7344 m² of free ground) rather than the
   drawn L: **160 m² unseen (2.2 %) → 3 m² (0.04 %)**, closing the bottom of
   the pocket (65 m², where marker 4 sat that morning) and the gap under the
   trees (62 m²). It also stands **10 m** off the 18 m tree block instead of
   5 m — the sweep flies at 15 m, i.e. BELOW the canopy, so horizontal margin
   is the only margin, and a no-RTK fix is worth ±1-2 m by itself. Costs
-  ~13 s door to door. Three tests pin it (coverage, the pocket's south end,
-  the tree stand-off) in `tests/test_keepout_routing.py`.
+  nothing: it is 50 m SHORTER than the sweep it replaces. The operator drew
+  the shape over `07_new_sweep_path.jpg` the same evening — **waypoint 6
+  straight into waypoint 10**, i.e. the middle column collapses from two legs
+  (E 120 and E 107) to ONE at E 110, because the strip's N 84 and N 102 legs
+  both already reach back past E 118. Two numbers came out of checking it:
+  the column belongs at **E 110** (E 107 as drawn leaves 39 m² unseen at
+  E 110-130 / N 70-100; E 112 leaves 40 m² on the tree side), and the last
+  strip leg must end at **E 122** rather than E 128 — which also makes the
+  straight line from there to P3' miss the building band's NW corner
+  entirely, so the egress no longer needs a gateway detour at all. Three
+  tests pin it (coverage, the pocket's south end, the tree stand-off) in
+  `tests/test_keepout_routing.py`.
+- **What the 28-Aug logs say about the same height frame — and why the lidar
+  ladder fixes THAT flight's problem too.** The frame bias is not a fixed
+  offset and not even a fixed sign: measured in the rung band (1-9 m, mission
+  AGL vs lidar) it was **−0.93 m** on the 28-Aug trial, **−1.03 m** on the
+  17:28 flight and **+2.18 m** on 29 Aug (late-flight medians −1.29 / −1.72 /
+  +2.31). The 17:28 flight is the one that delivered 2/2 with the eggs
+  0.5-0.7 m off the marker, and the lidar says exactly why: **LAND was
+  commanded from a TRUE 5.14 m and 8.76 m** (the mission read 4.57 and 7.82),
+  so PX4 sank blind on a GPS hold for 16-26 s and drifted. §0c had this from
+  the frames as "4.8 m and 8.5-9 m" — the lidar confirms it within 0.3 m.
+  With the ladder judging `at_rung` against the lidar, the 5 m and 3 m rungs
+  have to be REACHED before the 2 m rung is, so the blind descent handed to
+  PX4 shrinks to ~2 m. The lidar was valid and EKF-fused on those flights too
+  (`dist_bottom_valid` 42-46 % of all samples, 26-28 % fused — i.e. wherever
+  the aircraft was under the beam's 12 m range), with 704-869 samples inside
+  the rung band on each. ⚠ Tooling note for whoever reads these logs next:
+  PX4 1.17 inserted `POSITION_SLOW = 6` into `nav_state`, so **AUTO_TAKEOFF is
+  17 and AUTO_LAND is 18** — an off-by-one against the older enum turns every
+  takeoff into a "landing".
 - **The COMPANION's return-to-home routes around the keep-out bands**
   (operator: "ถ้า RTL ก็ช่วยทำให้มันหลบด้วย"). `mission.gateway_route` moved to
   module level so one router serves both the mission's gotos and

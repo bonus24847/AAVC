@@ -319,44 +319,46 @@ search:
   #   →   (50,104) → (70,104)    step east
   #   W2  (70,104) → (70,61)     west column, covers E 60-80, 10 m off the trees
   #   S2  (70,61)  → (121,61)    upper part of the lower band, 10 m under the trees
-  #   →   (121,61) → (120,74)    transition into the middle column
-  #   C1  (120,74) → (120,104)   middle column (between trees and building)
-  #   →   (120,104)→ (107,104)   step west
-  #   C2  (107,104)→ (107,74)    middle column, 10 m off the trees
-  #   →   (107,74) → (128,102)   transition to the north strip (clears the band: N>73 throughout)
-  #   N2  (128,102)→ (215,102)   north strip, upper leg; ends 4.8 m short of the east band
+  #   C   (121,61) → (110,74)    straight into the middle column — the operator's line
+  #                              (2026-08-29 evening, drawn over 07_new_sweep_path.jpg):
+  #                              the E 120 column this replaced was redundant once the
+  #                              N 84 and N 102 strip legs both reach back past E 118.
+  #   C   (110,74) → (110,104)   the ONE middle column, between trees and building;
+  #                              covers E 100-120 (E 97-100 is inside the tree keep-out
+  #                              +3 m and is refused as a pad site anyway)
+  #   N2  (110,104)→ (215,102)   north strip, upper leg, straight off the column;
+  #                              ends 4.8 m short of the east band
   #   →   (215,102)→ (215,84)    step down
   #   N1a (215,84) → (186,84)    north strip, lower leg
   #   P↓  (186,84) → (186,50)    POCKET PASS — the free gap between the building
   #                              (E ≤ 180.1) and the courtyard (E ≥ 192.1), 6 m from
-  #                              each, now taken to N 50 so the pocket's SOUTH end
-  #                              is covered (this is where marker 4 was)
+  #                              each, taken to N 50 so the pocket's SOUTH end is
+  #                              covered (this is where marker 4 was on 29 Aug)
   #   P↑  (186,50) → (186,84)    back up; the pocket has no other exit
-  #   N1b (186,84) → (128,84)    north strip continues west, ends at the egress corner
+  #   N1b (186,84) → (122,84)    north strip continues west to the egress corner; it
+  #                              stops at E 122 (not E 128) so the swath reaches back
+  #                              to the middle column, AND so the straight line from
+  #                              here to P3' misses the building band's NW corner
+  #                              entirely instead of clipping it.
   #
-  # The exit from (128,84) to P3' clips the building band's NW corner in a
-  # straight line, so the egress goto routes itself through routing.gateways
-  # (NE → gate). Coverage, the tree stand-off and the keep-out clearance are
-  # all pinned by tests/test_keepout_routing.py. Re-run it after ANY edit.
+  # Coverage, the tree stand-off and the keep-out clearance are all pinned by
+  # tests/test_keepout_routing.py. Re-run it after ANY edit.
   sweep_waypoints_enu:
-    - [121.0, 48.0]         # S1 east end (entered from P3'); 4.5 m clear of the building band (E 125.5)
+    - [121.0, 48.0]         # S1 east end (entered from P3'); 4.5 m clear of the building band
     - [44.0, 48.0]          # S1 west end
     - [50.0, 61.0]          # W1 bottom
     - [50.0, 104.0]         # W1 top
     - [70.0, 104.0]         # W2 top
     - [70.0, 61.0]          # W2 bottom
-    - [121.0, 61.0]         # S2 east end; same 4.5 m clearance
-    - [120.0, 74.0]         # C1 bottom
-    - [120.0, 104.0]        # C1 top
-    - [107.0, 104.0]        # C2 top
-    - [107.0, 74.0]         # C2 bottom
-    - [128.0, 102.0]        # north strip NW
-    - [215.0, 102.0]        # north strip NE; 4.8 m clear of the east band (E 219.8)
+    - [121.0, 61.0]         # S2 east end
+    - [110.0, 74.0]         # middle column bottom  (operator's 6 -> 10 line)
+    - [110.0, 104.0]        # middle column top
+    - [215.0, 102.0]        # north strip NE; 4.8 m clear of the east band
     - [215.0, 84.0]         # step down
     - [186.0, 84.0]         # pocket gate
     - [186.0, 50.0]         # pocket bottom (marker 4 was at N 72 in here)
     - [186.0, 84.0]         # pocket gate again
-    - [128.0, 84.0]         # north strip SW — egress starts here
+    - [122.0, 84.0]         # north strip SW — egress starts here
   # ✅ 0.44 -> 0.30 on 2026-08-24, after the SITL test the operator asked for.
   # 0.44 was belt-and-braces for an UNMEASURED camera mount: if the wide image
   # axis did not lie across track the real swath was the 720 px axis and 0.30
