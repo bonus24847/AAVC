@@ -185,6 +185,24 @@ class AlignParams:
     # clamp: a wilder disagreement remains "no information".
     rung_bias_max_m: float = 3.0
     rung_bias_min_samples: int = 3    # fixes before the correction is applied
+    # DOWNWARD LIDAR (Benewake TFmini-S). Below this height the EKF fuses it
+    # (EKF2_RNG_A_HMAX = 7.0) and so does the ladder: it is the one height
+    # source on this aircraft that neither baro drift nor GPS drift can move,
+    # and on 2026-08-29 it was valid, fused and truthful the whole way onto
+    # pad 5 while the height the ladder actually steered by was 2.4 m out.
+    # Above it, or when the reading is stale/out of the beam's range, the
+    # ladder falls back to the marker-size altitude exactly as before.
+    rangefinder_max_alt_m: float = 7.0
+    rangefinder_max_age_s: float = 1.0
+    # With the lidar the rung is flown CLOSED LOOP: each command moves the
+    # aircraft by the error the lidar measures, capped at this per-command
+    # step. That is what makes a frame bias LARGER than rung_bias_max_m
+    # recoverable — the open-loop correction below can only ever apply its
+    # clamp once, and on 2026-08-29 a 2.4 m bias against a 1.5 m clamp left
+    # every rung a metre low all the way into the ground. Bounding the STEP
+    # instead of the TOTAL keeps a wild reading from commanding a wild move
+    # while still converging over a few cycles.
+    rung_step_max_m: float = 3.0
     min_confidence: float = 0.45      # pad-hit acceptance
     max_lost_cycles: int = 24         # lost detections before climbing (2.0 s)
     search_radius_m: float = 4.0      # expanding-box search step if not acquired
@@ -624,6 +642,32 @@ async def acquire_and_land_drop(
         b = statistics.median(bias_window)
         return max(-params.rung_bias_max_m, min(params.rung_bias_max_m, b))
 
+    def _lidar_agl() -> float:
+        """Height above the ground from the downward lidar, or ``nan``.
+
+        ``nan`` above ``rangefinder_max_alt_m`` — the EKF stops fusing the
+        rangefinder at EKF2_RNG_A_HMAX and so does the ladder, because past
+        the beam's useful range it is measuring nothing in particular — and
+        ``nan`` whenever the reading itself is stale or outside the sensor's
+        own limits (``CurrentTelemetry.rangefinder_agl_m`` decides that; a
+        below-minimum 0.00 m is refused there, not treated as the ground).
+
+        Defensive about the telemetry object: a caller with a stand-in
+        snapshot that predates the rangefinder simply gets the marker-size
+        path, which is what the whole ladder ran on until 2026-08-29.
+        """
+        getter = getattr(getattr(state, "telemetry", None),
+                         "rangefinder_agl_m", None)
+        if getter is None:
+            return math.nan
+        try:
+            d = float(getter(max_age_s=params.rangefinder_max_age_s))
+        except Exception:
+            return math.nan
+        if math.isnan(d) or d > params.rangefinder_max_alt_m:
+            return math.nan
+        return d
+
     for rung_i, rung_alt in enumerate(params.rungs):
         tol = params.rung_tol_m[min(rung_i, len(params.rung_tol_m) - 1)]
         if (abort_if is not None and rung_alt >= params.abort_above_m
@@ -666,16 +710,33 @@ async def acquire_and_land_drop(
                 lost = 0
                 mlat, mlon = _commanded_latlon(fix)
                 best_latlon = (mlat, mlon)
-                alt_est = _alt_estimate(hit, pose, params)   # decoded marker only
-                if (pose is not None and not math.isnan(alt_est)
-                        and not math.isnan(pose[2])):
-                    bias_window.append(float(pose[2]) - alt_est)
-                elif pose is not None and not math.isnan(pose[2]):
-                    # Undecoded (blob) hit: judge the rung by the aircraft's own
-                    # AGL corrected by the bias learnt from decoded frames.
-                    alt_est = float(pose[2]) - _frame_bias()
-                # Command the rung's TRUE height in the aircraft's own frame.
-                await _goto(mlat, mlon, rung_alt + _frame_bias())
+                agl = (float(pose[2]) if pose is not None
+                       and not math.isnan(pose[2]) else math.nan)
+                lidar = _lidar_agl()
+                if not math.isnan(lidar):
+                    # TRUTH, measured: fly the rung closed-loop on the lidar and
+                    # let it teach the frame bias too (no decode needed, and a
+                    # measurement rather than an inference from marker size).
+                    alt_est = lidar
+                    if not math.isnan(agl):
+                        bias_window.append(agl - lidar)
+                        step = max(-params.rung_step_max_m,
+                                   min(params.rung_step_max_m, lidar - rung_alt))
+                        cmd_alt = max(params.rungs[-1] * 0.5, agl - step)
+                    else:
+                        cmd_alt = rung_alt + _frame_bias()
+                else:
+                    alt_est = _alt_estimate(hit, pose, params)  # decoded marker only
+                    if not math.isnan(alt_est) and not math.isnan(agl):
+                        bias_window.append(agl - alt_est)
+                    elif not math.isnan(agl):
+                        # Undecoded (blob) hit: judge the rung by the aircraft's
+                        # own AGL corrected by the bias learnt from decoded
+                        # frames (and, below 7 m, from the lidar).
+                        alt_est = agl - _frame_bias()
+                    # Command the rung's TRUE height in the aircraft's own frame.
+                    cmd_alt = rung_alt + _frame_bias()
+                await _goto(mlat, mlon, cmd_alt)
                 at_rung = math.isnan(alt_est) or abs(alt_est - rung_alt) <= alt_tol
                 in_tol_raw = in_tol_raw + 1 if last_err <= tol else 0
                 in_tol = in_tol + 1 if (last_err <= tol and at_rung) else 0

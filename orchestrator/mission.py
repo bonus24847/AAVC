@@ -295,6 +295,60 @@ def _point_near_polygon_m(lat: float, lon: float,
     return False
 
 
+def gateway_route(
+    cur: tuple[float, float],
+    tgt: tuple[float, float],
+    keepouts: Sequence[Sequence[tuple[float, float]]],
+    gateways: Sequence[tuple[float, float]],
+) -> list[tuple[float, float]] | None:
+    """Via-points from ``cur`` to ``tgt`` that keep every straight segment out
+    of ``keepouts``: the shortest path over the gateway graph (Dijkstra on
+    {cur, gateways, tgt}, edges = clear segments).
+
+    ``[]`` = the straight line is already clear; ``None`` = no clear chain
+    exists (the target is inside a band, or the gateways do not see it).
+
+    Module level, not a closure, because TWO callers need exactly this and a
+    second copy would drift: the mission's own gotos
+    (``run_delivery_mission._goto_routed``) and the companion's return-to-home
+    (``DroneCommander.rth`` via the provider wired in ``orchestrator/main.py``).
+    """
+    if not any(_segment_crosses_polygon(cur, tgt, poly) for poly in keepouts):
+        return []
+    nodes = [cur, *gateways, tgt]
+    n = len(nodes)
+
+    def clear(a: tuple[float, float], b: tuple[float, float]) -> bool:
+        return not any(_segment_crosses_polygon(a, b, poly) for poly in keepouts)
+
+    dist_ = [math.inf] * n
+    prev: list[int | None] = [None] * n
+    dist_[0] = 0.0
+    done = [False] * n
+    for _ in range(n):
+        u = min((i for i in range(n) if not done[i]), key=lambda i: dist_[i],
+                default=None)
+        if u is None or dist_[u] == math.inf:
+            break
+        done[u] = True
+        for v in range(n):
+            if done[v] or not clear(nodes[u], nodes[v]):
+                continue
+            d = dist_[u] + _latlon_dist_m(nodes[u][0], nodes[u][1],
+                                          nodes[v][0], nodes[v][1])
+            if d < dist_[v]:
+                dist_[v] = d
+                prev[v] = u
+    if dist_[n - 1] == math.inf:
+        return None
+    chain: list[int] = []
+    i: int | None = n - 1
+    while i is not None and i != 0:
+        chain.append(i)
+        i = prev[i]
+    return [nodes[k] for k in reversed(chain) if k != n - 1]
+
+
 _KEEPOUT_MARGIN_M = 3.0   # a "pad" this close to a no-fly edge is a false hit
 
 
@@ -588,40 +642,7 @@ async def run_delivery_mission(
 
     def _route(cur: tuple[float, float],
                tgt: tuple[float, float]) -> list[tuple[float, float]] | None:
-        """Via-points from ``cur`` to ``tgt`` that keep every straight segment
-        out of the keep-out polygons: the shortest path over the gateway
-        graph (Dijkstra on {cur, gateways, tgt}, edges = clear segments).
-        [] = the straight line is already clear; None = no clear chain."""
-        if _clear(cur, tgt):
-            return []
-        nodes = [cur] + gws + [tgt]
-        n = len(nodes)
-        dist_ = [math.inf] * n
-        prev: list[int | None] = [None] * n
-        dist_[0] = 0.0
-        done = [False] * n
-        for _ in range(n):
-            u = min((i for i in range(n) if not done[i]), key=lambda i: dist_[i],
-                    default=None)
-            if u is None or dist_[u] == math.inf:
-                break
-            done[u] = True
-            for v in range(n):
-                if done[v] or not _clear(nodes[u], nodes[v]):
-                    continue
-                d = dist_[u] + _latlon_dist_m(nodes[u][0], nodes[u][1],
-                                              nodes[v][0], nodes[v][1])
-                if d < dist_[v]:
-                    dist_[v] = d
-                    prev[v] = u
-        if dist_[n - 1] == math.inf:
-            return None
-        chain: list[int] = []
-        i: int | None = n - 1
-        while i is not None and i != 0:
-            chain.append(i)
-            i = prev[i]
-        return [nodes[k] for k in reversed(chain) if k != n - 1]
+        return gateway_route(cur, tgt, keepouts, gws)
 
     def _in_keepout(lat: float, lon: float) -> bool:
         """Inside a keep-out polygon, or within _KEEPOUT_MARGIN_M of its edge.

@@ -313,6 +313,18 @@ release → climb-back, the whole DELIVER-WHEN-FOUND chain, first time flown).
 Pad 5 then failed TWICE (t=231-279, t=296-338) and the pilot killed it at
 t=342.9. Battery 100 → 31 %, 3563 mAh, 35.8 A mean.
 
+- **The egg was never RELEASED because it was never COMMANDED — the latch is
+  fine.** Verified from the FC's own log, independently of the CM4 audit
+  (`actuator_outputs` instance 1 = the AUX rack, plus every
+  `MAV_CMD_DO_SET_ACTUATOR` the FC received). 29 Aug: **one** command, `p4 =
+  +0.80` at t=120.4 s, **ACCEPTED**, and **AUX 4 fired at t=120.5** — egg 1.
+  AUX 1/2/3 never moved off 1000 µs all flight. 28 Aug 17:28 (2/2 delivered):
+  four commands, and **AUX 1 — the very latch pad 5's egg was on — fired at
+  t=192.7**, ACCEPTED. So slot 1's wiring, servo and command path are proven
+  good on the flight before; on 29 Aug the mission simply never got to the
+  release step. (Also confirms `drop_servo_relatch: false` reached the
+  aircraft: one pulse on 29 Aug where 28 Aug sent a −0.80 re-latch 0.7 s
+  later.)
 - **ROOT CAUSE — the AGL frame the mission steers by drifted 2.4 m HIGH.**
   At t=306-318, held for 12 s: mission AGL **4.48-4.50 m**, TFmini **1.81-2.00**,
   `dist_bottom` **2.11-2.20** (`valid=1`, `fused=1`, never rejected). The
@@ -369,6 +381,27 @@ t=342.9. Battery 100 → 31 %, 3563 mAh, 35.8 A mean.
   from projecting a blob sitting in the extreme frame CORNER at 16.5 m; the
   one blob nearer the centre projected 1.7 m from pad 1. **Do not project
   corner pixels and treat the result as a position.**
+- **⚠ THE AIRCRAFT TIPPED OVER, and it is the same root cause one link
+  further on (found 2026-08-29 from the ULog attitude).** Pitch went to
+  **+52.8° nose-up at t=339 and stayed there** to the end of the log — the
+  airframe lying on its tail, not a flight attitude. Why: it had settled onto
+  the grass (lidar 0.11 m) while PX4 was still in AUTO_LOITER holding
+  position, and PX4's land detector never latched (`vehicle_land_detected.
+  landed` stayed 0 from t=122 to t=348), so the position controller went on
+  demanding a horizontal correction it could not achieve. The commanded pitch
+  wound up **+1.4° → +8.1° → +16.4° → +20.3°** over ~10 s with the motors at
+  idle (1100-1292 µs). Then the ladder's climb-out raised thrust, the
+  wound-up demand became authoritative, and the aircraft levered up onto its
+  rear legs in ONE second (+18° at t=338, +53.3° at t=339) with M4/M6 pinned
+  at 1900 and M3/M5 at 1100 fighting it. The pilot killed it 4 s later.
+  Classic integrator wind-up tip-over — and a vicious circle, because the
+  land detector will not latch while the controller is demanding movement,
+  and nothing resets the integrator while the detector says airborne. The
+  FIRST touchdown (t=264-280) did the same thing and got away with it: the
+  demand only reached +4.8° before the climb-out. **The lidar ladder removes
+  the precondition** (the aircraft now stops at a TRUE 2 m instead of walking
+  itself onto the ground), but nothing yet detects "we are on the ground and
+  the software does not know" — see the open item in §0e.
 - **⚠ A PILOT KILL ENDS THE MISSION PROCESS — restart the stack before the
   recovery flight.** The pack was swapped and the pilot armed twice (13:07:12,
   13:07:36, fresh pack 25.04 V / 99 %). Both times: armed fine, then
@@ -387,6 +420,63 @@ t=342.9. Battery 100 → 31 %, 3563 mAh, 35.8 A mean.
   `COM_DISARM_LAND=-1`, and the rung altitude gate (which did exactly its job).
 
 ---
+
+## 0e. Changes made 2026-08-29 after scored flight 1 — ALL UNFLOWN
+
+Four things changed the same evening, on the operator's instructions. None has
+flown. `make test` 803 green, ruff + mypy clean, deployed to the CM4.
+
+- **The descent ladder now reads the DOWNWARD LIDAR below 7 m.** New
+  `CurrentTelemetry.rangefinder_m` + `rangefinder_agl_m()` (a new MAVSDK
+  `distance_sensor()` subscriber at 10 Hz — DISTANCE_SENSOR is not in PX4's
+  default companion stream set), and `tactical_align` uses it as the height
+  TRUTH under `AlignParams.rangefinder_max_alt_m` (7.0 = EKF2_RNG_A_HMAX,
+  where the EKF stops fusing it too). Two behaviour changes follow:
+  the rung altitude gate is judged against a MEASUREMENT rather than the
+  marker-size inference, and the rung is flown **CLOSED LOOP** — each command
+  moves the aircraft by the error the lidar sees, capped at
+  `rung_step_max_m` (3.0) per command. That last part is what makes a frame
+  bias LARGER than `rung_bias_max_m` recoverable: bounding the STEP instead
+  of the TOTAL converges over a few cycles, where the open-loop correction
+  could only ever apply its clamp once. Above 7 m, or when the reading is
+  stale or outside the beam's range, everything falls back to the
+  marker-size path exactly as before. ⚠ A below-minimum **0.00 m** reading is
+  refused, not read as "on the ground" (`rangefinder_agl_m`) — that is what
+  the TFmini reported for the last 25 s of the flight while the aircraft sat
+  on the grass. Tests: the two at the end of `tests/test_tactical_align.py`
+  (one pins a 4 m bias — past even the new clamp — being walked off).
+- **The KMITL sweep was redrawn: 18 waypoints, 629 m, ~180 s.** It now covers
+  the RULES polygon minus the bands (7344 m² of free ground) rather than the
+  drawn L: **160 m² unseen (2.2 %) → 3 m² (0.04 %)**, closing the bottom of
+  the pocket (65 m², where marker 4 sat that morning) and the gap under the
+  trees (62 m²). It also stands **10 m** off the 18 m tree block instead of
+  5 m — the sweep flies at 15 m, i.e. BELOW the canopy, so horizontal margin
+  is the only margin, and a no-RTK fix is worth ±1-2 m by itself. Costs
+  ~13 s door to door. Three tests pin it (coverage, the pocket's south end,
+  the tree stand-off) in `tests/test_keepout_routing.py`.
+- **The COMPANION's return-to-home routes around the keep-out bands**
+  (operator: "ถ้า RTL ก็ช่วยทำให้มันหลบด้วย"). `mission.gateway_route` moved to
+  module level so one router serves both the mission's gotos and
+  `DroneCommander._fly_return_vias`, which walks the clear gateway chain at
+  `RTL_RETURN_ALT` before handing the last leg to PX4's own RTL (the router
+  has already proved that leg clear). **Fails OPEN at every branch**: no
+  provider, no chain, a detour over `rth_route_detour_max` (2×) of the direct
+  line, or a goto that raises — all fall through to the plain RTL, because an
+  RTH is already an emergency. ⚠ It cannot touch an RTL the FC starts by
+  ITSELF (RC loss, datalink loss, BAT_CRIT_THR, GF_ACTION); there the
+  protection stays vertical — `RTL_RETURN_ALT` 25 m against 18 m trees.
+- **`rung_bias_max_m` 1.5 → 3.0** (§0d).
+
+**OPEN, and the operator's call — nothing detects "we are on the ground and
+the software does not know".** That state is what tipped the aircraft over
+(§0d) and it is not fully closed by the lidar ladder: the ladder stops at a
+true 2 m now, but if it ever does reach the ground again — a lidar dropout, a
+pad on a slope — the same wind-up is available. The honest fixes are a
+ground-contact detector (a sustained below-minimum lidar reading during a
+descent is the strongest evidence available, since PX4's land detector
+demonstrably will not latch there) and/or resetting the position
+controller's integrator when it fires. Both are new failsafe behaviour and
+neither is in.
 
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 

@@ -52,7 +52,7 @@ from . import audit, preflight
 from .energy_policy import EnergyPolicy, energy_consumed_mah
 from .frame_recorder import FrameRecorder
 from .gcs_status import GcsMissionStatus
-from .mission import FlightGate, run_delivery_mission
+from .mission import FlightGate, gateway_route, run_delivery_mission
 from .safety import SafetyWatchdog
 from .state import OrchestratorMode, OrchestratorState, TerminalState
 from .tactical_align import AlignParams
@@ -903,6 +903,24 @@ async def run(args: argparse.Namespace) -> int:
                            origin=site_origin)
         state.plan = render_live_plan(home, spec, discovered=[], profile=profile,
                                       transit_route=transit_route)
+        # The same router the mission's own gotos use, handed to the commander
+        # so a COMPANION return-to-home walks the clear chain around the
+        # operator's obstacle bands before letting PX4 fly the last leg
+        # (operator, 2026-08-29: "ถ้า RTL ก็ช่วยทำให้มันหลบด้วย"). Wired HERE,
+        # not where the config is read, because it aims at the REAL home — the
+        # fix the aircraft armed on, which is where PX4's RTL will go too.
+        # ⚠ It cannot touch an RTL the FC starts by ITSELF (RC loss, datalink
+        # loss, BAT_CRIT_THR, GF_ACTION): that one is decided inside PX4 and
+        # still flies the straight line. There the protection is vertical —
+        # RTL_RETURN_ALT is 25 m at KMITL against the 18 m trees.
+        if keepout_zones and gateways:
+            commander.return_route_provider = (
+                lambda lat, lon, _h=(home.lat, home.lon): gateway_route(
+                    (lat, lon), _h, keepout_zones, gateways))
+            commander._rth_home = (home.lat, home.lon)
+            logger.info("[main] return-to-home will route around "
+                        f"{len(keepout_zones)} keep-out band(s)")
+
         logger.info(f"[main] home=({home.lat:.7f},{home.lon:.7f}); search area "
                     f"{spec.leg_count} legs / {len(spec.waypoints)} waypoints @ "
                     f"{spec.sweep_alt_m:.0f} m, transit {len(transit_route)} pts @ "
