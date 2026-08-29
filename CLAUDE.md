@@ -1330,9 +1330,12 @@ flight fw before G7.
   `MPC_ACC_HOR_MAX` shapes only the safety pilot's manual mode. Values were left
   alone (3.0 is what every validated run flew); only the comments were fixed. The
   2026-07-20 speed-up therefore came from `MPC_JERK_AUTO` + `MPC_TKO_SPEED` + the
-  staged descent, not from the accel cap. ⚠ `tactical_align`'s per-rung descent ladder still steps
-  `MPC_Z_VEL_MAX_DN` — i.e. it does NOT shape the AUTO descent it was written to
-  shape (OPEN; the effective pad-approach descent is the pinned
+  staged descent, not from the accel cap. ✅ CLOSED 2026-08-22 (this note was stale until
+  2026-08-29): `tactical_align::_set_descent_cap` writes `MPC_Z_V_AUTO_DN`, the
+  AUTO twin, so the per-rung ladder does shape the descent it was written for
+  (the old `MPC_Z_VEL_MAX_DN` version was INERT, and left that manual-mode
+  parameter at 3.0 after every delivery — the value the safety pilot's POSCTL
+  descent would have used in a rescue). Kept for the lesson only; the effective pad-approach descent is the pinned
   `MPC_Z_V_AUTO_DN=0.4`, which is what every validated landing actually flew —
   do not "unpin" it: PX4's default is 1.5, ~4× faster onto the pad than anything
   tested, and SITL cannot catch that because SITL had 0.4 persisted in
