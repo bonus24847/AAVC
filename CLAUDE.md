@@ -802,11 +802,16 @@ below is evidence for or against it.
   LANDed it from 8 m at t=98, POSCTL after touchdown. Nothing on the FC acts
   on a lost companion — the radio console counts as a live GCS, so no
   datalink failsafe — the pilot is the only net. FC 5 V rail 4.92 V, vibration
-  normal, straight-line flight at 3 m/s. The CM4's own logs (reboot? router
-  dead? UART?) are still unread — the aircraft was powered down before they
-  could be pulled. Console (aavc-gcs 88a33a9): red banner `CM4 เงียบ > 15 วิ
-  ขณะบิน` from `cm4_silent()` (armed + airborne + radio alive + no beacon line
-  for 15 s), so the pilot hears it in seconds, not after a minute.
+  normal, straight-line flight at 3 m/s. **CAUSE (operator, 01:40): the
+  CM4's OWN power source ran out at that moment** — the companion is fed from
+  a separate supply, not from the flight pack, and it emptied mid-flight 5.
+  So the item for KMITL is not software: **the CM4 supply must be full and
+  good for > 30 min before the GO** (checklist §3, first line) — an emptied
+  CM4 = the aircraft hovers on its last setpoint until the pilot lands it.
+  Console (aavc-gcs 88a33a9): red banner `CM4 เงียบ > 15 วิ ขณะบิน` from
+  `cm4_silent()` (armed + airborne + radio alive + no beacon line for 15 s),
+  so the pilot hears it in seconds, not after a minute — kept, it covers any
+  companion death, not only this one.
 - **The camera is STILL on the night hook** — the aircraft was powered down
   before the flag could be removed. Safety net (aavc-gcs a275430,
   `_infra_remote_cmd`): the console's auto-infra ssh now removes
