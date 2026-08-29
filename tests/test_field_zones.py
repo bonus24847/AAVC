@@ -27,7 +27,7 @@ def test_competition_field_carries_the_whole_planned_route(monkeypatch):
     z = _zones(_COMP_FIELD, monkeypatch)
     assert z["transit"] and len(z["transit"]) == 3            # root-level {id,lat,lon} rows
     assert z["transit"][0] == z["home"]                        # P1 = L&R
-    assert len(z["sweep"]) == 12                               # 7 legs at 15 m around the trees
+    assert len(z["sweep"]) == 14                               # 7 legs + the tree-side pass (2026-08-29)
     assert len(z["keepout"]) == 3 and all(len(p) == 4 for p in z["keepout"])
     assert len(z["gateways"]) == 3 and z["gateway"] == z["gateways"][0]
     # the sweep's east ends stop short of the east band, its west ends inside the airspace
