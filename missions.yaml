@@ -77,3 +77,13 @@ missions:
       # RC_GO=1 is run_mission.sh's own REAL default: this only STAGES; the RC
       # pilot arms and flips OFFBOARD.
       entry: "REAL=1 AAVC_PROFILE=competition AAVC_CONFIG=sitl/kmitl_config.yaml ~/mission/sitl/run_mission.sh {ids}"
+  bangbo:
+    label: "ทดสอบ landing สนาม ร.ร.บางบ่อวิทยาคม (เพดาน 10 m, practice envelope)"
+    field: "/home/bonus-linux/Desktop/mission AAVC in kmutnb/gcs/bangbo_field.yaml"
+    captures: "/home/bonus-linux/Desktop/aavc-comp/captures"
+    mission_cmd: "'/home/bonus-linux/Desktop/aavc-comp/sitl/run_mission.sh' {ids}"
+    mission_label: ""
+    real:
+      repo: "/home/bonus-linux/Desktop/mission AAVC in kmutnb"
+      dir: "mission"
+      entry: "REAL=1 AAVC_PROFILE=kmutnb_skyfield AAVC_CONFIG=sitl/bangbo_config.yaml ~/mission/sitl/run_mission.sh {ids}"
