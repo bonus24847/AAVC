@@ -170,10 +170,14 @@ def test_align_rungs_are_altitude_gated() -> None:
     a = AlignParams()
     assert a.rung_alt_tol_m == 0.3
     assert a.rung_alt_tol_frac == 0.12
-    assert a.rung_bias_max_m == 1.5
+    # 1.5 -> 3.0 on 2026-08-29 (KMITL scored flight 1): the frame bias GROWS
+    # with flight time (GPS height drift), reached 2.4 m on the second
+    # delivery, saturated the clamp and cost the egg. See AlignParams.
+    assert a.rung_bias_max_m == 3.0
     assert a.rung_bias_min_samples == 3
     import yaml
     for path in ("sitl/kmitl_config.yaml", "sitl/aavc_config.yaml"):
         blk = yaml.safe_load(open(path, encoding="utf-8"))["align"]
         assert blk["rung_alt_tol_m"] == 0.3 and blk["rung_alt_tol_frac"] == 0.12, path
+        assert blk["rung_bias_max_m"] == a.rung_bias_max_m, path
 

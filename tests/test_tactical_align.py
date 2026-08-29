@@ -556,6 +556,61 @@ def test_a_low_reading_height_frame_is_corrected_to_the_true_rung(monkeypatch) -
     assert not any("alt_unverified" in a for a in state.anomalies), state.anomalies
 
 
+def test_a_high_reading_height_frame_is_corrected_to_the_true_rung(monkeypatch) -> None:
+    """2026-08-29, KMITL scored flight 1 (ULog ``2026-08-29/05_56_59``): the
+    aircraft's AGL frame read 2.4 m HIGH over pad 5 — GPS altitude drifted
+    +8.96 m ground-to-ground while the baro moved +0.34, and the height blend
+    followed it. The bias correction saw all 2.4 m but the old ±1.5 m clamp
+    threw a metre of it away, so the 3 m rung flew at a true 2.1 m, the gate
+    (correctly) refused it, and the ladder's fallback pushed on to a true
+    ~1.1 m where the 400 mm marker leaves the frame: pad lost, no LAND, no
+    release, pilot kill. The clamp must pass a bias this large."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = LaggingCommander(state)
+    BIAS = -2.4                                 # true height = AGL - 2.4
+
+    def fake(frame_path, min_conf, assigned_id):
+        t = state_ref.telemetry
+        # A frame that reads HIGH means the first goto is UPWARD (rung + bias),
+        # so the airframe has to track the setpoint in both directions here —
+        # the descend-only lag of the low-bias twin would strand it.
+        if cmd.target_alt is not None:
+            step = cmd.target_alt - t.relative_alt_m
+            t.relative_alt_m += max(-1.0, min(1.0, step))
+        true_alt = max(t.relative_alt_m + BIAS, 0.5)
+        exp = 423.1 * 0.2 / true_alt            # the marker's size is the TRUTH
+        return PadHit(cx=320, cy=240, marker_id=3, radius_px=exp,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", fake)
+    _patch_live_camera(monkeypatch)
+    # Assert on what was COMMANDED, not on the telemetry at the LAND call: the
+    # fake sinks 1 m per cycle, so the aircraft passes THROUGH the right height
+    # on its way to a wrong setpoint and a telemetry-sampled check cannot tell
+    # the two apart (it read 5.1 m "true" with the bias clamped to 1.5).
+    gotos: list[float] = []
+    real_goto = cmd.goto
+
+    async def spy_goto(lat, lon, alt_m, yaw_deg=float("nan")):
+        gotos.append(alt_m)
+        await real_goto(lat, lon, alt_m, yaw_deg)
+    monkeypatch.setattr(cmd, "goto", spy_goto)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rung_timeout_s=2.0)))
+    assert res.landed and cmd.landed_calls
+    # The 5 m rung must be commanded at ~7.4 m in the aircraft's drifted frame
+    # (5 + the full 2.4 m bias). A ±1.5 m clamp caps it at 6.5 = a true 4.1 m.
+    rung5 = [g for g in gotos if g < 12.0]
+    assert rung5, gotos
+    assert max(rung5) >= 5.0 + 2.0, (
+        f"the 5 m rung was commanded no higher than {max(rung5):.1f} m in a "
+        f"frame reading 2.4 m HIGH — a true {max(rung5) + BIAS:.1f} m. The "
+        f"frame bias was clamped away (gotos={gotos})")
+    assert not any("alt_unverified" in a for a in state.anomalies), state.anomalies
+
+
 def test_undecoded_blob_hits_never_feed_the_frame_bias(monkeypatch) -> None:
     """A white-pad blob's marker-equivalent size is an inference; if it read
     2.5x too small the bias would steer the aircraft LOWER than it thinks.
