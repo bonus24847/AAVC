@@ -783,6 +783,9 @@ failsafes:
 # below is what tier-B consumption (percent x capacity) and the GO-gate budget
 # read; the seeds stay as they were (conservative) — nothing else here moves.
 battery:
+  # 2026-08-29 night: board endpoints are now BAT1_V_EMPTY 3.65 / V_CHARGED 4.18
+  # + BAT1_R_INTERNAL 0.004 (tools/preflight_params.py BOARD) — the 3.77 notes
+  # above are history.
   capacity_mah: 32000       # 17000 semi-solid (Perpetual Wings, 10C) || 15000 6S
                             # spare in PARALLEL for the 30-Aug flight (note above);
                             # 17000 alone until 2026-08-29
