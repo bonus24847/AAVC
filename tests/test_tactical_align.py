@@ -856,3 +856,110 @@ def test_undecoded_blob_hits_never_feed_the_frame_bias(monkeypatch) -> None:
     rung_gotos = [a for a in gotos if a < 12.0]
     assert rung_gotos and all(abs(a - 5.0) < 1e-6 for a in rung_gotos), gotos
 
+
+
+# ── 2026-08-29 tip-over, the two mechanisms behind the wind-up ──────────────
+
+class GroundedLateralCommander(GroundedCommander):
+    """Records every goto; the airframe does NOT follow laterally (it is on
+    the grass at idle thrust, or simply has not moved yet) — only the
+    commanded altitude is tracked, and the detector fake sinks toward it."""
+
+    def __init__(self, state: OrchestratorState) -> None:
+        super().__init__(state)
+        self.gotos: list[tuple[float, float, float]] = []
+
+    async def goto(self, lat, lon, alt_m, yaw_deg=float("nan")) -> None:
+        self.gotos.append((lat, lon, alt_m))
+        self.target_alt = alt_m
+
+
+def test_a_climb_back_from_the_bottom_rung_is_vertical_from_where_the_aircraft_is(
+        monkeypatch) -> None:
+    """2026-08-29, pad 5 (ULog 05_56_59, t=325-338): with the pad lost at the
+    2 m rung the ladder's climb-back goto targeted the pad's ESTIMATED xy,
+    1.4 m from where the aircraft actually sat on the grass. It could not move
+    at idle thrust, the velocity integrator wound the demand to 22° of pitch in
+    ten seconds, and the climb-out levered the airframe onto its tail. At the
+    bottom rungs every lost-pad goto — the rung re-command and the climb-back
+    — must be VERTICAL from the aircraft's own position; centring resumes once
+    the pad is seen again."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = GroundedLateralCommander(state)
+    t = state.telemetry
+    t.rangefinder_min_m, t.rangefinder_max_m = 0.4, 12.0
+    t.rangefinder_m, t.rangefinder_ts = 12.0, time.monotonic()
+    off_centre_frames = iter([True, True])
+    lost_at: list[int] = []            # len(cmd.gotos) when the pad was first lost
+
+    def detect(frame_path, min_conf, assigned_id):
+        tt = state_ref.telemetry
+        if cmd.target_alt is not None and tt.relative_alt_m > cmd.target_alt:
+            tt.relative_alt_m = max(cmd.target_alt, tt.relative_alt_m - 1.0)
+        alt = max(tt.relative_alt_m, 0.5)
+        tt.rangefinder_m, tt.rangefinder_ts = alt, time.monotonic()
+        radius = 423.1 * 0.2 / alt
+        if alt <= 2.6:
+            # at the bottom rung: the pad is seen 300 px (≈1.4 m at 2 m) off
+            # centre twice, then lost for good
+            if next(off_centre_frames, False):
+                return PadHit(cx=620, cy=240, marker_id=3, radius_px=radius,
+                              confidence=0.9, corners=(), pad_side_px=0.0)
+            if not lost_at:
+                lost_at.append(len(cmd.gotos))
+            return None
+        return PadHit(cx=320, cy=240, marker_id=3, radius_px=radius,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", detect)
+    _patch_live_camera(monkeypatch)
+
+    asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rungs=(12.0, 5.0, 2.0), rung_tol_m=(1.5, 0.6, 0.3),
+                            rung_descent_mps=(3.0, 1.0, 0.5),
+                            rung_timeout_s=1.0, max_lost_cycles=3)))
+    assert lost_at, "the fake never reached the lost-pad path"
+    after_loss = cmd.gotos[lost_at[0]:]
+    assert any(g[2] >= 4.0 for g in after_loss), (
+        "the lost pad must trigger a climb-back", cmd.gotos)
+    offsets = [ta._latlon_dist_m(g[0], g[1], t.lat, t.lon) for g in after_loss]
+    assert all(d < 0.05 for d in offsets), (
+        f"gotos after the pad was lost carry lateral offsets of {offsets} m — "
+        "setpoints an airframe on the ground cannot follow", after_loss)
+
+
+def test_a_lateral_correction_at_the_bottom_rung_is_scaled_by_the_lidar_height(
+        monkeypatch) -> None:
+    """A fix is a pixel offset scaled by the height the projection is given.
+    With the mission's height frame reading 2.4 m HIGH (2026-08-29) a pad
+    150 px off centre at a true 2 m projects 1.56 m away instead of 0.71 —
+    every centring correction overshoots 2.2x. Below the lidar's range the
+    projection must use the MEASURED height."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = GroundedLateralCommander(state)
+    t = state.telemetry
+    t.relative_alt_m = 4.4                      # the frame reads 2.4 m high
+    t.rangefinder_min_m, t.rangefinder_max_m = 0.4, 12.0
+
+    def detect(frame_path, min_conf, assigned_id):
+        tt = state_ref.telemetry
+        tt.rangefinder_m, tt.rangefinder_ts = 2.0, time.monotonic()   # the truth
+        return PadHit(cx=470, cy=240, marker_id=3, radius_px=423.1 * 0.2 / 2.0,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", detect)
+    _patch_live_camera(monkeypatch)
+
+    asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rungs=(2.0,), rung_tol_m=(0.3,), rung_descent_mps=(0.5,),
+                            rung_timeout_s=0.3)))
+    corrections = cmd.gotos[1:]                  # gotos[0] is the acquire goto
+    assert corrections, cmd.gotos
+    lat, lon, _alt = corrections[0]
+    d = ta._latlon_dist_m(lat, lon, t.lat, t.lon)
+    true_offset = 150 * 2.0 / 423.1               # px · height / fx
+    assert abs(d - true_offset) < 0.08, (
+        f"correction of {d:.2f} m for a true offset of {true_offset:.2f} m — "
+        "the projection is still scaled by the biased frame", cmd.gotos)

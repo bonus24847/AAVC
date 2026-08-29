@@ -81,10 +81,18 @@ COMPETITION = MissionProfile(
     name="competition",
     operation_window_s=1200.0,        # AAVC 20-min window
     min_time_remaining_s=180.0,
-    rth_battery_pct=15.0,             # 30 -> 15 (operator 2026-08-27): the
+    rth_battery_pct=20.0,             # 30 -> 15 (operator 2026-08-27): the
                                       # voltage-only gauge sags ~30 pt under
                                       # load, and 30 ended a full-pack sweep
-                                      # at 5 min with 26% still resting
+                                      # at 5 min with 26% still resting.
+                                      # 15 -> 20 (operator 2026-08-29): PX4's
+                                      # own BAT_CRIT_THR is 15 and fires with
+                                      # no sustain, so at a tie the FC's
+                                      # straight-line RTL always won and D3
+                                      # stood the orchestrator down. At 20 the
+                                      # companion's ROUTED return (gateways,
+                                      # expected_mode) goes first; PX4 stays
+                                      # the net underneath at 15.
     land_battery_pct=10.0,            # 20 -> 10, kept under the RTH floor
     egress_battery_pct=30.0,          # planned corridor egress for resupply
                                       # (operator 2026-08-27) — the failsafe
@@ -136,10 +144,18 @@ PRODUCTION = MissionProfile(
     name="production",
     operation_window_s=3600.0,        # longer real-world missions
     min_time_remaining_s=180.0,
-    rth_battery_pct=15.0,             # 30 -> 15 (operator 2026-08-27): the
+    rth_battery_pct=20.0,             # 30 -> 15 (operator 2026-08-27): the
                                       # voltage-only gauge sags ~30 pt under
                                       # load, and 30 ended a full-pack sweep
-                                      # at 5 min with 26% still resting
+                                      # at 5 min with 26% still resting.
+                                      # 15 -> 20 (operator 2026-08-29): PX4's
+                                      # own BAT_CRIT_THR is 15 and fires with
+                                      # no sustain, so at a tie the FC's
+                                      # straight-line RTL always won and D3
+                                      # stood the orchestrator down. At 20 the
+                                      # companion's ROUTED return (gateways,
+                                      # expected_mode) goes first; PX4 stays
+                                      # the net underneath at 15.
     land_battery_pct=10.0,            # 20 -> 10, kept under the RTH floor
     egress_battery_pct=30.0,          # planned corridor egress for resupply
                                       # (operator 2026-08-27) — the failsafe

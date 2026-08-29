@@ -414,7 +414,10 @@ t=342.9. Battery 100 → 31 %, 3563 mAh, 35.8 A mean.
   "waiting for the drone to answer". Swapping the battery does not restart it —
   the orchestrator died with the kill, not with the pack. Restart via the
   launcher (NONINTERACTIVE — see the GCS-console note), wait for the preflight
-  gate, then GO; the recovery flight serves from the unfired latches by itself.
+  gate, then GO; the recovery flight serves from the unfired latches by itself —
+  ⚠ only while the PROCESS survives: after a restart the fired-slot ledger is
+  gone (in-memory), so re-rack the remaining eggs from AUX4 and re-pick only
+  the remaining ids (§0f, checklist §10).
 - Confirmed working from the 28-Aug fixes: `MAV_1_RATE=0`, `MPC_XY_CRUISE=5.0`
   as flown, the 15 m sweep, the ladder ending at 2 m, `MPC_YAW_MODE=5`,
   `COM_DISARM_LAND=-1`, and the rung altitude gate (which did exactly its job).
@@ -494,6 +497,9 @@ flown. `make test` 803 green, ruff + mypy clean, deployed to the CM4.
   RTH is already an emergency. ⚠ It cannot touch an RTL the FC starts by
   ITSELF (RC loss, datalink loss, BAT_CRIT_THR, GF_ACTION); there the
   protection stays vertical — `RTL_RETURN_ALT` 25 m against 18 m trees.
+  e6117c6: the routed RTH first climbs IN PLACE to `RTL_RETURN_ALT`, then flies
+  the chain (the practice Makefile's `field-check`/`lidar-check` targets are
+  not in the comp Makefile — copied over 2026-08-29 evening).
 - **`rung_bias_max_m` 1.5 → 3.0** (§0d).
 
 - **GROUND-CONTACT GUARD (A) + RANGEFINDER TOUCHDOWN (B)** — the operator
@@ -535,6 +541,130 @@ is the operator's call. Also still open: nothing RESETS the position
 controller's integrator when ground contact is detected — guard A avoids the
 wind-up by landing instead of holding, which is enough for the failure that
 actually happened, but a PX4-side reset would be belt and braces.
+
+## 0f. Evening of 29 Aug — day-1 debrief, the tip-over mechanism, ONE flight on two packs, 3 pads
+
+Scored flight 1 (§0d) delivered 1 of 3; the committee now places **THREE pads**
+(3 eggs — `eggs_aboard` stays 4, a 3-id queue is one flight, no code change; the
+rack loads **AUX4, AUX1, AUX2**, AUX3 empty). Tomorrow 30 Aug is the LAST flight.
+Operator decisions: **one flight, no battery swap, 17000 ∥ 15000 in parallel
+(+1.3 kg)**; the tip-over must not recur; maximum landing accuracy. `make test`
+812 green, ruff + mypy clean; aavc-gcs 29 green. Bench/deploy state at the end
+of this section.
+
+- **The tip-over, mechanism from the ULog (`05_56_59` t=255–345: land-detector
+  flags + thrust/attitude setpoints at 1 Hz, `docs/evidence/sdcard_recheck_2026-08-29.md`
+  §4).** Four links: (1) the frame read +2.4 m, the 2 m rung was commanded
+  open-loop at a true −0.4 m and the aircraft settled on the grass (lidar
+  1.70 → 0.32 → **0.00** at t=263 and 323). (2) **PX4 1.17 never declared
+  ground contact in HOLD**: `has_low_throttle=1` (thrust sp 0.12, motors
+  1100/1292 µs), no vertical/horizontal/rotational movement, `close_to_ground=1`
+  — and `ground_contact/maybe_landed/landed = 0` for all of 264–277 and
+  324–338, because the detector in a climb-rate-controlled mode accepts "hit
+  ground" only while the TRAJECTORY commands a descent (`in_descend`); the
+  trajectory setpoint had reached its under-ground target, its vz was 0, and
+  PX4 believed it was flying. No `LNDMC_*` parameter changes that rule; LAND
+  mode does (it keeps commanding a descent — egg 1 latched at t=117 that
+  way). (3) With the pad unreadable from 0 m the ladder's "lost@2m→climb"
+  goto AND its per-cycle rung re-command aimed at the pad's ESTIMATED xy
+  (`best_latlon`), 1.4 m from the aircraft: xy error 0.10 → **1.38 m** over
+  t=325–337 while vxy ≈ 0.05, and the velocity integrator (`MPC_XY_VEL_I_ACC
+  0.8`) wound the demand to **pitch_sp 21.7° / roll_sp 13.3°** (actual 1°);
+  episode 1 (t=264–277) had the same shape with xy error ≤ 0.3 m, pitch_sp
+  ≤ 4.8°, and got away with it. (4) The climb-out (thrust 0.30 → 1.00 over
+  t=338–340) made the wound-up tilt real: pitch 18° → **53.3°** in one second,
+  M4/M6 1900 / M3/M5 1100, kill at 342.9. §0d's "integrator wind-up" was
+  right; the missing links were WHY PX4 could not latch (`in_descend`) and
+  WHERE the lateral demand came from (the retry gotos).
+- **FIX (2026-08-29 evening, `orchestrator/tactical_align.py`; tests at the
+  end of `tests/test_tactical_align.py`, TDD — both failed first for the
+  measured reasons: 1.42 m lateral setpoints after the loss, a 1.56 m
+  correction for a true 0.71 m offset).** (a) **Every goto issued without the
+  pad in view at rungs ≤ `AlignParams.vertical_climb_below_m` (3 m) — the
+  rung re-command, the climb-back, the two deferral climbs — targets the
+  aircraft's OWN position, altitude only** (`_lost_xy`), so no lateral demand
+  can build while it might be on the ground, lidar or no lidar; above 3 m the
+  old behaviour (climb back over the last fix) stands. (b) **The frame is
+  projected at the MEASURED height** (`_projection_pose`): the lidar below
+  7 m, else the frame corrected by the decoded-marker bias. A fix is a pixel
+  offset scaled by the height it is projected with, so at +2.4 m of bias every
+  centring correction at the 2 m rung was 2.2× too long — and the 0.2 m lock
+  tolerance was being measured in those inflated metres. This is also the
+  landing-accuracy change: the lock, the size prior and the commanded
+  correction now work in true metres. The ground-contact guard (§0e) stays the
+  first line — replayed against this trace it fires at t≈263.5, before any
+  wind-up began. **PX4 parameters unchanged**, on purpose: nothing in
+  `LNDMC_*` makes HOLD detect a landing, and `MPC_XY_VEL_I_ACC` /
+  `MPC_TILTMAX_AIR` would only soften the symptom while costing wind rejection.
+- **Two packs in parallel — feasibility (numbers: evidence §3/§5, the plan
+  file, checklist §10).** AUW 7.2 → ≈ 8.5 kg (T/W 3.2 → 2.7); hover throttle
+  ≈ 0.65 (`MPC_THR_HOVER` seed 0.58 → **0.65** in `tools/preflight_params.py`
+  BOARD — write it to the board on the bench: `tools/board_param.py set
+  MPC_THR_HOVER 0.65`, reboot, BOARD re-check; re-seed from the first hover's
+  motor mean if a hover is allowed); current ≈ 46 A mean (P ∝ m^1.5 from the
+  measured 36–39 A); a 3-egg mission ≈ 10–11 min ≈ 8 Ah of 32 (24 Ah usable)
+  — margin ≈ 2.9×; the voltage gauge's sag halves with the current split
+  across two packs, so the loaded reading should end ≈ 55–60 %, above every
+  floor. **Verdict: feasible with a large margin — the limiter is the 20-min
+  window and the landings, not energy.** Conditions (checklist): both packs
+  full and within 0.1 V of each other before the harness joins them, harness/
+  XT90/PM02D path rated ≥ 100 A peak, XT90 to the aircraft last, the 15000
+  mounted to keep the CG centred (the hover motor spread already shows M3/M6
+  high, M5 low), gauge endpoints stay 3.77/4.18 (conservative for the LiPo).
+  Config: `battery.capacity_mah` 17000 → **32000** in both field configs
+  (tier-B mAh readouts + the GO budget only; seeds unchanged);
+  `time_policy.sortie_cost_s` 820 → **730** (3 serves, `kmitl_config.yaml`).
+  **Companion RTH floor 15 → 20 %** (`profile.py`, both profiles; PX4
+  `BAT_CRIT_THR` stays 0.15): at a tie PX4's straight-line RTL fired first
+  (no sustain) and D3 read it as an FC failsafe and stood the orchestrator
+  down; at 20 the ROUTED return (gateways, `expected_mode`) goes first and PX4
+  stays the net underneath. `commands.py::set_battery_failsafe` docstring
+  rewritten to the real ladder (it still said 30/20).
+- **Console (`aavc-gcs`, same evening).** `_parse_beacon` had NO branch for
+  `AAVC STOOD DOWN - RESTART STACK, THEN ARM` and no catch-all, so the one line
+  written for the 29-Aug failure was dropped on the floor. Now: its own slot +
+  a red fixed banner ("restart stack ด้วยไอคอน COMP ก่อน arm/OFFBOARD"), any
+  unknown `AAVC ` line goes to the message log (once a minute per text), and
+  the planned battery egress has a reason: `orchestrator/gcs_status.py::
+  _HOME_REASONS` gained `SWEEP battery egress` / `BATTERY EGRESS` →
+  `why=batt-egress` (`WHY_TH["batt-egress"]`; tests `aavc-gcs/tests/
+  test_stood_down.py`, `tests/test_gcs_status.py`).
+- **SD card + flight-log discovery loop (read-only, all 26 ULogs; evidence
+  §1–§6).** Card clean, hashes match the archive, nothing flew after 13:07.
+  Across the nine real flights 26–29 Aug: EKF zero resets / zero fault flags
+  (test ratios ≤ 0.30); **GPS altitude walks −12 … +9 m within a flight on 4
+  of 9** (baro ≤ 1.8 m), `home.alt` rewritten 1–11×/flight (worst −13.1 m);
+  mission-frame bias vs TFmini −1.57 … +2.44 m median; vibration flat
+  (accel-z std 1.15–1.70 m/s², `accel_vibration_metric` mean 12–15); motors
+  M3/M6 high, M5 low (spread 0.06–0.12 — CG note); xy tracking p95 0.15–0.20 m;
+  battery LOW (25 %) on 3 flights, CRIT never; every companion command
+  ACCEPTED; the 8 `ACTUATOR_TEST`s on two flights are the console's PRE-ARM
+  latch check (AUX flat 1000 µs in flight) — not an in-flight release path;
+  the refused `SET_MESSAGE_INTERVAL` acks are the console's radio "silence"
+  request for a message id with no stream class (cosmetic); the CM4 clock is
+  4.6 days slow (no RTC, NTP unsynced — audit `ts` wrong, `t=` right). The two
+  28-Aug ULogs are now archived in `captures/ulog_2026-08-28/` (`MD5SUMS`).
+- **Deferred (designed, not built): the swap-recovery machinery.** Found on
+  the way: on the REAL bird (`REAL=1` → headless + `--rc-go`) a planned 30 %
+  egress is followed by an IMMEDIATE `sortie 2 refused (energy reserve)` —
+  `main.py::_gate`'s headless branch evaluates energy and time ONCE, seconds
+  after flight 1 disarms with the old pack still in (`refresh_energy()` runs at
+  1 Hz in the sampler, so the reading is fresh = old pack), and the swap
+  rebase (`mission.py` l.1155) runs only AFTER the gate; the time rule also
+  demands a full sweep (≈ 970 s) if ANY owed pad is unconfirmed (`known =
+  all(...)` where `_evaluate()` uses any). Either refusal ends the process,
+  and a restarted stack has no fired-slot ledger (`payload_slots_fired` is
+  in-memory), so it would re-fire AUX4 and re-serve pad 1. The fix (a gate
+  that waits for the swap within `gate_timeout_s`, known-first time rule, a
+  `mission_ledger.json` auto-resume) is written up in the 29-Aug plan file and
+  is NOT needed for a no-swap flight; the manual fallback is checklist §10
+  (restart stack → re-rack from AUX4 → re-pick the remaining ids → RC arm +
+  OFFBOARD).
+- **Bench items still owed before the flight (the FC was unpowered at
+  19:20):** `MPC_THR_HOVER 0.65` written to the board + BOARD 100 %;
+  `tools/lidar_check.py` on the CM4 (now on the `sync_core.sh` allowlist —
+  DISTANCE_SENSOR at 10 Hz is the input of the whole landing chain; an ACK
+  is not proof, the stream is); deploy `--check` MD5 MATCH after the sync.
 
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 

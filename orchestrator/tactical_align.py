@@ -220,6 +220,22 @@ class AlignParams:
     ground_contact_alt_m: float = 0.45     # an in-range reading this low IS the ground
     ground_contact_from_m: float = 2.5     # a 0.00 only counts as ground after this
     ground_contact_cycles: int = 6         # ~0.5 s at cycle_hz 12
+    # LOST-PAD GOTOS AT THE BOTTOM RUNGS ARE VERTICAL (2026-08-29, the other
+    # half of the tip-over). With the pad out of view at the 2 m rung the
+    # ladder re-commanded the rung and then climbed a rung — both gotos aimed
+    # at the pad's ESTIMATED xy, 1.4 m from where the aircraft actually sat on
+    # the grass (ULog 05_56_59 t=325-338: xy error 0.10 → 1.38 m, vxy ≈ 0.05).
+    # An airframe on the ground cannot follow a lateral setpoint, the velocity
+    # integrator wound the demand to 22° of pitch in ten seconds, and the next
+    # thrust command levered it over. At or below this rung height every goto
+    # issued WITHOUT a pad in view (the rung re-command, the climb-back, the
+    # deferral climbs) targets the aircraft's own position — altitude only —
+    # so no lateral demand can build while it might be on the ground; the
+    # ground-contact guard above is the first line, this is the second, and
+    # it holds even with the lidar dead. Centring resumes the moment the pad
+    # is seen again. Above it (5 m and up) the aircraft is flying and the old
+    # behaviour — climb back over the last fix — stands.
+    vertical_climb_below_m: float = 3.0
     min_confidence: float = 0.45      # pad-hit acceptance
     max_lost_cycles: int = 24         # lost detections before climbing (2.0 s)
     search_radius_m: float = 4.0      # expanding-box search step if not acquired
@@ -659,6 +675,33 @@ async def acquire_and_land_drop(
         b = statistics.median(bias_window)
         return max(-params.rung_bias_max_m, min(params.rung_bias_max_m, b))
 
+    def _lost_xy(rung_alt: float) -> tuple[float, float]:
+        """Where a goto issued WITHOUT the pad in view goes at this rung: the
+        aircraft's own position at or below ``vertical_climb_below_m`` (a
+        vertical move — it may be on the ground), the last fix above it."""
+        t = state.telemetry
+        if (rung_alt <= params.vertical_climb_below_m
+                and not math.isnan(t.lat) and not math.isnan(t.lon)):
+            return (t.lat, t.lon)
+        return best_latlon
+
+    def _projection_pose(pose: _Pose | None, lidar: float) -> _Pose | None:
+        """The pose to PROJECT the frame with: the aircraft's position and
+        attitude at the MEASURED height, not the height frame's.
+
+        A fix is a pixel offset scaled by the height the projection is given.
+        On 2026-08-29 the frame read 2.4 m high at pad 5, so every centring
+        correction at the 2 m rung came out 2.2x too long — and the lock
+        tolerance, measured in those inflated metres, could not be met. Below
+        the beam the lidar is the height; above it, or with the lidar stale,
+        the frame corrected by the bias the decoded markers have taught."""
+        if pose is None:
+            return None
+        h = lidar if not math.isnan(lidar) else pose[2] - _frame_bias()
+        if math.isnan(h) or h <= 0.1:
+            return pose
+        return (pose[0], pose[1], h, pose[3], pose[4], pose[5])
+
     gc_last_valid = math.nan     # last IN-RANGE lidar reading (see _lidar_agl)
     gc_streak = 0                # consecutive cycles reading ground contact
 
@@ -743,7 +786,7 @@ async def acquire_and_land_drop(
             state.record_anomaly("delivery_aborted_battery_egress")
             res.notes.append(f"battery-egress abort at {rung_alt:.0f} m → climb")
             await _restore_descent_cap()
-            await _goto(best_latlon[0], best_latlon[1], params.rungs[0])
+            await _goto(*_lost_xy(rung_alt), params.rungs[0])
             return res
         # Descend INTO this rung at its scheduled speed (fast high → slow low).
         await _set_descent_cap(
@@ -775,7 +818,8 @@ async def acquire_and_land_drop(
                 await pacer.wait()
                 continue
             hit, pose = await _read_nadir()
-            fix = _accept(hit, pose)
+            lidar = _lidar_agl()
+            fix = _accept(hit, _projection_pose(pose, lidar))
             if fix is not None:
                 last_err = fix.ground_dist_m
                 lost = 0
@@ -783,7 +827,6 @@ async def acquire_and_land_drop(
                 best_latlon = (mlat, mlon)
                 agl = (float(pose[2]) if pose is not None
                        and not math.isnan(pose[2]) else math.nan)
-                lidar = _lidar_agl()
                 if not math.isnan(lidar):
                     # TRUTH, measured: fly the rung closed-loop on the lidar and
                     # let it teach the frame bias too (no decode needed, and a
@@ -822,11 +865,11 @@ async def acquire_and_land_drop(
                 climb = params.rungs[rung_i - 1]
                 logger.info(f"[align] #{stop_index}: lost lock at {rung_alt:.0f} m "
                             f"→ climb to {climb:.0f} m")
-                await _goto(best_latlon[0], best_latlon[1], climb)
+                await _goto(*_lost_xy(rung_alt), climb)
                 res.notes.append(f"lost@{rung_alt:.0f}m→climb")
                 lost = 0
             else:
-                await _goto(best_latlon[0], best_latlon[1], rung_alt)
+                await _goto(*_lost_xy(rung_alt), rung_alt)
             await pacer.wait()
         final_locked = in_tol >= params.lock_cycles
         if not final_locked and in_tol_raw >= params.lock_cycles:
@@ -895,7 +938,7 @@ async def acquire_and_land_drop(
             f"{params.require_id_votes}) — NOT landing; climbing to defer")
         state.record_anomaly("land_gate_id_not_confirmed")
         res.notes.append("id-not-confirmed → defer")
-        await _goto(best_latlon[0], best_latlon[1], params.rungs[0])
+        await _goto(*_lost_xy(params.rungs[-1]), params.rungs[0])
         return res
 
     # Centred-LAND gate (found by the 2026-07-15 GCS run): a rung TIMEOUT used
@@ -914,7 +957,7 @@ async def acquire_and_land_drop(
             "NOT landing off-centre; climbing to defer")
         state.record_anomaly("land_gate_not_centred")
         res.notes.append(f"not-centred (err={last_err:.2f} m) → defer")
-        await _goto(best_latlon[0], best_latlon[1], params.rungs[0])
+        await _goto(*_lost_xy(params.rungs[-1]), params.rungs[0])
         return res
 
     _phase(MissionPhase.LAND)

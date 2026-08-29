@@ -799,8 +799,25 @@ failsafes:
 # MPC_THR_HOVER still describe the 2-pack aircraft, and they are shared with the
 # parallel session's repo. They move together, deliberately, not as a side
 # effect of this note.
+# ⚠ 2026-08-30 SCORED FLIGHT 2 — TWO PACKS IN PARALLEL (operator 2026-08-29
+# evening, after scored flight 1 ended at 31 % after 349 s on one pack). The
+# 17000 semi-solid and the 15000 6S spare are connected in parallel for ONE
+# flight with no swap: 32 Ah nominal, +1.3 kg (AUW 7.2 -> ~8.5 kg). What the
+# ULogs say it costs and buys: hover 38-39 A at 7.2 kg -> ~47-49 A (P ~ m^1.5),
+# a 3-egg mission ~10-11 min = ~8 Ah of 32 (24 Ah usable at the 25 % reserve);
+# the voltage gauge's sag halves with the current split across two packs, so
+# the loaded reading should end near 55-60 % — above every floor. Conditions
+# that make it safe: both packs FULL and within 0.1 V of each other before the
+# harness joins them (a mismatch cross-charges at connection), harness/XT90/
+# PM02D rated >= 100 A peak, the second pack mounted to keep the CG centred,
+# MPC_THR_HOVER re-seeded (0.58 -> 0.65, tools/preflight_params.py BOARD).
+# The endpoints stay 3.77/4.18: conservative for the LiPo half. capacity_mah
+# below is what tier-B consumption (percent x capacity) and the GO-gate budget
+# read; the seeds stay as they were (conservative) — nothing else here moves.
 battery:
-  capacity_mah: 17000       # ONE 6S 17000 mAh semi-solid (Perpetual Wings), 10C
+  capacity_mah: 32000       # 17000 semi-solid (Perpetual Wings, 10C) || 15000 6S
+                            # spare in PARALLEL for the 30-Aug flight (note above);
+                            # 17000 alone until 2026-08-29
   cells: 6
   # ~29.6 A hover x 3.5 min. Used ONLY for flight 1; measurement replaces it
   # from flight 2 onwards. ⚠ ALL hover figures remain CALCULATED — at this

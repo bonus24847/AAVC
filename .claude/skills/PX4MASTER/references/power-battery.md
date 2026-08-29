@@ -85,3 +85,28 @@ The endpoints/capacity appear in: `tools/preflight_params.py` (board truth),
 both site configs' battery blocks + power narratives, CLAUDE.md §2+G5,
 docs/FLIGHT.md. 2026-08-20 sweep left them consistent at 4.18/3.77/17000 —
 when the NEXT pack arrives, change ALL of them in one commit.
+
+## Two packs in parallel for the 30-Aug flight (operator decision 2026-08-29)
+17000 semi-solid ∥ 15000 6S = 32 Ah nominal, +1.3 kg → AUW ≈ 8.5 kg (T/W 2.7).
+Measured basis: hover 38–39 A / mission mean 36 A at 7.2 kg; 29-Aug 3563 mAh in
+349 s. Scaled (P ∝ m^1.5): ≈ 46 A mean, 3-egg mission ≈ 10–11 min ≈ 8 Ah of 32
+(24 usable at the 25 % reserve) — energy margin ≈ 2.9×. The voltage gauge's
+sag halves with the current split, so the loaded reading should end ≈ 55–60 %.
+Rules: connect only with both packs full and within 0.1 V of each other (a
+mismatch cross-charges at connection); path rated ≥ 100 A peak; XT90 to the
+aircraft last; mount the 15000 to keep the CG centred; endpoints stay
+3.77/4.18 (conservative for the LiPo half); `battery.capacity_mah 32000` in
+both configs; `MPC_THR_HOVER` seed 0.65 (BOARD).
+
+## The floors ladder (since 2026-08-29)
+| floor | who | action |
+|---|---|---|
+| 30 % | mission (`egress_battery_pct`) | planned corridor egress, land, swap |
+| 20 % | companion watchdog (`rth_battery_pct`, 5 s sustain) | ROUTED RTH via the gateways (`expected_mode` keeps D3 quiet) — ends the process |
+| 15 % | PX4 `BAT_CRIT_THR`, `COM_LOW_BAT_ACT 3` | straight-line RTL at 25 m; D3 → FC FAILSAFE stand-down |
+| 10 % | companion (`land_battery_pct`) | LAND in place — ends the process |
+| 7 % | PX4 `BAT_EMERGEN_THR` | land |
+A tie between the companion and PX4 (15/15 until 2026-08-29) always went to
+PX4 (no sustain). Only the 30 % egress keeps the orchestrator alive for a
+next gate — and on the real bird that gate refuses at once (CLAUDE.md §0f,
+deferred item).

@@ -124,7 +124,11 @@ trust a home-MSL cache taken while the frame was still moving.
    now pinned on BOTH TX and RX so neither side can generate a fresh one).
    Re-test the power-cycle → auto-reconnect path; if it still needs a re-bind,
    that is a field-day hazard with no in-air recovery.
-3. ESC low-voltage cutoff vs the semi-solid pack (motors can cut in the air
+3. **30-Aug bench (2026-08-29 evening):** `MPC_THR_HOVER 0.65` on the board +
+   BOARD 100 % · `make lidar-check` on the CM4 (the lidar ladder + ground-contact
+   guard have NO input without the DISTANCE_SENSOR stream) · deploy `--check`
+   MATCH · packs equalised (≤ 0.1 V) before the parallel harness joins them.
+4. ESC low-voltage cutoff vs the semi-solid pack (motors can cut in the air
    with charge remaining; no current sensor will warn us).
    (FC microSD replacement: ✅ DONE 2026-08-21 — full-surface-verified
    SanDisk Extreme 32 GB installed, BOARD+dataman+param-backup verified.)

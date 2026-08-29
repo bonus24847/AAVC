@@ -990,3 +990,21 @@ point; confirm the interpretation at the 28-Aug briefing.
       practice repo. If the 28-Aug survey is worth simulating, the world's
       `<spherical_coordinates>`, `PX4_HOME_*` and `site.center` move together
       or the same class of bug comes back wearing a different hat.
+
+## 2026-08-29 evening — after scored flight 1 (1 of 3), before the last flight
+- SD card re-read + discovery loop over all 26 ULogs: nothing undiscovered;
+  `docs/evidence/sdcard_recheck_2026-08-29.md` holds the per-flight tables.
+  Two things worth carrying: the console's pre-arm `ACTUATOR_TEST`s show up
+  inside the flight ULog at negative time (they are NOT in-flight releases —
+  check `actuator_outputs` instance 1 before believing otherwise), and the
+  refused `SET_MESSAGE_INTERVAL` acks are the console silencing a message
+  with no stream class over the radio (cosmetic).
+- The tip-over: see height-gps.md (land detector `in_descend` rule) — the
+  companion now lands on lidar ground contact and never sends a lateral
+  setpoint from the bottom rungs.
+- Tomorrow: ONE flight on two packs in parallel (power-battery.md), 3 pads,
+  eggs in AUX4/AUX1/AUX2. Bench before: `board_param.py set MPC_THR_HOVER
+  0.65` + BOARD, `make lidar-check` on the CM4, deploy `--check` MATCH.
+- If a kill/RTL still happens: the orchestrator is gone — console shows the
+  red STOOD DOWN banner — restart the stack via the icon, re-rack the remaining
+  eggs from AUX4, re-pick only the remaining ids, RC arm + OFFBOARD.

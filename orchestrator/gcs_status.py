@@ -312,6 +312,15 @@ class GcsMissionStatus:
     # substrings are the audit grammar's own words (safety.py anomaly kinds +
     # the mission's decision lines), so a wording change there must land here.
     _HOME_REASONS = (
+        # The PLANNED 30 % egress (operator 2026-08-27): the sweep's own arm
+        # and the delivery gate's arm each audit their own line; neither
+        # matched here until 2026-08-29, so a flight that came home to swap
+        # the pack showed no reason at all. Listed first: a "DELIVERY abort"
+        # often follows the gate's line in the same tick and must not win.
+        ("SWEEP battery egress", "batt-egress",
+         "แบตถึงเกณฑ์ 30 % — กลับมาเปลี่ยนแบต แล้ว arm + OFFBOARD เที่ยวกู้"),
+        ("BATTERY EGRESS", "batt-egress",
+         "แบตถึงเกณฑ์ 30 % — กลับมาเปลี่ยนแบต แล้ว arm + OFFBOARD เที่ยวกู้"),
         ("DELIVERY abort", "budget",
          "งบเวลา/แบตไม่พอก่อนส่ง — กลับพร้อมไข่ที่เหลือ"),
         ("refused (energy reserve)", "energy",

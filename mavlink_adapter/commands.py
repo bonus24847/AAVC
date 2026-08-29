@@ -1512,11 +1512,16 @@ class DroneCommander:
     ) -> None:
         """Pin the FC-level battery failsafe thresholds + action.
 
-        The companion watchdog RTHs at 30% / LANDs at 20% as the PRIMARY layer;
-        these FC thresholds (fractions 0..1) sit BELOW that as the authoritative
-        backstop if the companion dies, so the two layers never race. The action
-        (COM_LOW_BAT_ACT) is an INT and readback-confirmed; the three float
-        thresholds are best-effort. Confirm on the real pack before G7."""
+        The ladder, top to bottom (2026-08-29): the mission's planned egress
+        at 30% (corridor home, swap), the companion watchdog's ROUTED RTH at
+        20% and its LAND at 10% (profile.rth/land_battery_pct, 5 s sustain);
+        underneath, these FC thresholds (fractions 0..1) — RTL at BAT_CRIT_THR
+        0.15, land at BAT_EMERGEN_THR 0.07, COM_LOW_BAT_ACT=3 — the backstop
+        if the companion dies. They must stay BELOW the companion's: PX4 fires
+        with no sustain, so at a tie (15/15 until 2026-08-29) the FC's
+        straight-line RTL always won and D3 read it as an FC failsafe and
+        stood the orchestrator down. The action (COM_LOW_BAT_ACT) is an INT
+        and readback-confirmed; the three float thresholds are best-effort."""
         self._guard_pilot("change the battery failsafe")
         for name, value in (
             ("BAT_LOW_THR", low), ("BAT_CRIT_THR", crit), ("BAT_EMERGEN_THR", emergen),

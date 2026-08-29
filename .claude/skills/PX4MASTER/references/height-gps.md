@@ -118,3 +118,24 @@ PX4 re-captures home at every arm, so after any prior flight/drift the
 mission's own d_home lies (2.9 m reading while 112 m from the configured
 L&R). `tools/verify_flight.py` cross-checks the final fix against CONFIG, not
 d_home — do not "simplify" that check.
+
+## PX4 1.17 land detector cannot see a landing in HOLD (2026-08-29 tip-over)
+Symptom: aircraft settled on the grass at idle thrust (lidar 0.00, thrust sp
+0.12, motors 1100/1292) while AUTO_LOITER held position; `ground_contact`,
+`maybe_landed`, `landed` stayed 0 for 226 s; the xy integrator wound to 22° of
+pitch demand and the next climb-out levered the airframe over (53° pitch).
+Mechanism (flags read from the ULog): in climb-rate-controlled modes the
+multicopter land detector accepts "hit ground" only while the TRAJECTORY is
+commanding a descent (`in_descend`); once the trajectory setpoint reaches its
+(under-ground) target its vz is 0 → `in_descend=0` → no ground contact, even
+with `has_low_throttle=1` and zero movement. No `LNDMC_*` parameter changes
+this. LAND mode keeps commanding a descent and latches within ~1 s.
+Fix: never HOLD on the ground — the companion's ground-contact guard commands
+LAND on a lidar reading ≤ 0.45 m / 0.00 after ≤ 2.5 m (`tactical_align.py`),
+and every lost-pad goto at rungs ≤ 3 m is vertical from the aircraft's own
+position (`vertical_climb_below_m`) so no lateral demand can build. The frame
+is projected at the lidar height below 7 m (`_projection_pose`), so a biased
+height frame no longer inflates the lateral corrections.
+Guard: `tests/test_tactical_align.py` (ground-contact, vertical climb-back,
+lidar-scaled correction); the field proof is `make lidar-check` — no stream,
+no guard.
