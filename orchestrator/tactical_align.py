@@ -172,11 +172,15 @@ class AlignParams:
     # still ~0.7 m, then on pad 5 the bias reached 2.4 m, the clamp saturated
     # at 1.5, every rung was commanded ~0.9 m LOW, the 3 m rung flew at a true
     # 2.1 m (gate correctly refused it), the fallback took the ladder to the
-    # 2 m rung which flew at a true ~1.1 m — where the 400 mm marker leaves
-    # the frame — so the pad was lost, LAND was never commanded, the aircraft
-    # settled onto the ground still believing it was 2.4 m up (PX4 held
-    # AUTO_LOITER, so the land detector never latched and the touchdown-gated
-    # release never fired), climbed out, retried, and the pilot killed it.
+    # 2 m rung, commanded at a true ~1.1 m, and the aircraft went ON DOWN to
+    # the ground: three independent measures at t=311-317 read mission AGL
+    # 4.50 m, lidar 2.14, marker-size 1.94 — then by t=323 the lidar was at
+    # 0.52 m and falling to 0.10 while the mission still read 2.4. On the
+    # ground the pad is far too close to read, so the align lost it and
+    # climbed a rung — five times ("lost@2m->climb" in the audit). PX4 held
+    # AUTO_LOITER throughout, so its land detector never latched and the
+    # touchdown-gated release never fired; the final rung never locked
+    # ("land_gate_not_centred", err 0.17 m) and the pilot killed it.
     # 3.0 covers every per-flight median above with margin and is still a
     # clamp: a wilder disagreement remains "no information".
     rung_bias_max_m: float = 3.0

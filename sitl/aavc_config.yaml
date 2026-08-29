@@ -974,9 +974,11 @@ align:
                           # +0.34, and EKF2_GPS_CTRL=7 lets the height blend
                           # follow it. It reached 2.4 m on the second delivery,
                           # saturated the old 1.5 clamp, and every rung flew
-                          # ~0.9 m low: the 2 m rung at a true ~1.1 m where the
-                          # marker leaves the frame -> pad lost, no LAND, no
-                          # release. DOCUMENTATION (the flown value is the
+                          # ~0.9 m low: the 2 m rung was commanded at a true
+                          # ~1.1 m and the aircraft went on down to the GROUND
+                          # (lidar 0.10 m) while the mission read 2.4 -> the pad
+                          # is unreadable that close -> lost@2m->climb x5, no
+                          # LAND, no release. DOCUMENTATION (the flown value is the
                           # AlignParams default; only the rate trio is read
                           # from this block) — keep the two in step.
   max_lost_cycles: 24     # 2.0 s of lost pad before climbing back
