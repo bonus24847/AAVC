@@ -841,7 +841,7 @@ async def run_delivery_mission(
                         state.record_audit(
                             f"t={state.time_elapsed_s():.1f}s FLIGHT {flight} SWEEP "
                             f"resumed at wp {orig_i}")
-                        await _climb_out_to_hop_alt()
+                        # (_serve_found already climbed back to the sweep altitude)
                         _phase(MissionPhase.SEARCH)
                         state.command_pointer = pointer_for(state.plan, wp_index=orig_i)
                         await _goto_routed(wp.lat, wp.lon, sweep_alt,
@@ -1339,6 +1339,15 @@ async def run_delivery_mission(
                     if await _deliver_entry(i) == "abort":
                         return "stop"
                     out = "resume"
+                if out == "resume":
+                    # The aircraft is landed (armed) on the pad it just served.
+                    # Every caller's next move is a goto — from the ground that
+                    # would start under the 10 m floor (see _climb_out_to_hop_alt)
+                    # — so climb back to the sweep altitude HERE, once, for all
+                    # of them (review 2026-08-29: the top-of-waypoint and
+                    # pre-sweep callers had no climb-out of their own).
+                    await _climb_out_to_hop_alt()
+                    _phase(MissionPhase.SEARCH)
                 return out
 
             def _all_handled() -> bool:

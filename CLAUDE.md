@@ -266,8 +266,14 @@ own Python built the spec from the deployed config: 4 legs / 8 waypoints @
   ground at pad 6, −1.0..−1.4 at pad 5), so "descend to 2 m" in that frame
   parks it at a true ~3 m where the gate would only stall; every rung goto is
   therefore commanded at `rung + median(AGL − marker altitude)` (clamped
-  ±`rung_bias_max_m` 2.0) — steering to the TRUE rung height, gate passes at
-  once. Tests at the end of `tests/test_tactical_align.py`. NOT
+  ±`rung_bias_max_m` 1.5, ≥ 3 samples, **decoded markers only** — a blob's
+  equivalent size is an inference and a wrong bias steers LOWER; blob frames
+  are judged by the bias-corrected AGL instead) — steering to the TRUE rung
+  height, gate passes at once. Review 2026-08-29 also: `_serve_found` climbs
+  back to the sweep altitude itself after a delivery (the top-of-waypoint
+  and pre-sweep callers had issued a goto from the pad), and `drop_payload`
+  keeps its 0.6 s dwell after the release pulse (release → takeoff gap stays
+  the flown 0.8 s). Tests at the end of `tests/test_tactical_align.py`. NOT
   done: raising `MPC_LAND_SPEED` 0.3 → 0.5 — e02ffa3 recorded a global bump
   making AUTO.LAND climb to 41 m, so the blind 2 m stays at 0.3 m/s (~7 s).
   Also: egress `_wait_climb` 15 → 20 s (the flight reached 14.9 of 17.5 m in

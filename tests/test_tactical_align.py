@@ -555,3 +555,37 @@ def test_a_low_reading_height_frame_is_corrected_to_the_true_rung(monkeypatch) -
         f"LAND at a true {cmd.alt_at_land + BIAS:.1f} m — the frame bias was not corrected")
     assert not any("alt_unverified" in a for a in state.anomalies), state.anomalies
 
+
+def test_undecoded_blob_hits_never_feed_the_frame_bias(monkeypatch) -> None:
+    """A white-pad blob's marker-equivalent size is an inference; if it read
+    2.5x too small the bias would steer the aircraft LOWER than it thinks.
+    Blob-only frames must leave the bias at zero (gotos at the plain rung)."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = LaggingCommander(state)
+    gotos: list[float] = []
+    real_goto = cmd.goto
+
+    async def spy_goto(lat, lon, alt_m, yaw_deg=float("nan")):
+        gotos.append(alt_m)
+        await real_goto(lat, lon, alt_m, yaw_deg)
+    monkeypatch.setattr(cmd, "goto", spy_goto)
+
+    def blob(frame_path, min_conf, assigned_id):
+        t = state_ref.telemetry
+        if cmd.target_alt is not None and t.relative_alt_m > cmd.target_alt:
+            t.relative_alt_m = max(cmd.target_alt, t.relative_alt_m - 1.0)
+        alt = max(t.relative_alt_m, 0.5)
+        exp = 423.1 * 0.2 / alt * 2.0          # a blob "seen" 2x too small
+        return PadHit(cx=320, cy=240, marker_id=None, radius_px=exp,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", blob)
+    _patch_live_camera(monkeypatch)
+
+    asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rung_timeout_s=0.5, assigned_marker_id=None,
+                            require_id_votes=0)))
+    rung_gotos = [a for a in gotos if a < 12.0]
+    assert rung_gotos and all(abs(a - 5.0) < 1e-6 for a in rung_gotos), gotos
+

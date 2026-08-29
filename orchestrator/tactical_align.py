@@ -146,7 +146,12 @@ class AlignParams:
     # rung goto is corrected by the median (AGL − marker altitude) of the
     # recent fixes — steering to the TRUE rung height — clamped to
     # ±rung_bias_max_m (a wilder disagreement is treated as no information).
-    rung_bias_max_m: float = 2.0
+    # Only DECODED marker hits feed it: a white-pad blob's marker-equivalent
+    # size is an inference (the size band admits 0.4-2.5x), and a wrong
+    # bias steers the aircraft LOWER than it thinks — the one direction that
+    # must never come from a guess. The observed bias was 0.4-1.4 m.
+    rung_bias_max_m: float = 1.5
+    rung_bias_min_samples: int = 3    # fixes before the correction is applied
     min_confidence: float = 0.45      # pad-hit acceptance
     max_lost_cycles: int = 24         # lost detections before climbing (2.0 s)
     search_radius_m: float = 4.0      # expanding-box search step if not acquired
@@ -279,12 +284,10 @@ def _alt_estimate(hit: PadHit | None, pose: _Pose | None,
     nor the home latch and is exact where it matters (a 400 mm marker is
     170 px at 2 m, so ±3 px is ±2 %). Else the pose altitude; NaN when
     neither is available (the gate then passes — never blocks on no data)."""
-    if hit is not None and hit.radius_px > 0.0:
+    if hit is not None and hit.marker_id is not None and hit.radius_px > 0.0:
         fx = expected_radius_px(NADIR, 1.0, 1.0)
         if fx > 0.0:
             return params.target_radius_m * fx / hit.radius_px
-    if pose is not None and not math.isnan(pose[2]):
-        return float(pose[2])
     return float("nan")
 
 
@@ -583,7 +586,7 @@ async def acquire_and_land_drop(
     bias_window: deque[float] = deque(maxlen=max(3, params.median_window))
 
     def _frame_bias() -> float:
-        if not bias_window:
+        if len(bias_window) < max(1, params.rung_bias_min_samples):
             return 0.0
         b = statistics.median(bias_window)
         return max(-params.rung_bias_max_m, min(params.rung_bias_max_m, b))
@@ -630,10 +633,14 @@ async def acquire_and_land_drop(
                 lost = 0
                 mlat, mlon = _commanded_latlon(fix)
                 best_latlon = (mlat, mlon)
-                alt_est = _alt_estimate(hit, pose, params)
+                alt_est = _alt_estimate(hit, pose, params)   # decoded marker only
                 if (pose is not None and not math.isnan(alt_est)
                         and not math.isnan(pose[2])):
                     bias_window.append(float(pose[2]) - alt_est)
+                elif pose is not None and not math.isnan(pose[2]):
+                    # Undecoded (blob) hit: judge the rung by the aircraft's own
+                    # AGL corrected by the bias learnt from decoded frames.
+                    alt_est = float(pose[2]) - _frame_bias()
                 # Command the rung's TRUE height in the aircraft's own frame.
                 await _goto(mlat, mlon, rung_alt + _frame_bias())
                 at_rung = math.isnan(alt_est) or abs(alt_est - rung_alt) <= alt_tol
