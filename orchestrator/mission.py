@@ -1068,7 +1068,10 @@ async def run_delivery_mission(
                 timeout_s=2.0 * d0 / max(spec.speed_mps, 0.1) + _WAIT_PAD_S)
             serve_params = replace(
                 align_p, accept_radius_m=_SERVE_ACCEPT_RADIUS_M,
-                assigned_marker_id=assigned)
+                assigned_marker_id=assigned,
+                # the retry is the LAST attempt: an egg at the pad's edge beats
+                # an egg brought home (AlignParams.land_ok_err_last_m)
+                last_attempt=(attempt >= 2))
             res = await acquire_and_land_drop(
                 commander, state, Coordinate(lat=claimed.lat, lon=claimed.lon),
                 stop_index=stop_index, payload_id=payload_id,

@@ -963,3 +963,91 @@ def test_a_lateral_correction_at_the_bottom_rung_is_scaled_by_the_lidar_height(
     assert abs(d - true_offset) < 0.08, (
         f"correction of {d:.2f} m for a true offset of {true_offset:.2f} m — "
         "the projection is still scaled by the biased frame", cmd.gotos)
+
+
+# ── "วางไม่ตรง ดีกว่าไม่วาง" (operator 2026-08-29): the centring gate ────────
+
+def _off_centre_detector(monkeypatch, cmd, px_off: int):
+    """Centred at the upper rungs; at the bottom rung the pad sits px_off
+    pixels off centre every frame, so the 0.25 m lock is never met."""
+    def detect(frame_path, min_conf, assigned_id):
+        t = state_ref.telemetry
+        if cmd.target_alt is not None and t.relative_alt_m > cmd.target_alt:
+            t.relative_alt_m = max(cmd.target_alt, t.relative_alt_m - 1.0)
+        alt = max(t.relative_alt_m, 0.5)
+        t.rangefinder_m, t.rangefinder_ts = alt, time.monotonic()
+        cx = 320 + px_off if alt <= 2.6 else 320
+        return PadHit(cx=cx, cy=240, marker_id=3, radius_px=423.1 * 0.2 / alt,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", detect)
+    _patch_live_camera(monkeypatch)
+
+
+def _run_off_centre(monkeypatch, px_off: int, **params):
+    global state_ref
+    state = state_ref = _state()
+    cmd = GroundedLateralCommander(state)   # the airframe does not teleport onto each fix
+    state.telemetry.rangefinder_min_m, state.telemetry.rangefinder_max_m = 0.4, 12.0
+    _off_centre_detector(monkeypatch, cmd, px_off)
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rungs=(12.0, 5.0, 2.0), rung_tol_m=(1.5, 0.6, 0.25),
+                            rung_descent_mps=(3.0, 1.0, 0.5), rung_timeout_s=0.5,
+                            **params)))
+    return res, state, cmd
+
+
+def test_an_off_centre_but_visible_pad_is_landed_on_not_deferred(monkeypatch) -> None:
+    """Operator 2026-08-29, before the last flight: an egg placed 30 cm off the
+    centre of a 1 m pad scores; an egg flown home because the 0.25 m lock never
+    held scores nothing (the 29-Aug audit deferred at err 0.17 m). At the bottom
+    rung a pad still in view within land_ok_err_m is landed on, audited."""
+    res, state, cmd = _run_off_centre(monkeypatch, px_off=65)      # ≈0.31 m at 2 m
+    assert res.landed and res.dropped, (res.notes, state.anomalies)
+    assert any("land_gate_relaxed" in a for a in state.anomalies), state.anomalies
+    assert not any("land_gate_not_centred" in a for a in state.anomalies)
+
+
+def test_a_pad_further_off_than_the_relaxed_limit_still_defers_on_attempt_one(
+        monkeypatch) -> None:
+    res, state, cmd = _run_off_centre(monkeypatch, px_off=170)     # ≈0.80 m at 2 m
+    assert not res.landed and not res.dropped, res.notes
+    assert any("land_gate_not_centred" in a for a in state.anomalies), state.anomalies
+
+
+def test_the_last_attempt_lands_on_any_pad_still_in_view(monkeypatch) -> None:
+    """The mission retries a deferred pad once. On that retry the choice is
+    between an egg placed at the pad's edge and an egg brought home."""
+    res, state, cmd = _run_off_centre(monkeypatch, px_off=170, last_attempt=True)
+    assert res.landed and res.dropped, (res.notes, state.anomalies)
+    assert any("land_gate_relaxed" in a for a in state.anomalies), state.anomalies
+
+
+def test_the_last_attempt_still_defers_when_the_pad_was_not_seen_at_the_bottom_rung(
+        monkeypatch) -> None:
+    """A 400 mm marker that has LEFT the frame at 2 m is more than ~1.3 m off —
+    that is not "off-centre on the pad", that is next to it. An error carried
+    over from a higher rung must not license the landing."""
+    global state_ref
+    state = state_ref = _state()
+    cmd = GroundedCommander(state)
+    state.telemetry.rangefinder_min_m, state.telemetry.rangefinder_max_m = 0.4, 12.0
+
+    def detect(frame_path, min_conf, assigned_id):
+        t = state_ref.telemetry
+        if cmd.target_alt is not None and t.relative_alt_m > cmd.target_alt:
+            t.relative_alt_m = max(cmd.target_alt, t.relative_alt_m - 1.0)
+        alt = max(t.relative_alt_m, 0.5)
+        t.rangefinder_m, t.rangefinder_ts = alt, time.monotonic()
+        if alt <= 2.6:
+            return None                              # lost at the bottom rung
+        return PadHit(cx=320, cy=240, marker_id=3, radius_px=423.1 * 0.2 / alt,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", detect)
+    _patch_live_camera(monkeypatch)
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rungs=(12.0, 5.0, 2.0), rung_tol_m=(1.5, 0.6, 0.25),
+                            rung_descent_mps=(3.0, 1.0, 0.5), rung_timeout_s=0.5,
+                            max_lost_cycles=3, last_attempt=True)))
+    assert not res.landed and not res.dropped, res.notes

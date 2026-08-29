@@ -678,6 +678,25 @@ of this section.
   7d104fd). `tools/lidar_check.py` + the `field-check`/`lidar-check` Makefile
   targets are on the CM4 now; `.aavc_site` = competition; no orchestrator
   running.
+- **"วางไม่ตรง ดีกว่าไม่วาง" — the centred-LAND gate relaxed (operator, same
+  evening; `AlignParams.land_ok_err_m 0.45` / `land_ok_err_last_m 1.0` /
+  `last_attempt`, both field configs, tests at the end of
+  `tests/test_tactical_align.py`).** The gate used to DEFER whenever the
+  bottom rung's 0.25 m lock never held (the 29-Aug audit deferred at err
+  0.17 m), and a deferred egg the single retry cannot land comes home for
+  zero. Now: pad still IN VIEW at the 2 m rung and its last centring error
+  ≤ 0.45 m → LAND anyway (audit `LAND GATE relaxed err=… limit=…`); on the
+  mission's retry (`last_attempt=True`, plumbed in `_serve`) the limit is
+  1.0 m — an egg at the pad's edge beats an egg brought home. A pad NOT seen
+  at the bottom rung (lost for `max_lost_cycles`) never licenses it — a
+  400 mm marker that has left the frame at 2 m is > 1.3 m off, beside the
+  pad — and the id gate is untouched (the wrong pad is worse than none, the
+  checklist's own rule). Found on the way and closed: the centring-only
+  fallback (`rung…_alt_unverified_fallback`) counted in-tolerance frames from
+  BEFORE a sustained loss, so 9 centred frames at the top of the bottom rung
+  followed by a lost pad and a climb-back still licensed a LAND from the rung
+  above (the 28-Aug 17:28 shape); the lock counters now reset on every
+  climb-back. Unflown; SITL-covered by the 19:26 run only in the locked case.
 - **Bench items still owed before the flight (the FC was unpowered at
   19:20):** `MPC_THR_HOVER 0.65` written to the board + BOARD 100 %;
   `tools/lidar_check.py` on the CM4 (now on the `sync_core.sh` allowlist —
