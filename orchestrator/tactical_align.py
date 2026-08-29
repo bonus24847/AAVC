@@ -138,6 +138,15 @@ class AlignParams:
     # the rung proceeds as before (audited) — the gate can delay, never defer.
     rung_alt_tol_m: float = 0.3
     rung_alt_tol_frac: float = 0.12
+    # FRAME-BIAS CORRECTION (same flight): the rung altitude is commanded in
+    # the aircraft's own AGL frame, and that frame read 0.4-1.4 m LOW at the
+    # pads (audit: −0.35..−0.67 m on pad 6, −1.0..−1.4 m on pad 5, ground
+    # level). Commanding "2 m" in that frame parks the aircraft at a TRUE
+    # ~3 m, where the gate above can never pass and would only stall. So each
+    # rung goto is corrected by the median (AGL − marker altitude) of the
+    # recent fixes — steering to the TRUE rung height — clamped to
+    # ±rung_bias_max_m (a wilder disagreement is treated as no information).
+    rung_bias_max_m: float = 2.0
     min_confidence: float = 0.45      # pad-hit acceptance
     max_lost_cycles: int = 24         # lost detections before climbing (2.0 s)
     search_radius_m: float = 4.0      # expanding-box search step if not acquired
@@ -569,6 +578,16 @@ async def acquire_and_land_drop(
     _phase(MissionPhase.LOCALIZE)
     last_err = float("nan")
     final_locked = False
+    # (AGL − marker altitude) of the recent fixes: how far the aircraft's own
+    # height frame sits from the true height over THIS pad (see rung_bias_max_m).
+    bias_window: deque[float] = deque(maxlen=max(3, params.median_window))
+
+    def _frame_bias() -> float:
+        if not bias_window:
+            return 0.0
+        b = statistics.median(bias_window)
+        return max(-params.rung_bias_max_m, min(params.rung_bias_max_m, b))
+
     for rung_i, rung_alt in enumerate(params.rungs):
         tol = params.rung_tol_m[min(rung_i, len(params.rung_tol_m) - 1)]
         if (abort_if is not None and rung_alt >= params.abort_above_m
@@ -611,8 +630,12 @@ async def acquire_and_land_drop(
                 lost = 0
                 mlat, mlon = _commanded_latlon(fix)
                 best_latlon = (mlat, mlon)
-                await _goto(mlat, mlon, rung_alt)
                 alt_est = _alt_estimate(hit, pose, params)
+                if (pose is not None and not math.isnan(alt_est)
+                        and not math.isnan(pose[2])):
+                    bias_window.append(float(pose[2]) - alt_est)
+                # Command the rung's TRUE height in the aircraft's own frame.
+                await _goto(mlat, mlon, rung_alt + _frame_bias())
                 at_rung = math.isnan(alt_est) or abs(alt_est - rung_alt) <= alt_tol
                 in_tol_raw = in_tol_raw + 1 if last_err <= tol else 0
                 in_tol = in_tol + 1 if (last_err <= tol and at_rung) else 0

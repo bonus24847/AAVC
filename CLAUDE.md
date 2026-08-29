@@ -261,7 +261,13 @@ own Python built the spec from the deployed config: 4 legs / 8 waypoints @
   baro-independent) is within max(0.3 m, 12 %) of the rung; on a rung timeout
   with the pad centred but the altitude unverified the old rule applies
   (anomaly `rung…_alt_unverified_fallback`) — the gate can delay a descent,
-  never defer one. Tests at the end of `tests/test_tactical_align.py`. NOT
+  never defer one. **Plus the FRAME-BIAS correction (same night):** the
+  aircraft's own AGL read 0.4-1.4 m LOW at the pads (−0.35..−0.67 m on the
+  ground at pad 6, −1.0..−1.4 at pad 5), so "descend to 2 m" in that frame
+  parks it at a true ~3 m where the gate would only stall; every rung goto is
+  therefore commanded at `rung + median(AGL − marker altitude)` (clamped
+  ±`rung_bias_max_m` 2.0) — steering to the TRUE rung height, gate passes at
+  once. Tests at the end of `tests/test_tactical_align.py`. NOT
   done: raising `MPC_LAND_SPEED` 0.3 → 0.5 — e02ffa3 recorded a global bump
   making AUTO.LAND climb to 41 m, so the blind 2 m stays at 0.3 m/s (~7 s).
   Also: egress `_wait_climb` 15 → 20 s (the flight reached 14.9 of 17.5 m in
