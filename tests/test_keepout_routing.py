@@ -32,6 +32,7 @@ from orchestrator.mission import (
     _point_in_polygon,
     _point_near_polygon_m,
     _segment_crosses_polygon,
+    gateway_route,
     run_delivery_mission,
 )
 from orchestrator.target_tracker import TargetTracker
@@ -234,15 +235,15 @@ def test_a_pad_registered_inside_a_keepout_is_refused(monkeypatch) -> None:
     assert (round(PAD5[0], 6), round(PAD5[1], 6)) not in _pts(cmd)
 
 
-def test_the_kmitl_sweep_covers_the_L_with_overlap() -> None:
-    """The operator's 28-Aug-noon call: the first cut had two legs 30 m apart —
-    exactly one 20 m swath, zero overlap — and a 2 m grid of the L showed 6 %
-    of the area unseen at a realistic 13 m usable half-swath (a pad must sit
-    wholly inside the frame), all along the seam. Pin the fix: every grid
-    point of the flown search polygon that is outside the keep-outs lies
-    within the usable half-swath of some leg (< 1.5 % unseen — the corner by
-    the corridor gate and the NE tip; points within 3 m of a band are left
-    out, a candidate there is refused as a false hit anyway)."""
+def _kmitl_sweep_geometry():
+    """(free-ground grid, legs, keep-outs, usable half-swath) in ENU metres.
+
+    The grid is the RULES search polygon minus the keep-out bands — NOT the
+    drawn `search_area` L. 2026-08-29, scored flight 1: marker 4 sat at ENU
+    (187.0, 72.1), outside the L (which stops at N 75.3 east of the building)
+    but inside `search_area_rules`. The committee places pads by the rules
+    polygon, so that is what coverage has to be measured against.
+    """
     cfg = _kmitl()
     sc = cfg["search"]
     lat0, lon0 = (float(v) for v in cfg["ground_operation"]["launch_recovery"])
@@ -250,27 +251,21 @@ def test_the_kmitl_sweep_covers_the_L_with_overlap() -> None:
 
     def enu(p: tuple[float, float]) -> tuple[float, float]:
         return (math.radians(p[1] - lon0) * k, math.radians(p[0] - lat0) * _R)
-    area = [enu((float(v[0]), float(v[1]))) for v in cfg["search_area"]]
+
+    area = [enu((float(v[0]), float(v[1]))) for v in cfg["search_area_rules"]]
     keepouts = [[enu((float(v[0]), float(v[1]))) for v in poly]
                 for poly in cfg["routing"]["keepout_zones"]]
     pts = [tuple(map(float, p)) for p in sc["sweep_waypoints_enu"]]
     legs = list(zip(pts, pts[1:]))          # every flown segment sees the ground
-    assert len(pts) >= 8, "seven legs at 15 m since the tree block — three left a 30 m seam"
     # usable half-swath at the CONFIGURED sweep altitude: the measured 74.2 deg
     # lens minus ~1.3 m so a 1 m pad sits wholly inside the frame
     fov = math.radians(float(cfg["cameras"]["nadir"]["fov_deg"]))
     usable = float(sc["sweep_alt_m"]) * math.tan(fov / 2.0) - 1.3
-
-    def seg_dist(p, a, b):
-        L2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2
-        t = max(0.0, min(1.0, ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / L2))
-        return math.hypot(p[0] - (a[0] + t * (b[0] - a[0])), p[1] - (a[1] + t * (b[1] - a[1])))
+    grid = []
     es = [v[0] for v in area]
     ns = [v[1] for v in area]
-    total = 0
-    unseen = []
-    for e in range(int(min(es)) + 2, int(max(es)), 2):
-        for n in range(int(min(ns)) + 2, int(max(ns)), 2):
+    for e in range(int(min(es)) + 1, int(max(es)), 1):
+        for n in range(int(min(ns)) + 1, int(max(ns)), 1):
             if not _point_in_polygon(e, n, area):
                 continue
             # a pad within _KEEPOUT_MARGIN_M of a band is refused anyway
@@ -278,13 +273,73 @@ def test_the_kmitl_sweep_covers_the_L_with_overlap() -> None:
                    and min(y for _, y in ko) - 3.0 <= n <= max(y for _, y in ko) + 3.0
                    for ko in keepouts):
                 continue
-            total += 1
-            if min(seg_dist((e, n), a, b) for a, b in legs) > usable:
-                unseen.append((e, n))
-    assert total > 1400
-    assert len(unseen) / total < 0.015, (
-        f"{len(unseen)}/{total} grid points unseen at a {usable:.1f} m usable "
-        f"half-swath: {unseen[:10]}")
+            grid.append((e, n))
+    return grid, legs, keepouts, usable
+
+
+def _seg_dist(p, a, b):
+    L2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2
+    if L2 == 0.0:
+        return math.hypot(p[0] - a[0], p[1] - a[1])
+    t = max(0.0, min(1.0, ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / L2))
+    return math.hypot(p[0] - (a[0] + t * (b[0] - a[0])), p[1] - (a[1] + t * (b[1] - a[1])))
+
+
+def test_the_kmitl_sweep_covers_the_whole_rules_polygon() -> None:
+    """Every square metre of free ground inside the RULES polygon is swept.
+
+    Two flights taught this. 2026-08-28 noon: a 30 m seam between two legs (one
+    swath, zero overlap) left 6 % of the area unseen. 2026-08-29, scored flight
+    1: marker 4 was found at ENU (187.0, 72.1) — OUTSIDE the drawn L — and the
+    17-waypoint sweep of that morning still left 160 m² (2.2 %) of the rules
+    polygon unseen, 65 m² of it at the bottom of the pocket where a pad can
+    sit and 62 m² under the trees. The redrawn sweep leaves under 0.2 %.
+    """
+    grid, legs, _keepouts, usable = _kmitl_sweep_geometry()
+    assert len(grid) > 7000, "the rules polygon minus the bands is ~7300 m²"
+    unseen = [p for p in grid
+              if min(_seg_dist(p, a, b) for a, b in legs) > usable]
+    assert len(unseen) / len(grid) < 0.002, (
+        f"{len(unseen)}/{len(grid)} m² of the rules polygon unseen at a "
+        f"{usable:.1f} m usable half-swath: {unseen[:10]}")
+
+
+def test_the_pocket_between_the_building_and_the_courtyard_is_swept_to_its_south_end() -> None:
+    """Marker 4 sat in the pocket at ENU (187.0, 72.1) on 2026-08-29 — the free
+    gap between the building band (E <= 180.1) and the courtyard (E >= 192.1).
+    The pass that found it turned at N 64, leaving the pocket's south end
+    unseen. Pin the whole pocket, N 46 to N 72."""
+    _grid, legs, _keepouts, usable = _kmitl_sweep_geometry()
+    for n in range(46, 73, 2):
+        p = (186.0, float(n))
+        d = min(_seg_dist(p, a, b) for a, b in legs)
+        assert d <= usable, f"pocket point ENU (186, {n}) is {d:.1f} m from the nearest leg"
+
+
+def test_no_sweep_leg_comes_within_10_m_of_the_18_m_tree_block() -> None:
+    """The trees are 18 m and the sweep flies at 15 m — BELOW the canopy — so
+    horizontal margin is the only margin there is, and a no-RTK fix is worth
+    ±1-2 m on its own. The 2026-08-29-morning layout passed 5.0 m from the box
+    (the E 102 tree-side pass and the N 66 transition). Keep 10 m."""
+    _grid, legs, keepouts, _usable = _kmitl_sweep_geometry()
+    trees = min(keepouts, key=lambda ko: min(x for x, _ in ko))
+    # the tree block is the westernmost band; guard the premise
+    x0, x1 = min(x for x, _ in trees), max(x for x, _ in trees)
+    y0, y1 = min(y for _, y in trees), max(y for _, y in trees)
+    assert 75 < x0 < 85 and 65 < y0 < 75, (x0, y0, "not the tree block")
+
+    def clearance(a, b):
+        best = math.inf
+        for i in range(101):
+            t = i / 100.0
+            px, py = a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])
+            dx = max(x0 - px, 0.0, px - x1)
+            dy = max(y0 - py, 0.0, py - y1)
+            best = min(best, math.hypot(dx, dy))
+        return best
+
+    worst = min(clearance(a, b) for a, b in legs)
+    assert worst >= 9.9, f"a sweep leg passes {worst:.1f} m from the 18 m tree block"
 
 
 # ── two gateways chained around two boxes ──────────────────────────────────
@@ -384,3 +439,107 @@ def test_the_sweep_sets_its_cruise_and_hands_the_pin_back(monkeypatch) -> None:
     first_sweep_goto = next(i for i, e in enumerate(cmd.events)
                             if e == "goto@12.0")
     assert i_set < first_sweep_goto
+
+
+# ── the COMPANION's return-to-home routes around the bands ──────────────────
+
+def _rth_commander(vias_from):
+    """A DroneCommander with only the pieces rth() touches, built the way the
+    field does: a return_route_provider plus a stubbed MAVSDK surface."""
+    import asyncio as _asyncio
+
+    from mavlink_adapter.commands import DroneCommander
+
+    class _Act:
+        def __init__(self):
+            self.rtl_calls = 0
+            self.disarm_calls = 0
+
+        async def return_to_launch(self):
+            self.rtl_calls += 1
+
+        async def disarm(self):
+            self.disarm_calls += 1
+
+    class _Param:
+        async def set_param_float(self, name, v):
+            pass
+
+    act = _Act()
+    c = DroneCommander.__new__(DroneCommander)
+    c.system = type("_Sys", (), {"action": act, "param": _Param()})()
+    c.gotos = []
+    c.return_route_provider = vias_from
+    c._rth_home = (HOME.lat, HOME.lon)
+    c.rtl_return_alt_m = 25.0
+    c.rth_route_detour_max = 2.0
+
+    async def _pos():
+        return (PAD5[0], PAD5[1]) if not c.gotos else c.gotos[-1][:2]
+
+    async def _goto(lat, lon, alt, yaw_deg=float("nan")):
+        c.gotos.append((lat, lon, alt))
+
+    async def _arrive(lat, lon, *, timeout_s, radius_m=3.0):
+        return True
+
+    async def _climbed(target_m, tolerance_m=None, timeout_s=60.0):
+        return True
+
+    async def _landed(**kw):
+        return True
+
+    async def _disarmed(**kw):
+        return True
+    c._current_position = _pos
+    c._wait_until_altitude_reached = _climbed
+    c.goto = _goto
+    c._wait_arrival = _arrive
+    c._wait_until_landed = _landed
+    c._wait_until_disarmed = _disarmed
+    _asyncio.run(c.rth())
+    return c, act
+
+
+def test_the_companion_rth_flies_the_gateway_chain_before_px4_takes_over() -> None:
+    """Operator, 2026-08-29: "ถ้า RTL ก็ช่วยทำให้มันหลบด้วยได้ไหม". PX4's RTL is
+    a straight line home and knows nothing about the bands drawn to keep the
+    scan off the trees and the building. When a clear chain exists, the
+    companion flies it first — at RTL altitude, so the vertical margin PX4
+    would have given is not given up — and only then hands over."""
+    c, act = _rth_commander(
+        lambda lat, lon: gateway_route((lat, lon), (HOME.lat, HOME.lon),
+                                       [BOX], [GATE]))
+    # climb IN PLACE first (PX4's RTL does; a goto climbs and translates at the
+    # same time, which from a 2 m rung would cross the ground below the return
+    # altitude — and the bands are 18 m trees and a building), then the chain.
+    assert [g[:2] for g in c.gotos] == [(PAD5[0], PAD5[1]), GATE], c.gotos
+    assert all(g[2] == 25.0 for g in c.gotos), "vias must be flown at RTL altitude"
+    assert act.rtl_calls == 1, "PX4 RTL still flies the last leg and lands"
+
+
+def test_the_rth_flies_straight_when_the_line_home_is_already_clear() -> None:
+    """No band in the way, no detour: the routing must not add waypoints to an
+    emergency that did not need them."""
+    c, act = _rth_commander(lambda lat, lon: [])
+    assert c.gotos == []
+    assert act.rtl_calls == 1
+
+
+def test_an_absurd_detour_is_refused_and_the_rth_flies_straight() -> None:
+    """An RTH is already an emergency and the pack may be the reason for it, so
+    a chain that more than doubles the distance home is not worth the bands:
+    PX4's straight line still climbs above them. Fails OPEN, like every other
+    branch of this helper."""
+    far = (HOME.lat + 0.02, HOME.lon + 0.02)      # ~2.9 km out of the way
+    c, act = _rth_commander(lambda lat, lon: [far])
+    assert c.gotos == [], "the detour cap did not fire"
+    assert act.rtl_calls == 1
+
+
+def test_a_provider_that_raises_never_blocks_the_return() -> None:
+    def boom(lat, lon):
+        raise RuntimeError("router exploded")
+    c, act = _rth_commander(boom)
+    assert c.gotos == []
+    assert act.rtl_calls == 1, "a broken router must not cost the aircraft its RTL"

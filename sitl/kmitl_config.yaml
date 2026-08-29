@@ -279,55 +279,84 @@ search:
                            # the trial.) LEGAL BAND HERE: >= 10 m (rules),
                            # <= 30 m (briefing). The profile's ceiling clamps it
                            # with min() — never upward.
-  # The sweep itself, laid out BY HAND (2026-08-28) as [east, north] metres
-  # from L&R (ground_operation.launch_recovery — the frame every ENU number
-  # in this file uses). Read by orchestrator/main.py::_build_spec →
+  # The sweep itself, laid out BY HAND as [east, north] metres from L&R
+  # (ground_operation.launch_recovery — the frame every ENU number in this
+  # file uses). Read by orchestrator/main.py::_build_spec →
   # mission_brain/search_pattern.py::build_explicit_pattern; when this key is
-  # present the polygon planner is bypassed. SEVEN E-W legs at the 15 m swath
-  # (22.7 m; legs 14-16 m apart = the validated 0.30 overlap), flown at
-  # search.speed_mps in this order. Redrawn 15:40 after the trial: the
-  # operator marked an 18 m TREE BLOCK in the west field (E 80-96 / N 70-110)
-  # as a keep-out — routing.keepout_zones[2], carried with an 8 m margin
-  # because at 15 m the aircraft flies BELOW the canopy top — so no leg or
-  # transition enters E 72-104 / N 62-118; the west column (E 46-66) gets
-  # three short legs reached from the south, the north strip (E 110-205)
-  # two, reached from the corridor gate. Held heading = sweep_axis_deg (87)
-  # minus the camera mount, as always.
-  #   N1a (116,86) → (186,86)   north strip; starts 10 m east of the lane
-  #   P↓  (186,86) → (186,64)   POCKET PASS down at E 186 — the operator's purple line (2026-08-29 12:13): the free gap between the building (E<=180) and the courtyard (E>=192), 6 m from each
-  #   P↑  (186,64) → (186,86)   back up to the north strip
-  #   N1b (186,86) → (208,86)   north strip continues, ends 15 m short of the east band
-  #   N2  (208,102) → (102,102)   north strip, ends 4 m east of the tree keep-out (E 97)
-  #   T   (102,102) → (102,66)   tree-side pass at E 102: covers the strip the smaller keep-out freed (E 97-107), 5 m from its edge
-  #   →   (102,66) → (116,66)   transition east, along the keep-out's south edge (N 66)
-  #   ↓   (116,66) → (116,53)   the lane between the trees and the building (E 125.6)
-  #   L1  (116,53) → (46,53)   lower band, 13 m south of the tree keep-out
-  #   W1  (46,72) → (70,72)   west column; ends 10 m short of the keep-out (E 80)
-  #   W2  (70,86) → (46,86)   west column
-  #   W3  (46,100) → (70,100)   west column
-  # The exit from W3's end to P3' crosses the tree box in a straight line, so
-  # the egress goto routes itself through routing.gateways (SW → gate).
-  # Coverage is pinned by tests/test_keepout_routing.py: every 2 m grid point
-  # of the L outside the keep-outs (+3 m) within 10 m of a leg (a realistic
-  # usable half-swath at 15 m). Re-run it after ANY edit.
+  # present the polygon planner is bypassed. Held heading = sweep_axis_deg
+  # (87) minus the camera mount, as always.
+  #
+  # ⚠ REDRAWN 2026-08-29 after scored flight 1, for TWO reasons:
+  #
+  #  (1) COVER THE RULES POLYGON, NOT THE DRAWN L. Marker 4 sat at ENU
+  #      (187.0, 72.1) that day — OUTSIDE `search_area` (which stops at
+  #      N 75.3 east of the building) but inside `search_area_rules`. It was
+  #      found only because the operator had added the pocket pass hours
+  #      earlier. The committee places pads by the RULES polygon, so that is
+  #      what the sweep now covers: the rules quadrilateral minus the four
+  #      keep-out bands = 7344 m² of free ground. Measured on a 1 m grid at a
+  #      10.0 m usable half-swath (15 m × tan(74.2°/2) − 1.3 m so a 1 m pad
+  #      sits wholly inside the frame): the old 17-waypoint sweep left
+  #      **160 m² unseen (2.2 %)** — 65 m² at the BOTTOM OF THE POCKET
+  #      (E 180-200 / N 40-60, where the old pass turned at N 64), 62 m²
+  #      UNDER THE TREES (E 80-100 / N 60-80) and 15 m² at the NE tip. This
+  #      one leaves **2 m² (0.03 %)**.
+  #
+  #  (2) STAND OFF THE TREES BY 10 m. The block is 18 m tall and the aircraft
+  #      sweeps at 15 m — i.e. BELOW the canopy — so horizontal margin is the
+  #      only margin there is, and without RTK the fix itself is worth ±1-2 m.
+  #      The old layout passed **5.0 m** from the box (the E 102 tree-side
+  #      pass and the N 66 transition). Every leg here stays **10.0 m** clear,
+  #      which is also why the lower band runs at N 61 rather than N 68.
+  #
+  # 636 m of legs + turns, ~182 s at search.speed_mps 3.5; 194 s including the
+  # hop from P3' and back. The old sweep was 180 s door to door, so full
+  # coverage and double the tree margin cost **14 seconds**.
+  #
+  #   S1  (121,48) → (44,48)     lower band, 23 m south of the trees, 4.5 m off the building band
+  #   →   (44,48)  → (50,61)     transition into the west column
+  #   W1  (50,61)  → (50,104)    west column, covers E 40-60
+  #   →   (50,104) → (70,104)    step east
+  #   W2  (70,104) → (70,61)     west column, covers E 60-80, 10 m off the trees
+  #   S2  (70,61)  → (121,61)    upper part of the lower band, 10 m under the trees
+  #   →   (121,61) → (120,74)    transition into the middle column
+  #   C1  (120,74) → (120,104)   middle column (between trees and building)
+  #   →   (120,104)→ (107,104)   step west
+  #   C2  (107,104)→ (107,74)    middle column, 10 m off the trees
+  #   →   (107,74) → (128,102)   transition to the north strip (clears the band: N>73 throughout)
+  #   N2  (128,102)→ (215,102)   north strip, upper leg; ends 4.8 m short of the east band
+  #   →   (215,102)→ (215,84)    step down
+  #   N1a (215,84) → (186,84)    north strip, lower leg
+  #   P↓  (186,84) → (186,50)    POCKET PASS — the free gap between the building
+  #                              (E ≤ 180.1) and the courtyard (E ≥ 192.1), 6 m from
+  #                              each, now taken to N 50 so the pocket's SOUTH end
+  #                              is covered (this is where marker 4 was)
+  #   P↑  (186,50) → (186,84)    back up; the pocket has no other exit
+  #   N1b (186,84) → (128,84)    north strip continues west, ends at the egress corner
+  #
+  # The exit from (128,84) to P3' clips the building band's NW corner in a
+  # straight line, so the egress goto routes itself through routing.gateways
+  # (NE → gate). Coverage, the tree stand-off and the keep-out clearance are
+  # all pinned by tests/test_keepout_routing.py. Re-run it after ANY edit.
   sweep_waypoints_enu:
-    - [116.0, 86.0]
-    - [186.0, 86.0]
-    - [186.0, 64.0]
-    - [186.0, 86.0]
-    - [208.0, 86.0]
-    - [208.0, 102.0]
-    - [102.0, 102.0]
-    - [102.0, 66.0]
-    - [116.0, 66.0]
-    - [116.0, 53.0]
-    - [46.0, 53.0]
-    - [46.0, 72.0]
-    - [70.0, 72.0]
-    - [70.0, 86.0]
-    - [46.0, 86.0]
-    - [46.0, 100.0]
-    - [70.0, 100.0]
+    - [121.0, 48.0]         # S1 east end (entered from P3'); 4.5 m clear of the building band (E 125.5)
+    - [44.0, 48.0]          # S1 west end
+    - [50.0, 61.0]          # W1 bottom
+    - [50.0, 104.0]         # W1 top
+    - [70.0, 104.0]         # W2 top
+    - [70.0, 61.0]          # W2 bottom
+    - [121.0, 61.0]         # S2 east end; same 4.5 m clearance
+    - [120.0, 74.0]         # C1 bottom
+    - [120.0, 104.0]        # C1 top
+    - [107.0, 104.0]        # C2 top
+    - [107.0, 74.0]         # C2 bottom
+    - [128.0, 102.0]        # north strip NW
+    - [215.0, 102.0]        # north strip NE; 4.8 m clear of the east band (E 219.8)
+    - [215.0, 84.0]         # step down
+    - [186.0, 84.0]         # pocket gate
+    - [186.0, 50.0]         # pocket bottom (marker 4 was at N 72 in here)
+    - [186.0, 84.0]         # pocket gate again
+    - [128.0, 84.0]         # north strip SW — egress starts here
   # ✅ 0.44 -> 0.30 on 2026-08-24, after the SITL test the operator asked for.
   # 0.44 was belt-and-braces for an UNMEASURED camera mount: if the wide image
   # axis did not lie across track the real swath was the 720 px axis and 0.30

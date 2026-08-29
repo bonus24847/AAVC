@@ -78,6 +78,25 @@ class CurrentTelemetry:
     # The epoch is arbitrary and may jump on a reboot — only DIFFERENCES mean
     # anything, and FlightClock is what enforces that.
     vehicle_time_s: float = math.nan
+    # --- DOWNWARD RANGEFINDER (Benewake TFmini-S, SENS_TFMINI_CFG) ---
+    # The one height source on this aircraft that no baro drift and no GPS
+    # drift can move. 2026-08-29, scored flight 1: over pad 5 the mission's
+    # own AGL read 4.50 m while this read 2.14 and the marker's apparent size
+    # said 1.94 — the lidar and the camera agreed with each other and the
+    # aircraft's height frame did not, because GPS altitude had drifted
+    # +8.96 m over the flight. It was valid and EKF-fused the whole way down
+    # and nothing in the flight core read it. Now the descent ladder does
+    # (orchestrator/tactical_align.py).
+    #   nan until the first reading. Beam limits are the sensor's own; the
+    #   TFmini reads 0.00 below its 0.4 m minimum, which is NOT "on the
+    #   ground" — see rangefinder_valid().
+    rangefinder_m: float = math.nan
+    rangefinder_min_m: float = math.nan
+    rangefinder_max_m: float = math.nan
+    # host monotonic stamp of the last reading — this asks "is the sensor
+    # still feeding us?", a question about the process, so it is host time
+    # (same rule as every other liveness check; see flight_clock.py).
+    rangefinder_ts: float = 0.0
     datalink_rssi: int = -1     # not always available; depends on RFD900 + PX4 driver
     rc_signal_available: bool = False
     # --- MAVSDK telemetry.health() (pre-flight readiness gate; ~1 Hz) ---
@@ -105,6 +124,40 @@ class CurrentTelemetry:
     # watchdog that read per-motor current was removed 2026-08-17 (these ESCs are
     # PWM-only, no current telemetry lead), so nothing reads them for a flight
     # decision — and the staleness stamp that check needed went with it.
+    def rangefinder_agl_m(self, *, max_age_s: float = 1.0) -> float:
+        """Height above the ground from the downward lidar, or ``nan``.
+
+        ``nan`` — never a number the caller has to sanity-check — whenever the
+        reading cannot be trusted:
+
+        * stale (no sample within ``max_age_s`` of host time — this asks "is the
+          sensor still feeding us", a question about the process, so host time
+          is right here; see orchestrator/flight_clock.py),
+        * not finite,
+        * BELOW the sensor's own minimum. The TFmini-S reports **0.00 m** under
+          its 0.4 m floor, and 0.00 is exactly what it read for the last 25
+          seconds of the 2026-08-29 flight while the aircraft sat on the grass.
+          Read literally that is "0 m above the ground" — true, but arrived at
+          by the sensor giving up, and a descent loop that believes a
+          below-minimum reading is a descent loop that believes anything,
+        * ABOVE the sensor's maximum (12 m on this unit), where it also reads 0.
+
+        The caller decides how high it is willing to trust it (the EKF stops
+        fusing above ``EKF2_RNG_A_HMAX`` = 7 m).
+        """
+        if (time.monotonic() - self.rangefinder_ts) > max_age_s:
+            return math.nan
+        d = float(self.rangefinder_m)
+        if not math.isfinite(d):
+            return math.nan
+        lo = self.rangefinder_min_m
+        hi = self.rangefinder_max_m
+        lo = 0.4 if not math.isfinite(lo) or lo <= 0.0 else lo
+        hi = 12.0 if not math.isfinite(hi) or hi <= 0.0 else hi
+        if d < lo or d > hi:
+            return math.nan
+        return d
+
     battery_consumed_mah: float = math.nan
     # When that coulomb count last ARRIVED. It rides the optional raw-MAVLink
     # listener, so it can go quiet while MAVSDK telemetry keeps flowing —
@@ -115,6 +168,34 @@ class CurrentTelemetry:
 
     def age_s(self) -> float:
         return time.monotonic() - self.last_update_monotonic
+
+
+
+def _is_downward(orientation: object) -> bool:
+    """True when a DISTANCE_SENSOR orientation points at the ground.
+
+    MAVLink carries the orientation as MAV_SENSOR_ORIENTATION (downward is 25,
+    ROTATION_PITCH_270); MAVSDK hands it over as an EulerAngle, so downward is
+    a pitch of -90 deg (or the equivalent 270). A driver that leaves the field
+    unset reports zeros — accepted, because this airframe carries exactly ONE
+    rangefinder and refusing an unset orientation would quietly disable the
+    lidar path rather than use it.
+    """
+    pitch = getattr(orientation, "pitch_deg", None)
+    if pitch is None:
+        return True
+    try:
+        p = float(pitch)
+    except (TypeError, ValueError):
+        return True
+    if math.isnan(p):
+        return True
+    roll = float(getattr(orientation, "roll_deg", 0.0) or 0.0)
+    yaw = float(getattr(orientation, "yaw_deg", 0.0) or 0.0)
+    if abs(p) < 1e-6 and abs(roll) < 1e-6 and abs(yaw) < 1e-6:
+        return True                     # unset by the driver
+    p = ((p + 180.0) % 360.0) - 180.0    # wrap 270 -> -90
+    return abs(p + 90.0) <= 30.0
 
 
 class TelemetrySubscriber:
@@ -150,6 +231,7 @@ class TelemetrySubscriber:
             "attitude_rates": self._sub_attitude_rates,
             "actuator_outputs": self._sub_actuator_outputs,
             "battery": self._sub_battery,
+            "distance_sensor": self._sub_distance_sensor,
             "armed": self._sub_armed,
             "flight_mode": self._sub_flight_mode,
             "landed_state": self._sub_landed_state,
@@ -368,6 +450,40 @@ class TelemetrySubscriber:
             self.state.battery_current_a = float(
                 getattr(bat, "current_battery_a", math.nan))
             self._touch("battery")
+
+    async def _sub_distance_sensor(self) -> None:
+        """Downward rangefinder → ``rangefinder_m``.
+
+        Asked for explicitly at 10 Hz: DISTANCE_SENSOR is not in PX4's default
+        stream set for a companion link, and the 2026-08-28 trial showed what a
+        throttled instance does to everything (MAV_1_RATE=1200 stretched the
+        pack reading to one sample per 30 s). The descent ladder runs at 12 Hz,
+        so anything slower than ~5 Hz would make the lidar the laggiest term in
+        the loop.
+
+        ⚠ Only the DOWNWARD sensor is kept. MAVSDK streams every
+        DISTANCE_SENSOR instance on the vehicle through this one call, and a
+        forward-facing unit reporting 0.6 m of hangar wall would read as
+        "0.6 m above the ground" to the ladder. PX4's own enum has downward =
+        ROTATION_PITCH_270; MAVSDK exposes it as ``orientation``, which older
+        builds omit — when it is missing we accept the reading (this airframe
+        carries exactly one rangefinder, and refusing everything would silently
+        disable the lidar path instead of using it)."""
+        try:
+            await self.system.telemetry.set_rate_distance_sensor(10.0)
+        except Exception as e:
+            logger.warning(f"[telemetry] set_rate_distance_sensor failed: {e} — "
+                           "the rangefinder may update slowly; the descent "
+                           "ladder falls back to the marker-size altitude")
+        async for d in self.system.telemetry.distance_sensor():
+            orient = getattr(d, "orientation", None)
+            if orient is not None and not _is_downward(orient):
+                continue
+            self.state.rangefinder_m = float(d.current_distance_m)
+            self.state.rangefinder_min_m = float(d.minimum_distance_m)
+            self.state.rangefinder_max_m = float(d.maximum_distance_m)
+            self.state.rangefinder_ts = time.monotonic()
+            self._touch("distance_sensor")
 
     async def _sub_armed(self) -> None:
         async for armed in self.system.telemetry.armed():

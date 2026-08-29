@@ -363,6 +363,19 @@ def _pwm_to_norm(pwm_us: float, *, pwm_min: float = 1000.0, pwm_max: float = 200
     return max(-1.0, min(1.0, (pwm_us - centre) / half))
 
 
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle metres. Distances here are field-sized (hundreds of
+    metres), so this is only ever used to size a timeout or compare a detour
+    against a direct line — never to place the aircraft."""
+    r = 6_371_000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = (math.sin(dp / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2)
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
 class PilotInControlError(RuntimeError):
     """Raised by a movement command once the pilot has taken the aircraft on RC.
     The safety layer latches it via ``DroneCommander.stand_down()``; nothing
@@ -400,6 +413,32 @@ class DroneCommander:
         # Latched True by stand_down() when the pilot takes RC control; every
         # movement command then raises PilotInControlError instead of sending.
         self._pilot_in_control = False
+        # RETURN ROUTE (optional, wired by orchestrator/main.py when the field
+        # config carries routing.keepout_zones + routing.gateways).
+        # ``provider(lat, lon) -> [(lat, lon), ...]`` = via-points to fly, at
+        # RTL altitude, before handing the last leg to PX4's own RTL; ``[]`` =
+        # the straight line home is already clear; ``None`` = no clear chain,
+        # fly straight. PX4's RTL is a straight line home and knows nothing
+        # about the operator's obstacle bands (2026-08-29 request: "ถ้า RTL ก็
+        # ช่วยทำให้มันหลบด้วย"), so the companion walks the clear chain first
+        # and only then lets PX4 finish. Never load-bearing: if the provider is
+        # absent, raises, or costs more than rth_route_detour_max, rth() flies
+        # PX4 RTL exactly as it always did.
+        self.return_route_provider: Callable[
+            [float, float], list[tuple[float, float]] | None] | None = None
+        # RTL altitude the vias are flown at — the value pinned into the FC
+        # (DEFAULT_PX4_TUNING["RTL_RETURN_ALT"], overridden per field by the
+        # config). Re-read in apply_param_overrides so the altitude the vias
+        # are flown at and the one PX4 will use can never disagree.
+        self.rtl_return_alt_m: float = float(
+            DEFAULT_PX4_TUNING.get("RTL_RETURN_ALT", 20.0))
+        # A detour longer than this multiple of the direct distance home is
+        # refused: an RTH is already an emergency, and on a low battery the
+        # extra flying can cost more than the band was worth. The vertical
+        # margin still applies — RTL climbs above the 18 m trees first.
+        self.rth_route_detour_max: float = 2.0
+        # L&R / home, for the detour cap only (orchestrator/main.py sets it).
+        self._rth_home: tuple[float, float] | None = None
 
     def stand_down(self) -> None:
         """Latch pilot-in-control: every subsequent movement command raises
@@ -720,6 +759,13 @@ class DroneCommander:
         unlock, tighter waypoint acceptance). Returns the count successfully
         applied — several of these are safety pins (RTL_RETURN_ALT,
         MPC_Z_V_AUTO_DN), so callers must check the count rather than assume."""
+        # Keep the altitude the routed RTH flies its via-points at equal to the
+        # one PX4 will climb to; the config sets RTL_RETURN_ALT per field (25 m
+        # at KMITL under the 30 m ceiling, 9 m on the practice field).
+        try:
+            self.rtl_return_alt_m = float(overrides["RTL_RETURN_ALT"])
+        except (KeyError, TypeError, ValueError):
+            pass
         return await self._apply_params(overrides, "PX4 tuning")
 
     async def verify_envelope_pins(
@@ -1101,6 +1147,131 @@ class DroneCommander:
             logger.warning(f"[mavlink] explicit disarm failed: {e}")
         await self._wait_until_disarmed(timeout_s=30.0)
 
+    async def _current_position(self) -> tuple[float, float] | None:
+        """One (lat, lon) fix, or None if the stream does not answer in 3 s."""
+        async def _grab() -> tuple[float, float] | None:
+            async for pos in self.system.telemetry.position():
+                return (float(pos.latitude_deg), float(pos.longitude_deg))
+            return None
+        try:
+            return await asyncio.wait_for(_grab(), timeout=3.0)
+        except (asyncio.TimeoutError, Exception):
+            return None
+
+    def _home_latlon(self) -> tuple[float, float] | None:
+        """Where PX4's RTL will fly to, when the caller has told us.
+
+        Set by orchestrator/main.py alongside the return-route provider — the
+        L&R point out of the field config, which is where the aircraft armed.
+        Only used to size the detour cap, so None simply means "don't cap"."""
+        return getattr(self, "_rth_home", None)
+
+    async def _wait_arrival(self, lat: float, lon: float, *,
+                            timeout_s: float, radius_m: float = 3.0) -> bool:
+        """True once the aircraft is within ``radius_m`` of (lat, lon)."""
+        deadline = asyncio.get_running_loop().time() + timeout_s
+        while asyncio.get_running_loop().time() < deadline:
+            pos = await self._current_position()
+            if pos is not None and _haversine_m(pos[0], pos[1], lat, lon) <= radius_m:
+                return True
+            await asyncio.sleep(0.5)
+        return False
+
+    async def _fly_return_vias(self) -> None:
+        """Walk the clear gateway chain home before handing over to PX4 RTL.
+
+        PX4's RTL climbs to RTL_RETURN_ALT and then flies a STRAIGHT LINE to
+        home; it has no idea the operator has drawn obstacle bands on the
+        field. Where a chain of gateways exists that keeps every segment out of
+        those bands, fly it first — at the same RTL altitude, so the vertical
+        margin PX4 would have given is never given up — and let PX4 fly the
+        last leg, which the router has already proved clear.
+
+        FAILS OPEN, always. No provider, no chain, a chain that would more than
+        double the distance home, a goto that raises — every one of them falls
+        straight through to the unrouted RTL. An RTH is already an emergency;
+        the routing is an improvement on it, never a precondition for it.
+
+        ⚠ This covers the COMPANION's RTH only — the geofence / ceiling /
+        no-fly / battery watchdogs and the mission's own abort. An RTL the FC
+        starts by itself (RC loss NAV_RCL_ACT, datalink loss NAV_DLL_ACT,
+        BAT_CRIT_THR, GF_ACTION) is decided inside PX4 and still flies the
+        straight line. What protects that case is altitude: RTL_RETURN_ALT is
+        25 m at KMITL against 18 m trees.
+        """
+        # getattr, not attribute access: tests (and any caller that builds the
+        # commander with __new__) skip __init__, and a return-to-home must
+        # never fail on a missing OPTIONAL feature — see the fail-open rule
+        # in this method's docstring.
+        provider = getattr(self, "return_route_provider", None)
+        if provider is None:
+            return
+        lat = lon = float("nan")
+        try:
+            pos = await self._current_position()
+            if pos is None:
+                return
+            lat, lon = pos
+            vias = provider(lat, lon)
+        except Exception as e:
+            logger.warning(f"[mavlink] return-route lookup failed: {e} — "
+                           "flying the straight-line RTL")
+            return
+        if not vias:
+            if vias is None:
+                logger.warning("[mavlink] no clear route home around the keep-out "
+                               "bands — flying the straight-line RTL "
+                               "(RTL_RETURN_ALT clears them vertically)")
+            return
+        home = self._home_latlon()
+        if home is not None:
+            direct = _haversine_m(lat, lon, *home)
+            routed = 0.0
+            chain = [(lat, lon), *vias, home]
+            for a, b in zip(chain, chain[1:]):
+                routed += _haversine_m(a[0], a[1], b[0], b[1])
+            cap = float(getattr(self, "rth_route_detour_max", 2.0))
+            if direct > 1.0 and routed > cap * direct:
+                logger.warning(
+                    f"[mavlink] routed return is {routed:.0f} m against a "
+                    f"{direct:.0f} m direct line — over the "
+                    f"{cap:.1f}x cap, flying straight")
+                return
+        alt = float(getattr(self, "rtl_return_alt_m",
+                            DEFAULT_PX4_TUNING.get("RTL_RETURN_ALT", 20.0)))
+        logger.info(f"[mavlink] RTH routes around the keep-out bands: "
+                    f"{len(vias)} via-point(s) at {alt:.0f} m before PX4 RTL")
+        # CLIMB IN PLACE FIRST, exactly as PX4's own RTL does. A goto both
+        # climbs and translates, so flying straight at the first via-point from
+        # a 2 m rung over a pad would cross the ground BELOW the return
+        # altitude — and the bands being routed around are 18 m trees and a
+        # building. Vertical margin before horizontal movement, always.
+        try:
+            await self.goto(lat, lon, alt)
+            await self._wait_until_altitude_reached(alt, timeout_s=60.0)
+        except PilotInControlError:
+            raise
+        except Exception as e:
+            logger.warning(f"[mavlink] RTH climb to {alt:.0f} m failed: {e} — "
+                           "handing over to the straight-line RTL")
+            return
+        for i, (vlat, vlon) in enumerate(vias, 1):
+            try:
+                await self.goto(vlat, vlon, alt)
+            except PilotInControlError:
+                raise
+            except Exception as e:
+                logger.warning(f"[mavlink] return via {i} failed: {e} — "
+                               "handing over to the straight-line RTL")
+                return
+            d = _haversine_m(lat, lon, vlat, vlon)
+            if not await self._wait_arrival(vlat, vlon,
+                                            timeout_s=2.0 * d / 3.0 + 20.0):
+                logger.warning(f"[mavlink] return via {i} not reached in time — "
+                               "handing over to the straight-line RTL")
+                return
+            lat, lon = vlat, vlon
+
     async def rth(self) -> None:
         """Return to the launch point AND land there, then disarm.
 
@@ -1118,6 +1289,8 @@ class DroneCommander:
             await self.system.param.set_param_float("RTL_LAND_DELAY", 0.0)
         except Exception as e:
             logger.warning(f"[mavlink] could not set RTL_LAND_DELAY=0: {e}")
+        await self._fly_return_vias()
+        self.expected_mode = "RETURN_TO_LAUNCH"   # the vias went through goto()
         await self.system.action.return_to_launch()
         if await self._wait_until_landed(timeout_s=180.0):
             if self._pilot_took_over_midway("return-to-launch"):

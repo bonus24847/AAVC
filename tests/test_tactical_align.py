@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import math
+import time
 from pathlib import Path
 
 import cv2
@@ -609,6 +610,83 @@ def test_a_high_reading_height_frame_is_corrected_to_the_true_rung(monkeypatch) 
         f"frame reading 2.4 m HIGH — a true {max(rung5) + BIAS:.1f} m. The "
         f"frame bias was clamped away (gotos={gotos})")
     assert not any("alt_unverified" in a for a in state.anomalies), state.anomalies
+
+
+def test_the_lidar_flies_the_rung_when_the_height_frame_is_further_out_than_the_clamp(
+        monkeypatch) -> None:
+    """The 2026-08-29 failure, made worse than it really was, with the lidar on.
+
+    That flight's height frame read 2.4 m HIGH and the ±1.5 m clamp threw a
+    metre of it away. Raising the clamp to 3.0 covers what was measured, but an
+    open-loop correction can only ever apply its clamp once — so here the frame
+    reads **4 m** high, past even the new clamp, and the ladder still has to
+    reach the true rung. It can, because below rangefinder_max_alt_m it flies
+    the rung CLOSED LOOP on the downward lidar: each command moves by the error
+    the lidar measures, so an arbitrarily large frame bias is walked off over a
+    few cycles instead of being clipped.
+    """
+    global state_ref
+    state = state_ref = _state()
+    cmd = LaggingCommander(state)
+    BIAS = -4.0                                 # true height = AGL - 4.0
+    gotos: list[float] = []
+    real_goto = cmd.goto
+
+    async def spy_goto(lat, lon, alt_m, yaw_deg=float("nan")):
+        gotos.append(alt_m)
+        await real_goto(lat, lon, alt_m, yaw_deg)
+    monkeypatch.setattr(cmd, "goto", spy_goto)
+
+    def fake(frame_path, min_conf, assigned_id):
+        t = state_ref.telemetry
+        if cmd.target_alt is not None:
+            step = cmd.target_alt - t.relative_alt_m
+            t.relative_alt_m += max(-1.0, min(1.0, step))
+        true_alt = max(t.relative_alt_m + BIAS, 0.5)
+        # the lidar sees the TRUE height, in its own beam range
+        t.rangefinder_m = true_alt
+        t.rangefinder_min_m, t.rangefinder_max_m = 0.4, 12.0
+        t.rangefinder_ts = time.monotonic()
+        exp = 423.1 * 0.2 / true_alt
+        return PadHit(cx=320, cy=240, marker_id=3, radius_px=exp,
+                      confidence=0.9, corners=(), pad_side_px=0.0)
+    monkeypatch.setattr(ta, "_detect_nadir", fake)
+    _patch_live_camera(monkeypatch)
+
+    res = asyncio.run(acquire_and_land_drop(
+        cmd, state, target=Coordinate(lat=_LAT, lon=_LON), stop_index=0,
+        params=_fast_params(rung_timeout_s=3.0)))
+    assert res.landed and cmd.landed_calls
+    # The 5 m rung has to be commanded at ~9 m in the aircraft's own frame —
+    # 5 + the full 4 m bias. A clamp of any kind would stop short of that.
+    rung5 = [g for g in gotos if g < 12.0]
+    assert rung5, gotos
+    assert max(rung5) >= 5.0 + 3.5, (
+        f"the 5 m rung was commanded no higher than {max(rung5):.1f} m in a "
+        f"frame reading 4 m HIGH — a true {max(rung5) + BIAS:.1f} m; the "
+        f"closed loop did not walk off a bias bigger than the clamp "
+        f"(gotos={gotos})")
+    assert not any("alt_unverified" in a for a in state.anomalies), state.anomalies
+
+
+def test_a_below_minimum_lidar_reading_is_not_treated_as_the_ground(monkeypatch) -> None:
+    """The TFmini-S reports 0.00 m under its 0.4 m floor, and 0.00 is exactly
+    what it read for the last 25 s of the 2026-08-29 flight with the aircraft
+    sitting on the grass. Read literally that is "0 m above the ground" — which
+    would tell the ladder it had arrived at every rung at once. It must be
+    refused, leaving the marker-size path in charge."""
+    t = CurrentTelemetry()
+    t.rangefinder_min_m, t.rangefinder_max_m = 0.4, 12.0
+    t.rangefinder_ts = time.monotonic()
+    for reading, why in ((0.0, "below the beam minimum"),
+                         (0.2, "below the beam minimum"),
+                         (13.0, "past the beam maximum")):
+        t.rangefinder_m = reading
+        assert math.isnan(t.rangefinder_agl_m()), f"{reading} m accepted ({why})"
+    t.rangefinder_m = 2.14
+    assert t.rangefinder_agl_m() == 2.14
+    t.rangefinder_ts = time.monotonic() - 5.0
+    assert math.isnan(t.rangefinder_agl_m()), "a 5 s old reading is not current"
 
 
 def test_undecoded_blob_hits_never_feed_the_frame_bias(monkeypatch) -> None:
