@@ -785,11 +785,28 @@ below is evidence for or against it.
   the ground-contact guard (armed, never needed), the latched takeoff frame
   and the re-fitted gauge (99 → 76 % for 2.36 Ah at 52.6 A; 23.9 V under load
   still read ~100 %, i.e. the R_INTERNAL compensation is if anything a little
-  generous). Hover motor mean 0.688 vs the 0.70 seed.
-  **FLIGHT 5 (00:41, `17_41_39`)**: sweep at ~8.4 m, then a LAND straight
-  down from 8 m at t=98 **in the field** (59 m N of the takeoff point), no
-  ladder, no AUX — a pilot LAND (POSCTL right after touchdown); the CM4 was off
-  before its audit could be read, so the reason is the crew's account.
+  generous). Hover motor mean 0.688 vs the 0.70 seed. **Operator's account:
+  the egg box came to rest ON THE EDGE OF THE ⌀750 mm CIRCLE (≈ 0.35-0.4 m
+  from the centre — inside `landing_accuracy_threshold_m` 0.5, the 2 m blind
+  LAND's expected scatter), and the climb-out's downwash then BLEW THE BOX
+  OFF THE PAD.** "แค่ drop ก็ดีแล้ว" — accepted for the test; for KMITL the
+  cheap counter is a heavier/flatter box (ballast in the base), not a slower
+  climb — an 8.5 kg hexa's ground-effect wash is not tunable from here.
+  **FLIGHT 5 (00:41, `17_41_39`): THE CM4 LINK DIED IN FLIGHT.** At t=39 s
+  the FC stopped receiving anything on TELEM2 (`telemetry_status[1]`
+  rx_message_count frozen at 1617 for the remaining 80 s, its heartbeat gone
+  at t=43) — orchestrator AND beacon silent together (last `AAVC` statustext
+  t=37.2, last DO_REPOSITION t=36.6) while the NOMAD radio (instance 0,
+  ~4 kB/s) never blinked. PX4 held the last reposition (sweep wp1) and the
+  aircraft hovered on the spot for a minute ("บินค้างไม่ยอมเลี้ยว"); the pilot
+  LANDed it from 8 m at t=98, POSCTL after touchdown. Nothing on the FC acts
+  on a lost companion — the radio console counts as a live GCS, so no
+  datalink failsafe — the pilot is the only net. FC 5 V rail 4.92 V, vibration
+  normal, straight-line flight at 3 m/s. The CM4's own logs (reboot? router
+  dead? UART?) are still unread — the aircraft was powered down before they
+  could be pulled. Console (aavc-gcs 88a33a9): red banner `CM4 เงียบ > 15 วิ
+  ขณะบิน` from `cm4_silent()` (armed + airborne + radio alive + no beacon line
+  for 15 s), so the pilot hears it in seconds, not after a minute.
 - **The camera is STILL on the night hook** — the aircraft was powered down
   before the flag could be removed. Safety net (aavc-gcs a275430,
   `_infra_remote_cmd`): the console's auto-infra ssh now removes
