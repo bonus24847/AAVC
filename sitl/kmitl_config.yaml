@@ -156,7 +156,7 @@ transit_route:
 #                  E 125.6-266 / N 42-75.3 (the whole search-area width east
 #                  of the building, below the north strip)
 #   east band      the whole east end of the search area, E 219.8-266 / N 42-116
-#   trees          18 m trees in the west field, crown E 79-94 / N 69-108 (redrawn 2026-08-29 11:21; was E 80-96 / N 70-110)
+#   trees          18 m trees in the west field, drawn strokes E 81-96 / N 72-113 (pixel-read 2026-08-29; keep-out +1 m)
 #   (the rules' orange block, E 219-255 / N -14..40 south of the search area,
 #    still stands — it is outside anything the plan flies)
 # DELIBERATELY NOT ARMED as watchdog polygons (operator's standing rule,
@@ -190,13 +190,10 @@ no_fly_zones: []
 # straight line it always was.
 routing:
   keepout_zones:
-    - [[13.730998, 100.788607], [13.730998, 100.789906], [13.730699, 100.789906], [13.730699, 100.788607]]   # building band  E 125.6-266 / N 42-75.3
+    - [[13.730978, 100.788607], [13.730978, 100.789111], [13.730699, 100.789111], [13.730699, 100.788607]]   # building band  E 125.6-180 / N 42-73 (drawn 2026-08-29: top N 73, the pocket E 180-192 x N 61-73 between building and courtyard is FREE)
+    - [[13.730978, 100.789222], [13.730978, 100.789479], [13.730699, 100.789479], [13.730699, 100.789222]]   # courtyard      E 192-219.8 / N 42-73
     - [[13.731362, 100.789479], [13.731362, 100.789906], [13.730699, 100.789906], [13.730699, 100.789479]]   # east band      E 219.8-266 / N 42-116
-    # 18 m TREES in the west field (operator, 15:20 after the trial: "ให้
-    # ต้นไม้เป็น nofly zone") — drawn E 80-96 / N 70-110, kept with an 8 m
-    # margin because the 15 m sweep flies BELOW the canopy top: E 72-104 /
-    # N 62-118. Never overflown, never a decode-visit target.
-    - [[13.731319, 100.788149], [13.731319, 100.788343], [13.730915, 100.788343], [13.730915, 100.788149]]   # trees (18 m)   E 76-97 / N 66-111 = drawn crown + 3 m (operator 2026-08-29 11:21, was E 72-104 / N 62-118 with an 8 m margin)
+    - [[13.731346, 100.788186], [13.731346, 100.788343], [13.730960, 100.788343], [13.730960, 100.788186]]   # trees (18 m)   E 80-97 / N 71-114 = drawn strokes E 81-96 / N 72-113 + 1 m (pixel-read 2026-08-29; was E 76-97 / N 66-111)
   # Via-points. mission.py::_goto_routed finds the SHORTEST chain of these
   # whose every segment stays out of the keep-outs (Dijkstra over
   # {here, gateways, target}), so a hop from the west column to the north
@@ -261,7 +258,7 @@ search:
   # over the building. Laid out BY HAND for the
   # L-shaped area minus the tree block (sweep_waypoints_enu below; the
   # generated pattern would run through the building band and the trees).
-  # At 15 m (swath 22.7): 7 legs, 454 m of legs+turns at 3.5 m/s, ~181 s;
+  # At 15 m (swath 22.7): 7 legs, 466 m of legs+turns at 3.5 m/s, ~184 s;
   # marker 22.6 px, pad 56 px (the trial at 20 m / 17 px decoded 20-33 % of
   # frames per pass — 15 m is the altitude that turns that into a margin).
   # ⚠ NOT YET FLOWN: the 28-Aug trial slot is the one test — pass = every
@@ -301,9 +298,9 @@ search:
   #   →   (102,66) → (116,66)   transition east, along the keep-out's south edge (N 66)
   #   ↓   (116,66) → (116,53)   the lane between the trees and the building (E 125.6)
   #   L1  (116,53) → (46,53)   lower band, 13 m south of the tree keep-out
-  #   W1  (46,72) → (66,72)   west column; ends 10 m short of the keep-out (E 76)
-  #   W2  (66,86) → (46,86)   west column
-  #   W3  (46,100) → (66,100)   west column
+  #   W1  (46,72) → (70,72)   west column; ends 10 m short of the keep-out (E 80)
+  #   W2  (70,86) → (46,86)   west column
+  #   W3  (46,100) → (70,100)   west column
   # The exit from W3's end to P3' crosses the tree box in a straight line, so
   # the egress goto routes itself through routing.gateways (SW → gate).
   # Coverage is pinned by tests/test_keepout_routing.py: every 2 m grid point
@@ -319,11 +316,11 @@ search:
     - [116.0, 53.0]
     - [46.0, 53.0]
     - [46.0, 72.0]
-    - [66.0, 72.0]
-    - [66.0, 86.0]
+    - [70.0, 72.0]
+    - [70.0, 86.0]
     - [46.0, 86.0]
     - [46.0, 100.0]
-    - [66.0, 100.0]
+    - [70.0, 100.0]
   # ✅ 0.44 -> 0.30 on 2026-08-24, after the SITL test the operator asked for.
   # 0.44 was belt-and-braces for an UNMEASURED camera mount: if the wide image
   # axis did not lie across track the real swath was the 720 px axis and 0.30
@@ -420,8 +417,8 @@ search:
                            # legs+turns at 3.5) + 2 decode visits x 40 = 80 (at
                            # 22.6 px most pads decode IN the sweep) + 4 x
                            # serve_cost_s 90 = 360 + 22 exit via the SW gateway
-                           # + egress 32 + land 35 = 759 s. Egg 4's gate runs with
-                           # 620 s left against its 300 s floor; the launch gate
+                           # + egress 32 + land 35 = 762 s. Egg 4's gate runs with
+                           # 617 s left against its 300 s floor; the launch gate
                            # stacks 180 + this + 30 = 1030 <= 1200.
                            # (Earlier today: 985 capped for the 4-leg 3 m/s plan;
                            # 2026-08-24: 900 at the 12 m sweep of the full
