@@ -32,7 +32,7 @@ def test_competition_field_carries_the_whole_planned_route(monkeypatch):
     assert len(z["gateways"]) == 3 and z["gateway"] == z["gateways"][0]
     # the sweep's east ends stop short of the east band, its west ends inside the airspace
     lons = [p[1] for p in z["sweep"]]
-    assert max(lons) < min(p[1] for p in z["keepout"][1])
+    assert max(lons) < min(p[1] for p in z["keepout"][2])   # west of the EAST band (index 2 since 2026-08-29: building, courtyard, east, trees)
     assert min(lons) > min(p[1] for p in z["airspace"])
 
 
