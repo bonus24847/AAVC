@@ -74,11 +74,13 @@ transit_waypoints:
 # apart), `gateway` = routing.gateway (the one via-point every goto detours
 # through when its straight line would cross a keep-out polygon).
 planned_path:
-  sweep:                              # [lat, lon], flying order — 7 legs at 15 m around the trees (15:40)
+  sweep:                              # [lat, lon], flying order — 9 segments at 15 m around the trees (2026-08-29)
     - [13.731095, 100.788519]
     - [13.731095, 100.789369]
     - [13.731238, 100.789369]
-    - [13.731238, 100.788519]
+    - [13.731238, 100.788389]
+    - [13.730915, 100.788389]
+    - [13.730915, 100.788519]
     - [13.730798, 100.788519]
     - [13.730798, 100.787871]
     - [13.730969, 100.787871]
@@ -109,11 +111,11 @@ keepout_zones:
     - [13.731362, 100.789906]
     - [13.730699, 100.789906]
     - [13.730699, 100.789479]
-  - # trees (18 m)   ENU E 72-104 / N 62-118 (drawn E 80-96 / N 70-110 + 8 m)
-    - [13.731382, 100.788112]
-    - [13.731382, 100.788408]
-    - [13.730879, 100.788408]
-    - [13.730879, 100.788112]
+  - # trees (18 m)   ENU E 76-97 / N 66-111 (drawn crown E 79-94 / N 69-108 + 3 m, operator 2026-08-29 11:21)
+    - [13.731319, 100.788149]
+    - [13.731319, 100.788343]
+    - [13.730915, 100.788343]
+    - [13.730915, 100.788149]
 
 # Payload-release servos — the manual "ปล่อย servo" buttons on the GCS.
 # IDENTICAL to the practice field file: FOUR independent latch servos, outputs
