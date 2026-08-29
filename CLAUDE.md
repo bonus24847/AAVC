@@ -772,6 +772,33 @@ below is evidence for or against it.
   flight (ssh to the CM4 timed out until `nmcli con up id AAVC-DRONE`); the
   crew re-armed and re-launched twice without waiting for the debrief; the
   first two landings at L&R were clean (`Landing detected`, d_home 1.9 m).
+- **FLIGHT 4 (00:32, ULog `17_32_04`, night camera + all of tonight's fixes):
+  THE WHOLE CHAIN WORKED ON THE REAL AIRCRAFT.** Sweep at ~8.5 m found the pad
+  → ladder on the lidar 4.2 → 3.4 → 2.5 → **2.2 m held 13 s** (the true 2 m
+  rung) → AUTO.LAND at t=99 → PX4 `landed` latched at t=108 → `DO_SET_ACTUATOR
+  p4=+0.8` at t=111.1, **AUX4 1900 µs** (egg away 3 s after touchdown) →
+  takeoff at t=113 → back to the sweep altitude → egress → LAND at L&R,
+  touchdown 1.8 m from the takeoff point. During all of it PX4's height frame
+  read **+3.4 m** (z 3.7 with the lidar at 0.32; home rewritten 12×, 0.85-5.03)
+  — the 29-Aug tip-over precondition — and nothing happened: no ground-contact
+  event, no lateral retry, no lost pad. First flight of the lidar ladder,
+  the ground-contact guard (armed, never needed), the latched takeoff frame
+  and the re-fitted gauge (99 → 76 % for 2.36 Ah at 52.6 A; 23.9 V under load
+  still read ~100 %, i.e. the R_INTERNAL compensation is if anything a little
+  generous). Hover motor mean 0.688 vs the 0.70 seed.
+  **FLIGHT 5 (00:41, `17_41_39`)**: sweep at ~8.4 m, then a LAND straight
+  down from 8 m at t=98 **in the field** (59 m N of the takeoff point), no
+  ladder, no AUX — a pilot LAND (POSCTL right after touchdown); the CM4 was off
+  before its audit could be read, so the reason is the crew's account.
+- **The camera is STILL on the night hook** — the aircraft was powered down
+  before the flag could be removed. Safety net (aavc-gcs a275430,
+  `_infra_remote_cmd`): the console's auto-infra ssh now removes
+  `~/.aavc_night_cam`, resets `exposure_dynamic_framerate`, restarts a grabber
+  still carrying `--gain 128` and starts the infra with the `CAM_*` env unset
+  — so the first console connection on 30 Aug puts the camera back on
+  highlight-AE by itself. **Verify anyway at KMITL**: grabber argv shows
+  `--ae-highlight` and no `--gain 128` (checklist §3, first item). Then
+  `cm4/deploy.sh --check` — the CM4 tree is one docs commit behind.
 
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 
