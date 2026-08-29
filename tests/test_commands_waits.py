@@ -155,3 +155,54 @@ def test_drop_payload_rejects_out_of_range():
         asyncio.run(c.drop_payload(1))   # 1 is out of [0, 1)
     with pytest.raises(ValueError):
         asyncio.run(c.drop_payload(-1))
+
+
+# ── the takeoff wait judges altitude in the MISSION's frame (Bang Bo, 2026-08-29) ──
+# Flight 3 at Bang Bo: PX4 rewrote home.alt +2.56 m at the takeoff moment
+# (ULog 16_03_38: home 2.24 → 4.80 at t=4 s), so its relative_altitude_m held
+# 3.9 m while the aircraft sat at a TRUE 6.5 m (lidar 6.5, EKF MSL 8.76 = the
+# latched home 2.22 + 6.5). The wait read PX4's home-relative number, timed out
+# at 60 s and the orchestrator flew an emergency RTH before the first leg.
+# Every goto already flies in the latched frame (`home_alt_source`); the
+# takeoff wait must judge "reached" in that same frame.
+
+class _PosAbs:
+    def __init__(self, rel: float, absolute: float) -> None:
+        self.relative_altitude_m = rel
+        self.absolute_altitude_m = absolute
+
+
+class _AbsTelem:
+    def __init__(self, rel: float, absolute: float) -> None:
+        self._p = _PosAbs(rel, absolute)
+
+    async def position(self):
+        while True:
+            yield self._p
+            await asyncio.sleep(0.002)
+
+
+def test_takeoff_wait_uses_the_latched_home_frame_when_px4_rewrites_home():
+    # PX4 frame says 3.9 m (home rewritten up), latched frame says 8.76 - 2.22 = 6.54 m
+    sys = type("_S", (), {"telemetry": _AbsTelem(rel=3.9, absolute=8.76)})()
+    c = _commander_with_system(sys)
+    c.home_alt_source = lambda: 2.22
+    ok = asyncio.run(c._wait_until_altitude_reached(6.5, timeout_s=0.3))
+    assert ok is True
+
+
+def test_takeoff_wait_still_accepts_px4_relative_when_no_latch():
+    sys = type("_S", (), {"telemetry": _AbsTelem(rel=6.4, absolute=float("nan"))})()
+    c = _commander_with_system(sys)
+    c.home_alt_source = lambda: float("nan")
+    ok = asyncio.run(c._wait_until_altitude_reached(6.5, timeout_s=0.3))
+    assert ok is True
+
+
+def test_takeoff_wait_does_not_pass_on_a_latched_frame_that_is_still_low():
+    # both frames low: nothing reached, must time out (no false positive from the latch path)
+    sys = type("_S", (), {"telemetry": _AbsTelem(rel=2.0, absolute=4.0)})()
+    c = _commander_with_system(sys)
+    c.home_alt_source = lambda: 2.22
+    ok = asyncio.run(c._wait_until_altitude_reached(6.5, timeout_s=0.05))
+    assert ok is False
