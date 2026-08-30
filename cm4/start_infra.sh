@@ -13,4 +13,15 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # dummy id "1" satisfies run_mission.sh's usage check; INFRA_ONLY exits before it
 # is ever looked at, so nothing is armed or flown.
-exec env REAL=1 INFRA_ONLY=1 "$REPO_ROOT/sitl/run_mission.sh" 1
+# ⚠ Strip the CAM_* env before handing over (review 2026-08-30). The CM4's
+# ~/.bashrc carries a night-camera hook gated on ~/.aavc_night_cam that exports
+# CAM_EXPOSURE=180 CAM_GAIN=128, and a remote shell sources ~/.bashrc BEFORE
+# running the ssh command — so the documented one-line revert
+# (`rm -f ~/.aavc_night_cam; pkill grabber; bash start_infra.sh`) restarts the
+# grabber with the night values still exported, and `--ae-highlight` is dropped
+# (run_mission.sh only adds it when CAM_EXPOSURE=0). In sun that is a white
+# frame and zero decodes, and the crew's verify step shows `--gain 128` again.
+# Unsetting here fixes every caller at once; a deliberate night run sets the
+# values on the command line instead.
+exec env -u CAM_EXPOSURE -u CAM_GAIN -u CAM_AE -u CAM_AE_MAX -u CAM_AE_INIT \
+     -u GRAB_ARGS REAL=1 INFRA_ONLY=1 "$REPO_ROOT/sitl/run_mission.sh" 1
