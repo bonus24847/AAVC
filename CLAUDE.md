@@ -933,6 +933,72 @@ gauge 100 %** on the parallel pair, CM4 tree **MD5 MATCH** with the seven review
 fixes, camera back on **daytime highlight-AE** (no `--gain 128`, dynamic
 framerate 0, sensor gain 64).
 
+## 0j. 30 Aug 03:30-05:00 — PX4 / CM4 / battery / console review; SD card was in the LAPTOP
+
+Reviewed at the operator's request, with the aircraft powered for the live half.
+Two agents read the console (`aavc-gcs`) and the CM4 launch/deploy scripts; the
+PX4, CM4-runtime, battery and camera state were read off the aircraft directly.
+
+**⚠ THE FIND OF THE NIGHT — the FC's SD card was still in the laptop reader.**
+`tools/fence_probe.py` reported `fence download FAILED (MissionRawError) —
+mission/dataman path WEDGED`. With no card there is no dataman, so the mission's
+geofence upload fails and the orchestrator **refuses to fly** (fail-safe, and
+exactly the "OFFBOARD won't fly" hour lost at Bang Bo). Card unmounted, moved
+back to the FC, power-cycled → `fence download OK (4 items) · SD listing OK ·
+✔ mission path alive`. **Make "card in the FC" a stated preflight line, and run
+`make field-check` (preflight → fence-probe → alt-watch) after every power-up.**
+
+**Live state, all green after the power cycle:** BOARD 24/24 (`✔ พารามิเตอร์
+ฝั่งบอร์ดครบถูกต้อง — บินได้`) with `BAT1_V_EMPTY 3.40` surviving the battery
+unplug this time; lidar 10.0 Hz; camera on the competition spec (`--exposure-100us
+0 --ae-highlight`, sensor gain 64, `exposure_dynamic_framerate 0`, MJPG 1280×720
+passthrough at 25 Hz, no night flag); CM4 disk 21 G free, RAM 7.4 G free,
+router+grabber+beacon up, `.aavc_site` = competition; the CM4 tree MD5-MATCHES
+**both** repos; the icon's stage command carries
+`AAVC_PROFILE=competition AAVC_CONFIG=sitl/kmitl_config.yaml` explicitly.
+Failsafe ladder read off the board and converted to volts under 54 A: egress
+30 % = 20.5 V → companion RTH 20 % = 20.0 V → `BAT_CRIT_THR` 15 % = 19.8 V →
+companion LAND 10 % = 19.6 V → `BAT_EMERGEN_THR` 7 % = 19.4 V — every layer
+below the one above it. `GF_ACTION 3`, `NAV_RCL_ACT 2` + `COM_RCL_EXCEPT 4` +
+`COM_RC_LOSS_T 0.5`, `NAV_DLL_ACT 2` + `COM_DL_LOSS_T 5` all present.
+
+**Fixed (aavc-gcs 55cf38f, mission c469989 / comp 5cc781e):**
+1. **`sitl/run_mission.sh` — a command without `REAL=1` ARMED AND TOOK OFF BY
+   ITSELF.** `RC_GO` defaults to 1 *inside* the REAL branch and to 0 outside it,
+   so a hand-typed recovery line, a mangled `missions.yaml` entry or
+   `INFRA_ONLY=1` without `REAL=1` fell into the SITL branch, still reached the
+   real FC through mavlink-router's `udpin://0.0.0.0:14540`, took the HEADLESS
+   gate and launched while the safety pilot waited to be asked. Now refused when
+   the FC's serial port exists.
+2. **The 🚀 modal said "✅ mission ขึ้นเครื่องแล้ว — arm RC → OFFBOARD" 0.6 s
+   after the press**, on no evidence but our own ssh child still being alive
+   after 1.5 s. Every failure after that window told the crew to arm into a
+   mission that was not there (the 29-Aug sequence). Now waits for the drone's
+   own beacon phase.
+3. **The geofence panel wrote `GF_MAX_HOR_DIST`** from boxes hard-coded to
+   50/30 — the radius fence retired on 2026-08-17 after a live 15 m value killed
+   a mission mid-transit. 50 m around home against a search area reaching ENU
+   E 266 m = `GF_ACTION=3` RTL on the first sweep leg. The console no longer
+   writes the radius at all and the boxes now mirror the board.
+4. **Every FC-state write and every payload-latch button was live in flight.**
+   The locks rode on `mission_running()` — the liveness of the console's OWN ssh
+   child, which dies with a console restart or the WiFi drop at takeoff. Now
+   gated on the AIRCRAFT's `armed`/`in_air` (`_flying()`, fails OPEN with no
+   link); the servo guard is `in_air` only, so a manual release while armed ON
+   the pad — the "วางไม่ตรง ดีกว่าไม่วาง" fallback — still works.
+5. **`cm4/start_infra.sh` now strips `CAM_*`.** A remote shell sources
+   `~/.bashrc` BEFORE the command, so the documented one-line night-camera
+   revert restarted the grabber with `CAM_EXPOSURE=180 CAM_GAIN=128` still
+   exported and `--ae-highlight` dropped — a white frame and zero decodes in
+   sun. (The flag itself is already gone from the CM4, verified.)
+6. **Checklist:** restart the infra after a field deploy — `deploy.sh --check`
+   hashes files on DISK, so a running grabber/beacon keeps the old code while
+   it prints MATCH.
+
+⚠ **1, 5 and 6 are in the repo but NOT on the aircraft** — the CM4 was powered
+down at 05:00. `cm4/deploy.sh --repo ~/Desktop/aavc-comp` + `--check` MATCH is
+still the first thing to do at the field, now followed by the infra restart.
+
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 
 An autonomous **PX4 hexacopter** (EFT X6100 frame; Pixhawk 6X + Raspberry Pi CM4
