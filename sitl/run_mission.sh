@@ -175,6 +175,23 @@ EOF
 }
 
 EXTRA=()
+# ⚠ REAL=1 is the ONLY thing that turns RC-GO on (RC_GO defaults to 1 inside the
+# branch below, and to 0 outside it). A command that reaches the AIRCRAFT without
+# it — a hand-typed recovery line, a mangled missions.yaml entry, REAL=0, or
+# `INFRA_ONLY=1 run_mission.sh 1` typed without REAL=1 — therefore falls into the
+# SITL branch, connects to the real FC anyway through mavlink-router's
+# udpin://0.0.0.0:14540, takes the HEADLESS gate, and ARMS AND TAKES OFF BY
+# ITSELF while the safety pilot is waiting to be asked. INFRA_ONLY does not save
+# it either: that check lives inside the REAL branch and is never read.
+# Refuse instead, on the one piece of evidence that says "this is the aircraft":
+# the FC's serial port exists (the laptop running SITL has no /dev/ttyAMA0).
+# Review 2026-08-30, pre-competition.
+if [ "${REAL:-0}" != "1" ] && [ -e "${SERIAL:-/dev/ttyAMA0}" ]; then
+    echo "❌ [run_mission] ปฏิเสธ: นี่คือเครื่องบินจริง (${SERIAL:-/dev/ttyAMA0} มีอยู่) แต่ไม่ได้ส่ง REAL=1" >&2
+    echo "   ถ้าไม่ใส่ REAL=1 สคริปต์จะเข้าโหมด SITL แล้ว 'arm + takeoff เอง' โดยไม่รอนักบิน" >&2
+    echo "   ใช้:  REAL=1 AAVC_PROFILE=competition AAVC_CONFIG=sitl/kmitl_config.yaml $0 <ids>" >&2
+    exit 4
+fi
 if [ "${REAL:-0}" = "1" ]; then
     ensure_infra
     # INFRA_ONLY: bring the aircraft's own stack up (router + camera grabber +
