@@ -862,6 +862,22 @@ def _cm4_probe_loop():
         time.sleep(4)
 
 
+def _flying():
+    """True when the AIRCRAFT says it is armed or airborne — the fact, as
+    opposed to `mission_running()`, which is only the liveness of THIS console's
+    ssh child (review 2026-08-30: that child dies with a console restart or with
+    the WiFi drop at takeoff, and every FC-state write on the page was gated on
+    it). Demo consoles never block; a missing/broken snapshot fails OPEN so the
+    crew is never locked out of a console that has no link at all."""
+    if LINK is None or getattr(LINK, "demo", False):
+        return False
+    try:
+        snap = LINK.snapshot()
+    except Exception:
+        return False
+    return bool(snap.get("armed") or snap.get("in_air"))
+
+
 def mission_running():
     """True while the console-spawned mission process is still alive."""
     global _MISSION_PROC
@@ -1842,14 +1858,23 @@ class Link:
                 time.sleep(0.4)
             return rb
 
-        h = set_float("GF_MAX_HOR_DIST", radius)
+        # ⚠ GF_MAX_HOR_DIST is NOT written any more (review 2026-08-30). This
+        # aircraft's fence is the INCLUSION POLYGON the mission uploads plus
+        # GF_MAX_VER_DIST; the radius fence was removed on 2026-08-17 after a
+        # live GF_MAX_HOR_DIST=15 killed a mission mid-transit, and the panel's
+        # boxes default to 50/30 whatever the board holds — so one press used
+        # to put a 50 m radius around home against a search area that runs to
+        # ENU E 266 m, i.e. GF_ACTION=3 RTLs on the first sweep leg. The radius
+        # is now read-only: the panel reports it, the console never sets it.
+        with self.lock:
+            h = (self.s.get("geofence") or {}).get("hor")
         v = set_float("GF_MAX_VER_DIST", alt)
         a = set_int("GF_ACTION", action)
         with self.lock:
             g = self.s["geofence"]
             g["hor"], g["ver"], g["action"] = h, v, a
-        self._note(f"[fence] ✅ ตั้ง geofence: รัศมี {h} m · เพดาน {v} m · "
-                   f"เกิน→{GF_ACTIONS.get(a, a)}")
+        self._note(f"[fence] ✅ ตั้งเพดาน {v} m · เกิน→{GF_ACTIONS.get(a, a)} "
+                   f"(รัศมี {h} m ไม่ถูกแตะ — รั้วจริงคือ polygon ที่ mission อัปโหลด)")
 
     # ---- AAVC: set EKF local origin = current position (local NED 0,0 = here) ----
     def set_local_origin_async(self):
@@ -3920,6 +3945,21 @@ function updateFlyOffboard(s,offb){
  var m=document.getElementById('flymodal');if(!m||!m.classList.contains('show'))return;
  if(!window.UPWAIT&&!offb)return;
  var p=document.getElementById('flyprog');
+ // ⚠ EVIDENCE, not optimism (review 2026-08-30). /api/mission/start returns ok
+ // when the LOCAL ssh child is merely still alive after 1.5 s — it says nothing
+ // about the aircraft. Everything that fails after that window (preflight
+ // refusal, unmet critical checks, a rejected id list, an import error, an ssh
+ // that never connected) used to land here as "✅ mission ขึ้นเครื่องแล้ว" plus
+ // "arm RC → OFFBOARD" — the crew arms into a mission that is not there, PX4
+ // answers "Switching to Offboard is currently not available", and the window
+ // burns (CLAUDE.md §0d, 2026-08-29). Wait for the drone's own beacon phase.
+ var _ms=s.mission||{};
+ var staged=!!(_ms.age_s!=null&&_ms.age_s<=45&&_ms.phase&&_ms.phase!=='done');
+ if(!staged&&!offb){
+  if(p){p.style.display='block';p.textContent='⏳ ส่งคำสั่งแล้ว — รอโดรนยืนยันว่า mission ขึ้นเครื่อง…';}
+  var ob0=document.getElementById('flyoffboard');if(ob0)ob0.style.display='none';
+  return;
+ }
  if(p&&!FLY.stagedShown){FLY.stagedShown=true;p.style.display='block';p.innerHTML='✅ mission ขึ้นเครื่องแล้ว — พร้อมให้ RC ปล่อย';}
  var ob=document.getElementById('flyoffboard');if(!ob)return;ob.style.display='block';
  if(offb){ob.className='flyoffboard go';ob.innerHTML='✅ OFFBOARD — โดรนรับช่วงแล้ว กำลังออกบิน';}
@@ -4243,13 +4283,21 @@ function renderServos(s){
               +'<br>'+(rel?'เปิดอยู่ ▸ กดเพื่อปิด':'ปิดอยู่ ▸ กดเพื่อเปิด');
    b.title='AUX '+c.num+(c.label?' — '+c.label:'')
           +(rel?' (เปิดอยู่ — กดเพื่อปิดกลับ)':' (ปิดอยู่ — กดเพื่อเปิด)');
-   b.disabled=!sel||mrun;});                         // small buttons: locked until pad chosen
+   // ⚠ …and locked while the aircraft is AIRBORNE (review 2026-08-30).
+   // `mrun` is the liveness of the console's OWN ssh child, not a fact about
+   // the drone: a console restarted mid-flight, a mission started on the CM4
+   // by hand, or the GO ssh dying when the aircraft's WiFi drops at takeoff
+   // all make it False — and then one touch + one confirm releases eggs in
+   // flight. Guard on in_air, NOT armed: a manual release while armed ON THE
+   // PAD is the deliberate fallback ("วางไม่ตรง ดีกว่าไม่วาง").
+   b.disabled=!sel||mrun||!!s.in_air;});             // small buttons: locked until pad chosen
  var w=document.getElementById('servowarn');
  if(w){if(sel){w.className='servowarn';}
    else{w.className='servowarn show';
     w.innerHTML=s.armed?'🚨 ARMED แต่ยังไม่เลือก pad — ภารกิจไม่รู้ว่าจะ drop ที่ไหน!'
                        :'⚠️ เลือก pad ที่จะ drop ก่อน ถึงจะปล่อย servo ได้';}}
- var ab=document.getElementById('servoall');if(ab)ab.disabled=!sel||mrun;
+ var ab=document.getElementById('servoall');if(ab)ab.disabled=!sel||mrun||!!s.in_air;
+ var cb=document.getElementById('servocloseall');if(cb)cb.disabled=!!s.in_air;
 }
 async function releaseServo(which){
  var s=window.LAST||{};
@@ -4442,6 +4490,7 @@ async function tick(){
  if(_offb){if(FT.start==null||FT.frozen!=null){FT.start=Date.now();FT.frozen=null;}}
  else if(!s.armed&&FT.start!=null&&FT.frozen==null){FT.frozen=(Date.now()-FT.start)/1000;}
  try{updateFlyOffboard(s,_offb);}catch(e){}   // 🚀 checklist modal: RC arm->OFFBOARD status
+ try{gfSyncInputs(s);}catch(e){}             // geofence boxes mirror the BOARD, never 50/30
  var b=s.batt||{};
  var bc=(b.pct!=null&&b.pct<20)?'bad':(b.pct!=null&&b.pct<40)?'warn':'ok';
  document.getElementById('batt').innerHTML=b.volt==null?'–':'<span class="'+bc+'">'+b.volt+'V</span>';
@@ -4484,6 +4533,15 @@ function gfFmt(g){if(!g||(g.hor==null&&g.ver==null&&g.action==null))return 'ย�
  if((!g.hor||g.hor<=0)&&(!g.ver||g.ver<=0))return 'ปิดอยู่';
  return 'R '+(g.hor||0)+'m · เพดาน '+(g.ver||0)+'m · '+gfActName(g.action);}
 async function gfRead(){try{await fetch('/api/geofence/read',{method:'POST'})}catch(e){}}
+// The editable boxes shipped hard-coded 50/30 and gfRead only refreshed the
+// text line, so "apply" re-wrote 50/30 whatever the aircraft actually held
+// (review 2026-08-30). Mirror the board into them whenever the panel is shut.
+function gfSyncInputs(s){
+ var pnl=document.getElementById('gfpanel'); if(pnl&&pnl.classList.contains('open'))return;
+ var g=s.geofence||{},ra=document.getElementById('gfrad'),al=document.getElementById('gfalt');
+ if(ra&&g.hor!=null)ra.value=g.hor;
+ if(al&&g.ver!=null)al.value=g.ver;
+}
 async function gfApply(){
  var r=+document.getElementById('gfrad').value,a=+document.getElementById('gfalt').value,act=+document.getElementById('gfact').value;
  if(!confirm('ตั้ง geofence รอบจุดโฮม: รัศมี '+r+' m · เพดาน '+a+' m · เกินแล้ว → '+gfActName(act)+'  (เขียนลง FMU ผ่านวิทยุ ~5-10 วิ)'))return;
@@ -4681,6 +4739,12 @@ class Handler(BaseHTTPRequestHandler):
             from urllib.parse import urlparse, parse_qs   # works in demo (state only, no send)
             q = parse_qs(urlparse(self.path).query)
             which = [int(x) for x in q.get("which", [])] or None   # ?which=1&which=2 else all
+            if LINK.snapshot().get("in_air"):
+                # INTERLOCK (review 2026-08-30): the UI lock rides on the
+                # console's own ssh child, which dies with a console restart or
+                # the WiFi drop at takeoff. The drone's own in_air is the fact.
+                return self._send(200, json.dumps(
+                    {"ok": False, "err": "🔒 โดรนกำลังลอยอยู่ — ห้ามสั่ง servo มือ"}))
             if action.startswith("servo/release"):
                 if not selected_pads():       # INTERLOCK: must choose drop pads first
                     return self._send(200, json.dumps(
@@ -4727,10 +4791,16 @@ class Handler(BaseHTTPRequestHandler):
                 q = parse_qs(urlparse(self.path).query)
                 LINK.set_fltmode_async(int(q["slot"][0]), int(q["value"][0]))
             elif action == "origin/set":          # AAVC: local NED (0,0) = current position
+                if _flying():
+                    return self._send(200, json.dumps(
+                        {"ok": False, "err": "🔒 armed/ลอยอยู่ — ห้ามย้าย origin กลางบิน"}))
                 LINK.set_local_origin_async()
             elif action == "geofence/read":
                 LINK.read_geofence_async()
             elif action.startswith("geofence/set"):
+                if _flying():
+                    return self._send(200, json.dumps(
+                        {"ok": False, "err": "🔒 armed/ลอยอยู่ — ห้ามแก้ geofence กลางบิน"}))
                 from urllib.parse import urlparse, parse_qs
                 q = parse_qs(urlparse(self.path).query)
                 LINK.set_geofence_async(float(q["radius"][0]),
@@ -4744,6 +4814,13 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "fence/read":
                 LINK.read_fence_async()
             elif action == "fence/clear":
+                if _flying():
+                    # Clearing the polygon removes the ONLY FC-level fence this
+                    # aircraft has (the radius fence was retired 2026-08-17),
+                    # and the worker stands the reader — and the GCS heartbeat
+                    # — down for up to 3 s while it does it.
+                    return self._send(200, json.dumps(
+                        {"ok": False, "err": "🔒 armed/ลอยอยู่ — ห้ามล้าง fence กลางบิน"}))
                 LINK.clear_fence_async()
             else:
                 return self._send(404, json.dumps({"error": "unknown"}))
