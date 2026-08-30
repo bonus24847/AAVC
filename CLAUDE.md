@@ -722,6 +722,283 @@ of this section.
   DISTANCE_SENSOR at 10 Hz is the input of the whole landing chain; an ACK
   is not proof, the stream is); deploy `--check` MD5 MATCH after the sync.
 
+## 0g. Night of 29 Aug — Bang Bo landing test: three flights, no pad seen, two real bugs fixed
+
+Practice envelope (ceiling 10 / transit 9 / sweep 8), parallel pack, pad id 1
+under the school's floodlights. Three RC-GO flights 22:54-23:05 (ULogs
+`2026-08-29/15_54_13`, `15_58_06`, `16_03_38` + the 6-s re-arm `15_56_27`, copied
+to the laptop; card clean). **The landing chain was never exercised** — nothing
+below is evidence for or against it.
+
+- **The camera saw NOTHING: all 1699 recorded frames are black (mean 1.0/255),
+  2 decodes in 3909 frames, 0 blob hits.** The highlight-AE's exposure ceiling
+  is 4 ms (`AE_DEFAULT_MAX_100US=40`, sized against smear at 3 m/s) and the
+  floodlit pitch is ~300× darker than sun. The pad IS in the frames — a ~44/255
+  white patch with the marker readable to a human at ×8 — but ArUco refuses it
+  even after a software ×8. Sweep 1 `not_found`; flight 2 identified id 1 once,
+  flew two 3 m decode visits over it and still could not confirm. **Night
+  setting installed on the CM4 for the test only**: a `~/.bashrc` hook gated
+  on `~/.aavc_night_cam` exports `CAM_EXPOSURE=180 CAM_GAIN=128` and sets v4l2
+  `exposure_dynamic_framerate=1` (the stream negotiates 120 fps, so an 18 ms
+  exposure was silently capped at 8.3 ms until that flag — measured ×2.8 on the
+  same scene). ⚠ **REVERT BEFORE THE MORNING FLIGHT** (operator's own
+  instruction; checklist §3 + memory `night-camera-override-bangbo`): `rm -f
+  ~/.aavc_night_cam`, `exposure_dynamic_framerate=0`, restart the grabber, argv
+  must show `--ae-highlight` and no `--gain 128`. The flag survives a CM4 reboot.
+- **Flight 3: "altitude 6.5 m NOT reached" after 60 s at a TRUE 6.5 m →
+  emergency RTH before the first leg. FIXED (3d50b0d / comp 09586bc, deployed
+  MD5 MATCH).** PX4 rewrote `home.alt` +2.56 m at the takeoff moment (2.24 →
+  4.80 at t=4 s), so its `relative_altitude_m` held 3.9 while the lidar read
+  6.5 and the EKF MSL sat exactly at latched-home + 6.5. `_wait_until_altitude_
+  reached` read PX4's number; it now takes `max(PX4 relative, MSL − latched
+  home)` — the frame every goto flies in — with PX4's number as the fallback
+  when no latch exists. Home was rewritten on all three flights tonight
+  (+2.07 / −3.58 / +2.56 m); only flight 3 had it land inside the takeoff wait.
+  Three tests in `tests/test_commands_waits.py`, 818 green.
+- **Battery on the parallel pack, measured: 53-55 A mean in flight (not the
+  predicted 46), peaks 80 A, hover motor mean 0.69-0.72, 5.6 Ah for 6.3 min of
+  flying (17 % of 32 Ah) while the voltage gauge fell 83 → 52 % resting / 33 %
+  under load.** Sag 1.3-1.5 V at 54 A on every flight = **0.0038-0.0043
+  Ω/cell**. Operator-approved and WRITTEN + READ BACK on the board 23:45:
+  `BAT1_R_INTERNAL 0.004` (PX4 adds I·R to the cell voltage, so the loaded %
+  reads like the resting %), `BAT1_V_EMPTY 3.77 → 3.65` (3.77 called the pack
+  empty with ~30 % real charge left; the 30 % egress floor would have fired at
+  minute 5-6 of the 11-minute mission), `MPC_THR_HOVER 0.65 → 0.70`. NOT
+  `BAT1_CAPACITY>0`: 1.17's fusion is `min(voltage-based, coulomb)` (battery.cpp
+  `estimateStateOfCharge`, weight 3e-2) and can only read lower. Pins in
+  `tools/preflight_params.py` BOARD, tests, PX4MASTER `power-battery.md`,
+  checklist §3 (5cf06cc / comp 6b84ee0).
+- Also seen: the laptop auto-joined the ELRS TX backpack's WiFi after the
+  flight (ssh to the CM4 timed out until `nmcli con up id AAVC-DRONE`); the
+  crew re-armed and re-launched twice without waiting for the debrief; the
+  first two landings at L&R were clean (`Landing detected`, d_home 1.9 m).
+- **FLIGHT 4 (00:32, ULog `17_32_04`, night camera + all of tonight's fixes):
+  THE WHOLE CHAIN WORKED ON THE REAL AIRCRAFT.** Sweep at ~8.5 m found the pad
+  → ladder on the lidar 4.2 → 3.4 → 2.5 → **2.2 m held 13 s** (the true 2 m
+  rung) → AUTO.LAND at t=99 → PX4 `landed` latched at t=108 → `DO_SET_ACTUATOR
+  p4=+0.8` at t=111.1, **AUX4 1900 µs** (egg away 3 s after touchdown) →
+  takeoff at t=113 → back to the sweep altitude → egress → LAND at L&R,
+  touchdown 1.8 m from the takeoff point. During all of it PX4's height frame
+  read **+3.4 m** (z 3.7 with the lidar at 0.32; home rewritten 12×, 0.85-5.03)
+  — the 29-Aug tip-over precondition — and nothing happened: no ground-contact
+  event, no lateral retry, no lost pad. First flight of the lidar ladder,
+  the ground-contact guard (armed, never needed), the latched takeoff frame
+  and the re-fitted gauge (99 → 76 % for 2.36 Ah at 52.6 A; 23.9 V under load
+  still read ~100 %, i.e. the R_INTERNAL compensation is if anything a little
+  generous). Hover motor mean 0.688 vs the 0.70 seed. **Operator's account:
+  the egg box came to rest ON THE EDGE OF THE ⌀750 mm CIRCLE (≈ 0.35-0.4 m
+  from the centre — inside `landing_accuracy_threshold_m` 0.5, the 2 m blind
+  LAND's expected scatter), and the climb-out's downwash then BLEW THE BOX
+  OFF THE PAD.** "แค่ drop ก็ดีแล้ว" — accepted for the test; for KMITL the
+  cheap counter is a heavier/flatter box (ballast in the base), not a slower
+  climb — an 8.5 kg hexa's ground-effect wash is not tunable from here.
+  **FLIGHT 5 (00:41, `17_41_39`): THE CM4 LINK DIED IN FLIGHT.** At t=39 s
+  the FC stopped receiving anything on TELEM2 (`telemetry_status[1]`
+  rx_message_count frozen at 1617 for the remaining 80 s, its heartbeat gone
+  at t=43) — orchestrator AND beacon silent together (last `AAVC` statustext
+  t=37.2, last DO_REPOSITION t=36.6) while the NOMAD radio (instance 0,
+  ~4 kB/s) never blinked. PX4 held the last reposition (sweep wp1) and the
+  aircraft hovered on the spot for a minute ("บินค้างไม่ยอมเลี้ยว"); the pilot
+  LANDed it from 8 m at t=98, POSCTL after touchdown. Nothing on the FC acts
+  on a lost companion — the radio console counts as a live GCS, so no
+  datalink failsafe — the pilot is the only net. FC 5 V rail 4.92 V, vibration
+  normal, straight-line flight at 3 m/s. **CAUSE (operator, 01:40): the
+  CM4's OWN power source ran out at that moment** — the companion is fed from
+  a separate supply, not from the flight pack, and it emptied mid-flight 5.
+  So the item for KMITL is not software: **the CM4 supply must be full and
+  good for > 30 min before the GO** (checklist §3, first line) — an emptied
+  CM4 = the aircraft hovers on its last setpoint until the pilot lands it.
+  Console (aavc-gcs 88a33a9): red banner `CM4 เงียบ > 15 วิ ขณะบิน` from
+  `cm4_silent()` (armed + airborne + radio alive + no beacon line for 15 s),
+  so the pilot hears it in seconds, not after a minute — kept, it covers any
+  companion death, not only this one.
+- **The camera is STILL on the night hook** — the aircraft was powered down
+  before the flag could be removed. Safety net (aavc-gcs a275430,
+  `_infra_remote_cmd`): the console's auto-infra ssh now removes
+  `~/.aavc_night_cam`, resets `exposure_dynamic_framerate`, restarts a grabber
+  still carrying `--gain 128` and starts the infra with the `CAM_*` env unset
+  — so the first console connection on 30 Aug puts the camera back on
+  highlight-AE by itself. **Verify anyway at KMITL**: grabber argv shows
+  `--ae-highlight` and no `--gain 128` (checklist §3, first item). Then
+  `cm4/deploy.sh --check` — the CM4 tree is one docs commit behind.
+
+## 0h. Pre-competition review, 30 Aug 02:00-02:40 — SEVEN defects fixed, ⚠ NOT YET DEPLOYED
+
+Two adversarial reviews of exactly what flies at KMITL (the landing chain; the
+mission loop + config + routing + policies), each finding verified against the
+source before anything was touched. `make test` **826 green**, ruff + mypy
+clean, and **every fix has a test that was proven to fail without it** (the
+mission ones by reverting the fix and re-running). Practice `6b96ac5` = comp
+`cf34f55`. ⚠ **The CM4 was powered down at 02:40 — `cm4/deploy.sh --repo
+~/Desktop/aavc-comp` + `--check` MD5 MATCH is the FIRST thing to do at the
+field**, before `make preflight`.
+
+`orchestrator/tactical_align.py`
+1. **The closed-loop rung command was floored in the UNTRUSTED frame** —
+   `max(rungs[-1] * 0.5, agl - step)`. With the frame reading LOW (−0.93 …
+   −1.62 m, the sign on five of the last seven flights) the floor clips the
+   descent and the aircraft parks at a true `1 + |bias|` m: the altitude gate
+   can never pass, the rung burns its whole 18 s budget, `alt_unverified_
+   fallback` fires and PX4 gets a blind LAND from **2.6-3.5 m** — the
+   mechanism behind the 0.5-0.7 m placements. Now floored in the MEASURED
+   frame (`agl - min(step, max(0, lidar - rungs[-1]*0.5))`); the step clamp
+   already guarantees the rung is never overshot.
+2. **The two lost-pad gotos commanded the RAW rung** while every in-view goto
+   carries `+ _frame_bias()`. At the 29-Aug +2.4 m that is a true −0.4 m
+   re-command and a true 0.6 m "climb" — the `lost@2m→climb` ×5 sequence that
+   ended in the tip-over. The ground-contact guard masks it only while the
+   lidar is alive.
+3. **The last-resort touchdown fallback could release the egg airborne.** It
+   read only `relative_alt_m`; with the frame 2 m low a TRUE 3.5 m shows as
+   1.4 → `landed = True` → release. A live rangefinder now vetoes it (and
+   `near_ground`); a dead one (NaN) leaves the old behaviour untouched.
+4. **The acquire-timeout return skipped `_restore_descent_cap()`**, leaving
+   `MPC_Z_V_AUTO_DN` at 3.0 m/s — stickily, since the next align reads 3.0 as
+   its own pin, so the 10.5 m decode visits and any RTL descend at 7.5× the
+   validated 0.4.
+
+`mavlink_adapter/commands.py`
+5. **`goto()` cleared `expected_mode` while PX4 was still in our AUTO.LAND**,
+   so the deliberately un-debounced safety D3 read our own landing as an FC
+   failsafe and stood the mission down. The ground-contact guard made this
+   reachable for the first time (it commands LAND, and the gate right after it
+   can defer with a goto ~0.2 s later). The watchdog consumes the expectation
+   when the FC actually leaves the mode — the rule `arm_and_takeoff` adopted
+   on 2026-08-27.
+
+`orchestrator/mission.py`
+6. **`_serve` pinned the KMUTNB `accept_radius_m` (5 m) over the competition
+   profile's 15 m**, making `terminal_accept_radius_m` dead code. It is both
+   the identity gate and the cap on the expanding acquire search, so a
+   registry fix further out than 5 m — routine at the 15 m sweep, whose
+   `max_fix_ground_dist_m` is 20 and whose corner-pixel projections measured
+   8-10 m out on 29 Aug — is rejected on every frame: pad seen, never
+   acquired, egg home. The assigned-id gate is the neighbour defence.
+7. **The decode-visit pass read only the LATCHED battery flag** (every other
+   excursion re-reads the gauge), so a sweep ending at 32 % could fly 40-60 s
+   visits straight through the 30 % planned-egress floor into the 20 %
+   companion RTH — a failsafe return that skips the scored egress transit; and
+   **`assigned > 0` treated the real marker id 0** (Figure 7 encodes
+   1,2,0,4,5,6; a live id-0 pad was found on 27 Aug) as the −1 "any id"
+   sentinel, dropping the filter and the early exit.
+
+**Verified clean in the same pass** (ran against the real config): the 15-wp
+579 m sweep crosses no keep-out and stays inside the airspace; P1→P2′→P3′ and
+the last-wp→P3′ egress are straight-line clear; 291 plausible pad sites × 9
+start points produced 0 unroutable and 0 airspace-leaving routes; a 3-id queue
+makes exactly ONE flight firing AUX 4/1/2 with no slot re-fire; the battery
+ladder 30 > 20 > 15 > 10 cannot invert or deadlock; the whole 3-egg flight
+budgets ≈750 s of the 1200 s window with the last delivery gated at ≈650 s
+against a 300 s floor; the console map is digit-for-digit in sync; and
+`verify_flight.py` parses every line a 3-delivery flight writes. Two cosmetic
+notes: sweep wp3/wp4 sit 0.9-2.1 m north of the RULES search-area edge (inside
+the airspace, 10 m off the trees), and `marker.valid_ids: [1..6]` in both
+field configs is read only by the SITL spawner — the flight detector is
+`VALID_MARKER_IDS = 0..6`, so an assigned id 0 decodes normally.
+
+## 0i. 30 Aug 03:20 — the gauge, settled from the parallel-pack logs (V_EMPTY 3.40)
+
+The operator's question was the right one: *will it RTL with plenty of charge
+left?* Measured from the two Bang Bo flights that ran WITH the 3.65 +
+`BAT1_R_INTERNAL 0.004` gauge (`17_32_04`, `17_41_39`), in flight, under 52-55 A:
+the gauge falls **7.7 points per Ah** (the old 3.77 with no compensation fell
+**14.4** — that change halved the error). The 3-egg mission draws **≈ 9.9 Ah at
+54 A over 11 min**, so at 3.65 it ends at **gauge 24 %** and crosses the 30 %
+planned-egress floor at **minute 10 — during the third delivery** — with the
+pack under load still at 21.6 V. Resting-voltage deltas between flights
+(0.028 V/cell per Ah) put the two used packs' real usable capacity at
+**~17-20 Ah**, not the 24 Ah the 32000 nameplate implied: the mission uses about
+half of it, and the margin is ~2x, not the 2.9x first estimated.
+
+**`BAT1_V_EMPTY` 3.65 → 3.40** (operator-approved, written + read back +
+**reboot-verified** on the board). Same mission now ends at **~48 %**, the 30 %
+floor moves to minute 15, and every floor finally means what it says: 30 % =
+20.5 V under load, 20 % = 20.0 V, PX4 crit 15 % = 19.8 V, emergency 7 % =
+19.5 V. **No floor value was changed** — only what "0 %" means.
+`tools/preflight_params.py` BOARD, its tests, `tests/test_battery_consistency.py`
+(the plausible-pack band 22.0 → 20.0 V) and PX4MASTER `power-battery.md` all
+follow, so the field-day check passes instead of stopping the flight.
+
+⚠ **The first write did NOT survive the battery being unplugged** — it read back
+3.65 afterwards, with `R_INTERNAL`/`THR_HOVER`/`V_CHARGED` all intact. This
+board has a history of failed `/fs/mtd_params` imports (§G5), so **re-read the
+battery params after ANY power cycle**; the second write was proved across a
+deliberate `action.reboot()`. Pilot's rule if the gauge is ever in doubt — the
+raw pack voltage under load: **< 21.0 V head home, < 20.4 V land now.**
+
+Bench state at 03:30: BOARD 24/24 ✔ (motor map, AUX 301-304, `MAV_1_RATE=0`,
+`SENS_TFMINI_CFG=103`, `EKF2_HGT_REF=0`, `MPC_THR_HOVER=0.70`,
+`BAT1_V_EMPTY=3.40`, `R_INTERNAL=0.004`), pack **25.13 V / 4.189 V per cell /
+gauge 100 %** on the parallel pair, CM4 tree **MD5 MATCH** with the seven review
+fixes, camera back on **daytime highlight-AE** (no `--gain 128`, dynamic
+framerate 0, sensor gain 64).
+
+## 0j. 30 Aug 03:30-05:00 — PX4 / CM4 / battery / console review; SD card was in the LAPTOP
+
+Reviewed at the operator's request, with the aircraft powered for the live half.
+Two agents read the console (`aavc-gcs`) and the CM4 launch/deploy scripts; the
+PX4, CM4-runtime, battery and camera state were read off the aircraft directly.
+
+**⚠ THE FIND OF THE NIGHT — the FC's SD card was still in the laptop reader.**
+`tools/fence_probe.py` reported `fence download FAILED (MissionRawError) —
+mission/dataman path WEDGED`. With no card there is no dataman, so the mission's
+geofence upload fails and the orchestrator **refuses to fly** (fail-safe, and
+exactly the "OFFBOARD won't fly" hour lost at Bang Bo). Card unmounted, moved
+back to the FC, power-cycled → `fence download OK (4 items) · SD listing OK ·
+✔ mission path alive`. **Make "card in the FC" a stated preflight line, and run
+`make field-check` (preflight → fence-probe → alt-watch) after every power-up.**
+
+**Live state, all green after the power cycle:** BOARD 24/24 (`✔ พารามิเตอร์
+ฝั่งบอร์ดครบถูกต้อง — บินได้`) with `BAT1_V_EMPTY 3.40` surviving the battery
+unplug this time; lidar 10.0 Hz; camera on the competition spec (`--exposure-100us
+0 --ae-highlight`, sensor gain 64, `exposure_dynamic_framerate 0`, MJPG 1280×720
+passthrough at 25 Hz, no night flag); CM4 disk 21 G free, RAM 7.4 G free,
+router+grabber+beacon up, `.aavc_site` = competition; the CM4 tree MD5-MATCHES
+**both** repos; the icon's stage command carries
+`AAVC_PROFILE=competition AAVC_CONFIG=sitl/kmitl_config.yaml` explicitly.
+Failsafe ladder read off the board and converted to volts under 54 A: egress
+30 % = 20.5 V → companion RTH 20 % = 20.0 V → `BAT_CRIT_THR` 15 % = 19.8 V →
+companion LAND 10 % = 19.6 V → `BAT_EMERGEN_THR` 7 % = 19.4 V — every layer
+below the one above it. `GF_ACTION 3`, `NAV_RCL_ACT 2` + `COM_RCL_EXCEPT 4` +
+`COM_RC_LOSS_T 0.5`, `NAV_DLL_ACT 2` + `COM_DL_LOSS_T 5` all present.
+
+**Fixed (aavc-gcs 55cf38f, mission c469989 / comp 5cc781e):**
+1. **`sitl/run_mission.sh` — a command without `REAL=1` ARMED AND TOOK OFF BY
+   ITSELF.** `RC_GO` defaults to 1 *inside* the REAL branch and to 0 outside it,
+   so a hand-typed recovery line, a mangled `missions.yaml` entry or
+   `INFRA_ONLY=1` without `REAL=1` fell into the SITL branch, still reached the
+   real FC through mavlink-router's `udpin://0.0.0.0:14540`, took the HEADLESS
+   gate and launched while the safety pilot waited to be asked. Now refused when
+   the FC's serial port exists.
+2. **The 🚀 modal said "✅ mission ขึ้นเครื่องแล้ว — arm RC → OFFBOARD" 0.6 s
+   after the press**, on no evidence but our own ssh child still being alive
+   after 1.5 s. Every failure after that window told the crew to arm into a
+   mission that was not there (the 29-Aug sequence). Now waits for the drone's
+   own beacon phase.
+3. **The geofence panel wrote `GF_MAX_HOR_DIST`** from boxes hard-coded to
+   50/30 — the radius fence retired on 2026-08-17 after a live 15 m value killed
+   a mission mid-transit. 50 m around home against a search area reaching ENU
+   E 266 m = `GF_ACTION=3` RTL on the first sweep leg. The console no longer
+   writes the radius at all and the boxes now mirror the board.
+4. **Every FC-state write and every payload-latch button was live in flight.**
+   The locks rode on `mission_running()` — the liveness of the console's OWN ssh
+   child, which dies with a console restart or the WiFi drop at takeoff. Now
+   gated on the AIRCRAFT's `armed`/`in_air` (`_flying()`, fails OPEN with no
+   link); the servo guard is `in_air` only, so a manual release while armed ON
+   the pad — the "วางไม่ตรง ดีกว่าไม่วาง" fallback — still works.
+5. **`cm4/start_infra.sh` now strips `CAM_*`.** A remote shell sources
+   `~/.bashrc` BEFORE the command, so the documented one-line night-camera
+   revert restarted the grabber with `CAM_EXPOSURE=180 CAM_GAIN=128` still
+   exported and `--ae-highlight` dropped — a white frame and zero decodes in
+   sun. (The flag itself is already gone from the CM4, verified.)
+6. **Checklist:** restart the infra after a field deploy — `deploy.sh --check`
+   hashes files on DISK, so a running grabber/beacon keeps the old code while
+   it prints MATCH.
+
+⚠ **1, 5 and 6 are in the repo but NOT on the aircraft** — the CM4 was powered
+down at 05:00. `cm4/deploy.sh --repo ~/Desktop/aavc-comp` + `--check` MATCH is
+still the first thing to do at the field, now followed by the infra restart.
+
 ## 1. Mission (locked — official Rules & Regulations V1.3, July 2026)
 
 An autonomous **PX4 hexacopter** (EFT X6100 frame; Pixhawk 6X + Raspberry Pi CM4
