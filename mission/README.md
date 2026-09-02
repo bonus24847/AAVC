@@ -100,9 +100,39 @@ tests/                pytest: pad detector, delivery mission, plan, align, safet
 
 ---
 
+## Prerequisites
+
+`make install` alone gets you the Python side — the tests, the tools, the
+orchestrator. **The simulator needs more**, and step 2 below fails without it:
+
+| what | version | why |
+|---|---|---|
+| Ubuntu | 24.04 LTS | what setup.sh and the gz packages are tested on |
+| Gazebo | **Harmonic** (`gz-harmonic` from the osrfoundation apt repo) | the world, and the `python3-gz-transport13` / `python3-gz-msgs10` the bridges import |
+| PX4-Autopilot | **v1.17.0** | the flight stack |
+| a patched PX4 worktree | branch `aavc/sitl-v1.17` | the `22000_gz_eft_x6100` airframe and `sitl/px4_patches/px4-v1.17-aavc.diff` — a bare PX4 tree has no hexacopter |
+
+One script does all of it, asking before each sudo step:
+
+```bash
+bash sitl/setup.sh          # step 0 — clones PX4, builds the AAVC worktree
+```
+
+⚠ **`PX4_DIR` means two different things.** In `sitl/setup.sh` it is the
+upstream clone (default `~/PX4-Autopilot`); everywhere else — `launch_sitl.sh`,
+`launch_gcs.sh`, `link_px4_assets.sh` — it is the **patched worktree**
+(setup.sh calls that one `AAVC_PX4_DIR`, default `~/PX4-Autopilot-v1.17`). If
+you set `PX4_DIR` for setup.sh and leave it set, `make sitl` looks in the wrong
+tree.
+
+The console (`../gcs`) needs none of this — it runs on `pymavlink` + `pyyaml`.
+
 ## Quickstart
 
 ```bash
+# 0. Simulator prerequisites (see above) — first time only
+bash sitl/setup.sh
+
 # 1. Install (creates .venv, installs the lightweight stack + dev tools)
 make install
 
@@ -228,4 +258,9 @@ override is the ultimate failsafe.
 
 ## License
 
-Internal KMUTNB project. Do not redistribute without permission.
+MIT — see [`../LICENSE`](../LICENSE) at the repo root, and [`../NOTICE.md`](../NOTICE.md)
+for the third-party material that travels with this repository.
+
+(This section used to read "Internal KMUTNB project. Do not redistribute without
+permission." It was written before the project was published and is no longer
+the intent.)

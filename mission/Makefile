@@ -52,8 +52,13 @@ install:
 	.venv/bin/pip install --upgrade pip
 	.venv/bin/pip install -e ".[dev]"
 
+# ⚠ env -u PYTHONPATH, same guard as $(PY) above. Without it a sourced ROS 2
+# environment's /usr/lib/python3/dist-packages leaks into the freeze: the lock
+# committed before 2026-09-02 carried 155 apt-only ROS packages (rclpy, mavros,
+# rqt-*, turtlesim) and `pip install -r requirements.lock` died on line 2.
 lock:
-	.venv/bin/pip freeze --exclude-editable > requirements.lock
+	env -u PYTHONPATH .venv/bin/pip freeze --exclude-editable \
+	    | grep -v '^aavc-2026' > requirements.lock
 	@echo "[lock] wrote requirements.lock (pinned deps for reproducible installs)"
 
 # GUI=1 shows the gz viewer (default is headless to cut dGPU render load);

@@ -21,14 +21,18 @@
 # mission never re-flies. Default is bench-safe (dashboard up, operator GO per
 # sortie); set Environment=HEADLESS=1 + ASSIGNED_IDS= only for an unattended run.
 # Edit User=, WorkingDirectory=, and the Environment= knobs for your CM4.
+# ⚠ 2026-09-02: these used to default to User=pi + /home/pi/AAVC, which no
+# path in this repo ever creates — cm4/deploy.sh rsyncs to ~/mission and
+# find_cm4.sh/setup_ap.sh use the user 'drone', so the unit failed with
+# status=200/CHDIR after a by-the-book deploy. Defaults now match deploy.sh.
 [Unit]
 Description=AAVC onboard HITL stack (mavlink-router + synthetic camera + orchestrator)
 After=multi-user.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/AAVC
+User=drone
+WorkingDirectory=/home/drone/mission
 Environment=SERIAL=/dev/ttyAMA0
 Environment=TARGETS=/tmp/aavc_targets.json
 # Environment=HEADLESS=1                 # uncomment ONLY for an unattended HITL run

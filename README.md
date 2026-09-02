@@ -151,17 +151,23 @@ pre-competition fixes.
 
 ## Running the simulator
 
-Needs a PX4-Autopilot checkout with Gazebo (`PX4_DIR`, default
-`~/PX4-Autopilot-v1.17`, branch `aavc/sitl-v1.17` carrying the
-`22000_gz_eft_x6100` airframe).
+Ubuntu 24.04, Gazebo **Harmonic**, PX4-Autopilot **v1.17.0**, and a patched PX4
+worktree on branch `aavc/sitl-v1.17` (a bare PX4 tree has no hexacopter airframe).
+`sitl/setup.sh` builds all of that, asking before each sudo step — see
+[`mission/README.md`](mission/README.md#prerequisites) for the ⚠ two meanings of
+`PX4_DIR`.
 
 ```bash
 cd mission
-make install                       # .venv + the lean stack
+bash sitl/setup.sh                 # first time only: PX4 + Gazebo + the AAVC worktree
+make install                       # .venv + the lean stack (~20 s)
 bash sitl/link_px4_assets.sh       # borrow PX4's propeller meshes (visual only)
 bash sitl/launch_stack.sh          # SITL + Gazebo + bridges + console + pads
 make run                           # fly the mission on top of it
 ```
+
+826 tests pass with `make test`. The console needs none of this — it runs on
+`pymavlink` + `pyyaml`.
 
 `make help` lists the rest — the pad spawner, the camera bridge, the post-flight
 verifier, the field checks. Details in [`mission/README.md`](mission/README.md).

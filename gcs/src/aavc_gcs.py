@@ -116,8 +116,11 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 def _default_captures():
     """Auto-share files with the touch-and-go mission if it's a sibling repo, else a local
     captures/ — so live use needs no --captures (the mission's captures is found for you)."""
-    for c in (os.path.join(_HERE, "..", "..", "mission_AAVC", "captures"),
-              os.path.join(_HERE, "..", "..", "touch_and_go_for_race", "captures"),
+    # ../../mission/captures is the sibling in this repo. The first two probes
+    # were "mission_AAVC" and "touch_and_go_for_race" — repos retired in August
+    # 2026 that exist in no tree, so this always fell through to gcs/captures,
+    # which does not exist either (fixed 2026-09-02).
+    for c in (os.path.join(_HERE, "..", "..", "mission", "captures"),
               os.path.join(_HERE, "..", "captures")):
         if os.path.isdir(c):
             return os.path.abspath(c)

@@ -8,7 +8,11 @@
 # SAFETY: do NOT `systemctl enable` this — auto-start on boot + HEADLESS would
 # auto-arm and auto-fly the mission on power-up. Start it MANUALLY, deliberately,
 # when the aircraft is ready. Restart=no so a finished mission never re-flies.
-# Edit User=, WorkingDirectory=, and the Environment= knobs for your CM4. Defaults
+# Edit User=, WorkingDirectory=, and the Environment= knobs for your CM4.
+# ⚠ 2026-09-02: these used to default to User=pi + /home/pi/AAVC, which no
+# path in this repo ever creates — cm4/deploy.sh rsyncs to ~/mission and
+# find_cm4.sh/setup_ap.sh use the user 'drone', so the unit failed with
+# status=200/CHDIR after a by-the-book deploy. Defaults now match deploy.sh. Defaults
 # to the bench-safe path (dashboard up, operator GO required); set Environment=HEADLESS=1
 # only for an unattended field run (auto-GO when preflight criticals pass).
 [Unit]
@@ -17,8 +21,8 @@ After=multi-user.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/AAVC
+User=drone
+WorkingDirectory=/home/drone/mission
 Environment=SERIAL=/dev/ttyACM0
 Environment=BACKEND=v4l2
 # Environment=CAM_EXPOSURE=20       # v4l2 forced exposure, 100 µs units (0 = auto);
