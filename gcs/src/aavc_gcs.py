@@ -22,6 +22,7 @@ import re
 import socket
 import struct
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -4855,6 +4856,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # Line-buffer stdout. The console's boot lines (which template it picked,
+    # which field and captures dir it resolved, which mission-cmd the 🚀 button
+    # carries) are the only way to tell a misconfigured console from a working
+    # one — and under `> log 2>&1`, nohup or systemd, stdout is a pipe, so
+    # Python block-buffers 8 KB of it and the file stays EMPTY until the process
+    # exits. Found 2026-09-02 while testing a fresh clone: the server was up and
+    # serving while its log looked like it had never started.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except Exception:      # not a real stream (embedded/test harness)
+        pass
     global LINK, CM4MGR, AAVC_CAPTURES, AAVC_FIELD
     global MISSION_CMD, MISSION_LABEL, RESET_CMD, CURRENT_MISSION, REAL_CONSOLE
     ap = argparse.ArgumentParser()
