@@ -28,6 +28,7 @@ sitl/targets_ground_truth.json
 # Generated run artifacts (audit logs, captures)
 runs/
 logs/
+captures/
 
 # Reference literature (large PDFs; recoverable from the publishers) + LaTeX build
 paper/
