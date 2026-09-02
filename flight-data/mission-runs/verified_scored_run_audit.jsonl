@@ -1,0 +1,284 @@
+{"ts": "2026-08-11T18:34:25.113566+00:00", "entry": "t=0.0s BAT1_CAPACITY unset on the FC \u2014 battery percentage and the energy budget are estimates until the power module is calibrated"}
+{"ts": "2026-08-11T18:34:25.115384+00:00", "entry": "t=0.0s FLIGHT 1 START eggs=4 ids=3,6,2,1 remaining=1200s"}
+{"ts": "2026-08-11T18:34:25.116178+00:00", "entry": "t=0.0s TELEM phase=takeoff flight=1 lat=13.8224942 lon=100.5122770 alt=-0.02 armed=0"}
+{"ts": "2026-08-11T18:34:26.116832+00:00", "entry": "t=0.9s TELEM phase=takeoff flight=1 lat=13.8224941 lon=100.5122769 alt=0.00 armed=0"}
+{"ts": "2026-08-11T18:34:27.117099+00:00", "entry": "t=1.7s TELEM phase=takeoff flight=1 lat=13.8224942 lon=100.5122769 alt=-0.01 armed=1"}
+{"ts": "2026-08-11T18:34:28.117754+00:00", "entry": "t=2.7s TELEM phase=takeoff flight=1 lat=13.8224943 lon=100.5122770 alt=-0.01 armed=1"}
+{"ts": "2026-08-11T18:34:29.118420+00:00", "entry": "t=3.6s TELEM phase=takeoff flight=1 lat=13.8224942 lon=100.5122769 alt=-0.02 armed=1"}
+{"ts": "2026-08-11T18:34:30.118599+00:00", "entry": "t=4.5s TELEM phase=takeoff flight=1 lat=13.8224940 lon=100.5122769 alt=0.02 armed=1"}
+{"ts": "2026-08-11T18:34:31.119217+00:00", "entry": "t=5.4s TELEM phase=takeoff flight=1 lat=13.8224939 lon=100.5122768 alt=0.26 armed=1"}
+{"ts": "2026-08-11T18:34:32.119304+00:00", "entry": "t=6.3s TELEM phase=takeoff flight=1 lat=13.8224942 lon=100.5122769 alt=0.39 armed=1"}
+{"ts": "2026-08-11T18:34:33.119795+00:00", "entry": "t=7.2s TELEM phase=takeoff flight=1 lat=13.8224946 lon=100.5122764 alt=0.89 armed=1"}
+{"ts": "2026-08-11T18:34:34.120747+00:00", "entry": "t=8.2s TELEM phase=takeoff flight=1 lat=13.8224943 lon=100.5122767 alt=1.54 armed=1"}
+{"ts": "2026-08-11T18:34:35.121754+00:00", "entry": "t=9.1s TELEM phase=takeoff flight=1 lat=13.8224943 lon=100.5122769 alt=2.15 armed=1"}
+{"ts": "2026-08-11T18:34:36.121951+00:00", "entry": "t=10.0s TELEM phase=transit_ingress flight=1 lat=13.8224943 lon=100.5122771 alt=2.19 armed=1"}
+{"ts": "2026-08-11T18:34:37.122174+00:00", "entry": "t=10.9s TELEM phase=transit_ingress flight=1 lat=13.8224954 lon=100.5122729 alt=2.26 armed=1"}
+{"ts": "2026-08-11T18:34:38.122250+00:00", "entry": "t=11.8s TELEM phase=transit_ingress flight=1 lat=13.8224970 lon=100.5122525 alt=2.53 armed=1"}
+{"ts": "2026-08-11T18:34:39.122408+00:00", "entry": "t=12.8s TELEM phase=transit_ingress flight=1 lat=13.8225010 lon=100.5122278 alt=2.84 armed=1"}
+{"ts": "2026-08-11T18:34:40.121967+00:00", "entry": "t=13.6s TELEM phase=transit_ingress flight=1 lat=13.8225047 lon=100.5122162 alt=3.03 armed=1"}
+{"ts": "2026-08-11T18:34:40.173237+00:00", "entry": "t=13.7s TRANSIT_PASS P1 ingress flight=1 d=1.7m"}
+{"ts": "2026-08-11T18:34:41.122227+00:00", "entry": "t=14.6s TELEM phase=transit_ingress flight=1 lat=13.8225068 lon=100.5122063 alt=3.15 armed=1"}
+{"ts": "2026-08-11T18:34:42.122594+00:00", "entry": "t=15.5s TELEM phase=transit_ingress flight=1 lat=13.8225174 lon=100.5121879 alt=3.24 armed=1"}
+{"ts": "2026-08-11T18:34:43.123331+00:00", "entry": "t=16.4s TELEM phase=transit_ingress flight=1 lat=13.8225289 lon=100.5121661 alt=3.27 armed=1"}
+{"ts": "2026-08-11T18:34:44.123663+00:00", "entry": "t=17.3s TELEM phase=transit_ingress flight=1 lat=13.8225398 lon=100.5121468 alt=3.31 armed=1"}
+{"ts": "2026-08-11T18:34:45.124418+00:00", "entry": "t=18.2s TELEM phase=transit_ingress flight=1 lat=13.8225475 lon=100.5121330 alt=3.35 armed=1"}
+{"ts": "2026-08-11T18:34:45.460563+00:00", "entry": "t=18.6s TRANSIT_PASS P2 ingress flight=1 d=1.8m"}
+{"ts": "2026-08-11T18:34:46.124681+00:00", "entry": "t=19.2s TELEM phase=transit_ingress flight=1 lat=13.8225530 lon=100.5121242 alt=3.38 armed=1"}
+{"ts": "2026-08-11T18:34:47.124943+00:00", "entry": "t=20.1s TELEM phase=transit_ingress flight=1 lat=13.8225628 lon=100.5121288 alt=3.41 armed=1"}
+{"ts": "2026-08-11T18:34:48.125731+00:00", "entry": "t=21.0s TELEM phase=transit_ingress flight=1 lat=13.8225857 lon=100.5121365 alt=3.40 armed=1"}
+{"ts": "2026-08-11T18:34:49.126912+00:00", "entry": "t=21.9s TELEM phase=transit_ingress flight=1 lat=13.8226094 lon=100.5121429 alt=3.39 armed=1"}
+{"ts": "2026-08-11T18:34:50.127543+00:00", "entry": "t=22.8s TELEM phase=transit_ingress flight=1 lat=13.8226288 lon=100.5121494 alt=3.39 armed=1"}
+{"ts": "2026-08-11T18:34:50.983474+00:00", "entry": "t=23.6s TRANSIT_PASS P3 ingress flight=1 d=1.8m"}
+{"ts": "2026-08-11T18:34:51.128648+00:00", "entry": "t=23.7s TELEM phase=search flight=1 lat=13.8226405 lon=100.5121529 alt=3.40 armed=1"}
+{"ts": "2026-08-11T18:34:52.129897+00:00", "entry": "t=24.7s TELEM phase=search flight=1 lat=13.8226452 lon=100.5121515 alt=3.47 armed=1"}
+{"ts": "2026-08-11T18:34:53.130482+00:00", "entry": "t=25.6s TELEM phase=search flight=1 lat=13.8226406 lon=100.5121352 alt=3.54 armed=1"}
+{"ts": "2026-08-11T18:34:54.129995+00:00", "entry": "t=26.5s TELEM phase=search flight=1 lat=13.8226372 lon=100.5121108 alt=3.60 armed=1"}
+{"ts": "2026-08-11T18:34:55.130753+00:00", "entry": "t=27.4s TELEM phase=search flight=1 lat=13.8226325 lon=100.5120876 alt=3.68 armed=1"}
+{"ts": "2026-08-11T18:34:55.248754+00:00", "entry": "t=27.5s cluster_identified id=0 marker=2"}
+{"ts": "2026-08-11T18:34:55.999825+00:00", "entry": "t=28.2s target_confirmed id=0 marker=2 (13.8226615,100.5120909) votes=3 id_votes=3 conf=0.95"}
+{"ts": "2026-08-11T18:34:56.131095+00:00", "entry": "t=28.3s TELEM phase=search flight=1 lat=13.8226278 lon=100.5120612 alt=3.76 armed=1"}
+{"ts": "2026-08-11T18:34:57.131883+00:00", "entry": "t=29.3s TELEM phase=search flight=1 lat=13.8226235 lon=100.5120368 alt=3.83 armed=1"}
+{"ts": "2026-08-11T18:34:58.132571+00:00", "entry": "t=30.2s TELEM phase=search flight=1 lat=13.8226204 lon=100.5120210 alt=3.88 armed=1"}
+{"ts": "2026-08-11T18:34:59.133689+00:00", "entry": "t=31.1s TELEM phase=search flight=1 lat=13.8226192 lon=100.5120108 alt=3.91 armed=1"}
+{"ts": "2026-08-11T18:35:00.134247+00:00", "entry": "t=32.0s TELEM phase=search flight=1 lat=13.8226238 lon=100.5120168 alt=3.93 armed=1"}
+{"ts": "2026-08-11T18:35:01.134944+00:00", "entry": "t=32.9s TELEM phase=search flight=1 lat=13.8226370 lon=100.5120341 alt=3.96 armed=1"}
+{"ts": "2026-08-11T18:35:02.135823+00:00", "entry": "t=33.9s TELEM phase=search flight=1 lat=13.8226525 lon=100.5120534 alt=3.96 armed=1"}
+{"ts": "2026-08-11T18:35:03.136716+00:00", "entry": "t=34.8s TELEM phase=search flight=1 lat=13.8226672 lon=100.5120745 alt=3.95 armed=1"}
+{"ts": "2026-08-11T18:35:04.137301+00:00", "entry": "t=35.7s TELEM phase=search flight=1 lat=13.8226834 lon=100.5120963 alt=3.96 armed=1"}
+{"ts": "2026-08-11T18:35:05.137361+00:00", "entry": "t=36.6s TELEM phase=search flight=1 lat=13.8226978 lon=100.5121162 alt=3.97 armed=1"}
+{"ts": "2026-08-11T18:35:06.137304+00:00", "entry": "t=37.5s TELEM phase=search flight=1 lat=13.8227127 lon=100.5121371 alt=3.98 armed=1"}
+{"ts": "2026-08-11T18:35:07.137104+00:00", "entry": "t=38.4s TELEM phase=search flight=1 lat=13.8227280 lon=100.5121583 alt=4.00 armed=1"}
+{"ts": "2026-08-11T18:35:08.137650+00:00", "entry": "t=39.3s TELEM phase=search flight=1 lat=13.8227426 lon=100.5121786 alt=3.99 armed=1"}
+{"ts": "2026-08-11T18:35:09.138722+00:00", "entry": "t=40.2s TELEM phase=search flight=1 lat=13.8227574 lon=100.5121984 alt=3.98 armed=1"}
+{"ts": "2026-08-11T18:35:10.023810+00:00", "entry": "t=41.0s cluster_identified id=1 marker=6"}
+{"ts": "2026-08-11T18:35:10.139345+00:00", "entry": "t=41.1s TELEM phase=search flight=1 lat=13.8227705 lon=100.5122159 alt=3.98 armed=1"}
+{"ts": "2026-08-11T18:35:10.524852+00:00", "entry": "t=41.5s target_confirmed id=1 marker=6 (13.8227647,100.5122334) votes=3 id_votes=3 conf=0.95"}
+{"ts": "2026-08-11T18:35:11.139142+00:00", "entry": "t=42.0s TELEM phase=search flight=1 lat=13.8227785 lon=100.5122269 alt=3.97 armed=1"}
+{"ts": "2026-08-11T18:35:12.139810+00:00", "entry": "t=42.9s TELEM phase=search flight=1 lat=13.8227850 lon=100.5122306 alt=4.00 armed=1"}
+{"ts": "2026-08-11T18:35:13.140247+00:00", "entry": "t=43.8s TELEM phase=search flight=1 lat=13.8227984 lon=100.5122224 alt=4.01 armed=1"}
+{"ts": "2026-08-11T18:35:14.140494+00:00", "entry": "t=44.8s TELEM phase=search flight=1 lat=13.8228169 lon=100.5122165 alt=3.99 armed=1"}
+{"ts": "2026-08-11T18:35:15.140877+00:00", "entry": "t=45.7s TELEM phase=search flight=1 lat=13.8228190 lon=100.5122108 alt=3.97 armed=1"}
+{"ts": "2026-08-11T18:35:16.140983+00:00", "entry": "t=46.6s TELEM phase=search flight=1 lat=13.8228125 lon=100.5122003 alt=3.99 armed=1"}
+{"ts": "2026-08-11T18:35:17.141619+00:00", "entry": "t=47.5s TELEM phase=search flight=1 lat=13.8227983 lon=100.5121778 alt=3.95 armed=1"}
+{"ts": "2026-08-11T18:35:18.142858+00:00", "entry": "t=48.5s TELEM phase=search flight=1 lat=13.8227842 lon=100.5121571 alt=3.94 armed=1"}
+{"ts": "2026-08-11T18:35:19.143805+00:00", "entry": "t=49.4s TELEM phase=search flight=1 lat=13.8227701 lon=100.5121363 alt=3.94 armed=1"}
+{"ts": "2026-08-11T18:35:20.144049+00:00", "entry": "t=50.3s TELEM phase=search flight=1 lat=13.8227553 lon=100.5121148 alt=3.96 armed=1"}
+{"ts": "2026-08-11T18:35:21.145072+00:00", "entry": "t=51.2s TELEM phase=search flight=1 lat=13.8227405 lon=100.5120928 alt=3.96 armed=1"}
+{"ts": "2026-08-11T18:35:22.145654+00:00", "entry": "t=52.1s TELEM phase=search flight=1 lat=13.8227263 lon=100.5120719 alt=3.97 armed=1"}
+{"ts": "2026-08-11T18:35:23.146764+00:00", "entry": "t=53.0s TELEM phase=search flight=1 lat=13.8227121 lon=100.5120505 alt=3.97 armed=1"}
+{"ts": "2026-08-11T18:35:24.147339+00:00", "entry": "t=53.9s TELEM phase=search flight=1 lat=13.8226975 lon=100.5120288 alt=3.97 armed=1"}
+{"ts": "2026-08-11T18:35:25.147806+00:00", "entry": "t=54.8s TELEM phase=search flight=1 lat=13.8226830 lon=100.5120074 alt=3.97 armed=1"}
+{"ts": "2026-08-11T18:35:26.148531+00:00", "entry": "t=55.7s TELEM phase=search flight=1 lat=13.8226729 lon=100.5119922 alt=3.98 armed=1"}
+{"ts": "2026-08-11T18:35:26.841937+00:00", "entry": "t=56.3s cluster_identified id=2 marker=5"}
+{"ts": "2026-08-11T18:35:27.148111+00:00", "entry": "t=56.6s TELEM phase=search flight=1 lat=13.8226666 lon=100.5119824 alt=3.99 armed=1"}
+{"ts": "2026-08-11T18:35:27.607537+00:00", "entry": "t=57.1s target_confirmed id=2 marker=5 (13.8226276,100.5119887) votes=3 id_votes=3 conf=0.95"}
+{"ts": "2026-08-11T18:35:28.148904+00:00", "entry": "t=57.6s TELEM phase=search flight=1 lat=13.8226681 lon=100.5119741 alt=4.02 armed=1"}
+{"ts": "2026-08-11T18:35:29.149516+00:00", "entry": "t=58.4s TELEM phase=search flight=1 lat=13.8226805 lon=100.5119610 alt=4.04 armed=1"}
+{"ts": "2026-08-11T18:35:29.860360+00:00", "entry": "t=59.0s cluster_identified id=3 marker=4"}
+{"ts": "2026-08-11T18:35:30.149426+00:00", "entry": "t=59.3s TELEM phase=search flight=1 lat=13.8226892 lon=100.5119492 alt=4.03 armed=1"}
+{"ts": "2026-08-11T18:35:30.376004+00:00", "entry": "t=59.5s target_confirmed id=3 marker=4 (13.8227058,100.5119316) votes=3 id_votes=3 conf=0.95"}
+{"ts": "2026-08-11T18:35:31.149602+00:00", "entry": "t=60.2s TELEM phase=search flight=1 lat=13.8226945 lon=100.5119521 alt=4.02 armed=1"}
+{"ts": "2026-08-11T18:35:32.150730+00:00", "entry": "t=61.2s TELEM phase=search flight=1 lat=13.8227069 lon=100.5119672 alt=4.05 armed=1"}
+{"ts": "2026-08-11T18:35:33.151888+00:00", "entry": "t=62.0s TELEM phase=search flight=1 lat=13.8227226 lon=100.5119858 alt=4.06 armed=1"}
+{"ts": "2026-08-11T18:35:34.152136+00:00", "entry": "t=62.9s TELEM phase=search flight=1 lat=13.8227371 lon=100.5120058 alt=4.06 armed=1"}
+{"ts": "2026-08-11T18:35:35.151983+00:00", "entry": "t=63.9s TELEM phase=search flight=1 lat=13.8227535 lon=100.5120269 alt=4.07 armed=1"}
+{"ts": "2026-08-11T18:35:36.152227+00:00", "entry": "t=64.8s TELEM phase=search flight=1 lat=13.8227687 lon=100.5120474 alt=4.06 armed=1"}
+{"ts": "2026-08-11T18:35:37.152401+00:00", "entry": "t=65.7s TELEM phase=search flight=1 lat=13.8227839 lon=100.5120678 alt=4.06 armed=1"}
+{"ts": "2026-08-11T18:35:38.152748+00:00", "entry": "t=66.6s TELEM phase=search flight=1 lat=13.8227999 lon=100.5120886 alt=4.06 armed=1"}
+{"ts": "2026-08-11T18:35:38.884332+00:00", "entry": "t=67.3s cluster_identified id=4 marker=3"}
+{"ts": "2026-08-11T18:35:39.152939+00:00", "entry": "t=67.6s TELEM phase=search flight=1 lat=13.8228163 lon=100.5121102 alt=4.07 armed=1"}
+{"ts": "2026-08-11T18:35:39.634665+00:00", "entry": "t=68.0s target_confirmed id=4 marker=3 (13.8228361,100.5121039) votes=3 id_votes=3 conf=0.95"}
+{"ts": "2026-08-11T18:35:40.153001+00:00", "entry": "t=68.4s TELEM phase=search flight=1 lat=13.8228307 lon=100.5121294 alt=4.07 armed=1"}
+{"ts": "2026-08-11T18:35:41.153612+00:00", "entry": "t=69.3s TELEM phase=search flight=1 lat=13.8228456 lon=100.5121487 alt=4.07 armed=1"}
+{"ts": "2026-08-11T18:35:42.153835+00:00", "entry": "t=70.2s TELEM phase=search flight=1 lat=13.8228561 lon=100.5121621 alt=4.06 armed=1"}
+{"ts": "2026-08-11T18:35:43.154307+00:00", "entry": "t=71.2s TELEM phase=search flight=1 lat=13.8228623 lon=100.5121705 alt=4.06 armed=1"}
+{"ts": "2026-08-11T18:35:44.153998+00:00", "entry": "t=72.1s TELEM phase=search flight=1 lat=13.8228698 lon=100.5121683 alt=4.07 armed=1"}
+{"ts": "2026-08-11T18:35:45.154614+00:00", "entry": "t=73.0s TELEM phase=search flight=1 lat=13.8228872 lon=100.5121593 alt=4.05 armed=1"}
+{"ts": "2026-08-11T18:35:46.155444+00:00", "entry": "t=74.0s TELEM phase=search flight=1 lat=13.8229002 lon=100.5121542 alt=4.02 armed=1"}
+{"ts": "2026-08-11T18:35:47.155419+00:00", "entry": "t=74.9s TELEM phase=search flight=1 lat=13.8228975 lon=100.5121469 alt=3.99 armed=1"}
+{"ts": "2026-08-11T18:35:48.155060+00:00", "entry": "t=75.8s TELEM phase=search flight=1 lat=13.8228885 lon=100.5121325 alt=4.01 armed=1"}
+{"ts": "2026-08-11T18:35:49.155259+00:00", "entry": "t=76.7s TELEM phase=search flight=1 lat=13.8228734 lon=100.5121097 alt=3.97 armed=1"}
+{"ts": "2026-08-11T18:35:50.155247+00:00", "entry": "t=77.6s TELEM phase=search flight=1 lat=13.8228593 lon=100.5120891 alt=3.99 armed=1"}
+{"ts": "2026-08-11T18:35:51.155604+00:00", "entry": "t=78.5s TELEM phase=search flight=1 lat=13.8228454 lon=100.5120685 alt=4.00 armed=1"}
+{"ts": "2026-08-11T18:35:52.155920+00:00", "entry": "t=79.4s TELEM phase=search flight=1 lat=13.8228309 lon=100.5120470 alt=4.02 armed=1"}
+{"ts": "2026-08-11T18:35:53.156740+00:00", "entry": "t=80.4s TELEM phase=search flight=1 lat=13.8228159 lon=100.5120245 alt=4.02 armed=1"}
+{"ts": "2026-08-11T18:35:54.157692+00:00", "entry": "t=81.3s TELEM phase=search flight=1 lat=13.8228017 lon=100.5120034 alt=4.04 armed=1"}
+{"ts": "2026-08-11T18:35:55.158840+00:00", "entry": "t=82.2s TELEM phase=search flight=1 lat=13.8227879 lon=100.5119826 alt=4.05 armed=1"}
+{"ts": "2026-08-11T18:35:55.440873+00:00", "entry": "t=82.5s cluster_identified id=5 marker=1"}
+{"ts": "2026-08-11T18:35:56.160087+00:00", "entry": "t=83.1s TELEM phase=search flight=1 lat=13.8227730 lon=100.5119604 alt=4.06 armed=1"}
+{"ts": "2026-08-11T18:35:56.192418+00:00", "entry": "t=83.2s target_confirmed id=5 marker=1 (13.8227926,100.5119528) votes=3 id_votes=3 conf=0.95"}
+{"ts": "2026-08-11T18:35:56.192762+00:00", "entry": "t=83.2s pad_claimed marker=3 id=4 attempt=1"}
+{"ts": "2026-08-11T18:35:56.193111+00:00", "entry": "t=83.2s DELIVERY 1 START pad=3 payload=0 stop_index=0"}
+{"ts": "2026-08-11T18:35:57.160704+00:00", "entry": "t=84.0s TELEM phase=search flight=1 lat=13.8227603 lon=100.5119411 alt=4.08 armed=1"}
+{"ts": "2026-08-11T18:35:58.161666+00:00", "entry": "t=85.0s TELEM phase=search flight=1 lat=13.8227564 lon=100.5119373 alt=4.08 armed=1"}
+{"ts": "2026-08-11T18:35:59.161961+00:00", "entry": "t=85.9s TELEM phase=search flight=1 lat=13.8227600 lon=100.5119489 alt=4.09 armed=1"}
+{"ts": "2026-08-11T18:36:00.162333+00:00", "entry": "t=86.8s TELEM phase=search flight=1 lat=13.8227715 lon=100.5119732 alt=4.09 armed=1"}
+{"ts": "2026-08-11T18:36:01.162533+00:00", "entry": "t=87.7s TELEM phase=search flight=1 lat=13.8227817 lon=100.5119945 alt=4.08 armed=1"}
+{"ts": "2026-08-11T18:36:02.162195+00:00", "entry": "t=88.6s TELEM phase=search flight=1 lat=13.8227926 lon=100.5120173 alt=4.08 armed=1"}
+{"ts": "2026-08-11T18:36:03.162585+00:00", "entry": "t=89.5s TELEM phase=search flight=1 lat=13.8228044 lon=100.5120417 alt=4.06 armed=1"}
+{"ts": "2026-08-11T18:36:04.163642+00:00", "entry": "t=90.4s TELEM phase=search flight=1 lat=13.8228157 lon=100.5120645 alt=4.08 armed=1"}
+{"ts": "2026-08-11T18:36:05.164531+00:00", "entry": "t=91.3s TELEM phase=search flight=1 lat=13.8228225 lon=100.5120783 alt=4.07 armed=1"}
+{"ts": "2026-08-11T18:36:06.165182+00:00", "entry": "t=92.2s TELEM phase=localize flight=1 lat=13.8228265 lon=100.5120880 alt=4.04 armed=1"}
+{"ts": "2026-08-11T18:36:07.164933+00:00", "entry": "t=93.2s TELEM phase=localize flight=1 lat=13.8228309 lon=100.5120971 alt=4.02 armed=1"}
+{"ts": "2026-08-11T18:36:08.165869+00:00", "entry": "t=94.1s TELEM phase=localize flight=1 lat=13.8228320 lon=100.5120996 alt=3.88 armed=1"}
+{"ts": "2026-08-11T18:36:09.166558+00:00", "entry": "t=95.0s TELEM phase=land flight=1 lat=13.8228320 lon=100.5120998 alt=3.52 armed=1"}
+{"ts": "2026-08-11T18:36:10.166354+00:00", "entry": "t=95.9s TELEM phase=land flight=1 lat=13.8228320 lon=100.5120999 alt=3.17 armed=1"}
+{"ts": "2026-08-11T18:36:11.166241+00:00", "entry": "t=96.8s TELEM phase=land flight=1 lat=13.8228318 lon=100.5120995 alt=2.80 armed=1"}
+{"ts": "2026-08-11T18:36:12.165970+00:00", "entry": "t=97.7s TELEM phase=land flight=1 lat=13.8228317 lon=100.5120993 alt=2.45 armed=1"}
+{"ts": "2026-08-11T18:36:13.166118+00:00", "entry": "t=98.6s TELEM phase=land flight=1 lat=13.8228316 lon=100.5120993 alt=2.08 armed=1"}
+{"ts": "2026-08-11T18:36:14.166633+00:00", "entry": "t=99.6s TELEM phase=land flight=1 lat=13.8228316 lon=100.5120992 alt=1.71 armed=1"}
+{"ts": "2026-08-11T18:36:15.167726+00:00", "entry": "t=100.4s TELEM phase=land flight=1 lat=13.8228317 lon=100.5120992 alt=1.42 armed=1"}
+{"ts": "2026-08-11T18:36:16.168768+00:00", "entry": "t=101.4s TELEM phase=land flight=1 lat=13.8228318 lon=100.5120993 alt=1.13 armed=1"}
+{"ts": "2026-08-11T18:36:17.169633+00:00", "entry": "t=102.3s TELEM phase=drop flight=1 lat=13.8228319 lon=100.5120993 alt=0.84 armed=1"}
+{"ts": "2026-08-11T18:36:17.573536+00:00", "entry": "t=102.7s DELIVERY 1 RELEASE pad=3 payload=0 lat=13.8228319 lon=100.5120993"}
+{"ts": "2026-08-11T18:36:17.574007+00:00", "entry": "t=102.7s target_served id=4"}
+{"ts": "2026-08-11T18:36:17.574228+00:00", "entry": "t=102.7s DELIVERY 1 END delivered=True pad=3 err=0.17m landed=True"}
+{"ts": "2026-08-11T18:36:18.170019+00:00", "entry": "t=103.3s TELEM phase=drop flight=1 lat=13.8228318 lon=100.5120994 alt=0.56 armed=1"}
+{"ts": "2026-08-11T18:36:19.170377+00:00", "entry": "t=104.1s TELEM phase=drop flight=1 lat=13.8228319 lon=100.5120993 alt=0.42 armed=1"}
+{"ts": "2026-08-11T18:36:20.170901+00:00", "entry": "t=105.1s TELEM phase=drop flight=1 lat=13.8228316 lon=100.5120995 alt=1.20 armed=1"}
+{"ts": "2026-08-11T18:36:21.171742+00:00", "entry": "t=106.0s TELEM phase=drop flight=1 lat=13.8228317 lon=100.5120995 alt=2.10 armed=1"}
+{"ts": "2026-08-11T18:36:22.172572+00:00", "entry": "t=107.0s TELEM phase=drop flight=1 lat=13.8228317 lon=100.5120994 alt=2.76 armed=1"}
+{"ts": "2026-08-11T18:36:23.173568+00:00", "entry": "t=107.9s TELEM phase=drop flight=1 lat=13.8228317 lon=100.5120994 alt=3.21 armed=1"}
+{"ts": "2026-08-11T18:36:23.635689+00:00", "entry": "t=108.3s pad_claimed marker=6 id=1 attempt=1"}
+{"ts": "2026-08-11T18:36:23.636228+00:00", "entry": "t=108.3s DELIVERY 2 START pad=6 payload=1 stop_index=1"}
+{"ts": "2026-08-11T18:36:24.173546+00:00", "entry": "t=108.8s TELEM phase=search flight=1 lat=13.8228316 lon=100.5120996 alt=3.19 armed=1"}
+{"ts": "2026-08-11T18:36:25.172844+00:00", "entry": "t=109.7s TELEM phase=search flight=1 lat=13.8228257 lon=100.5121096 alt=3.31 armed=1"}
+{"ts": "2026-08-11T18:36:26.173349+00:00", "entry": "t=110.6s TELEM phase=search flight=1 lat=13.8228151 lon=100.5121321 alt=3.42 armed=1"}
+{"ts": "2026-08-11T18:36:27.173130+00:00", "entry": "t=111.5s TELEM phase=search flight=1 lat=13.8228043 lon=100.5121530 alt=3.58 armed=1"}
+{"ts": "2026-08-11T18:36:28.173805+00:00", "entry": "t=112.5s TELEM phase=search flight=1 lat=13.8227921 lon=100.5121774 alt=3.73 armed=1"}
+{"ts": "2026-08-11T18:36:29.173976+00:00", "entry": "t=113.3s TELEM phase=search flight=1 lat=13.8227810 lon=100.5121990 alt=3.84 armed=1"}
+{"ts": "2026-08-11T18:36:30.174031+00:00", "entry": "t=114.3s TELEM phase=search flight=1 lat=13.8227735 lon=100.5122130 alt=3.93 armed=1"}
+{"ts": "2026-08-11T18:36:31.174726+00:00", "entry": "t=115.1s TELEM phase=localize flight=1 lat=13.8227693 lon=100.5122219 alt=3.99 armed=1"}
+{"ts": "2026-08-11T18:36:32.175531+00:00", "entry": "t=116.0s TELEM phase=localize flight=1 lat=13.8227666 lon=100.5122274 alt=4.04 armed=1"}
+{"ts": "2026-08-11T18:36:33.175594+00:00", "entry": "t=116.9s TELEM phase=localize flight=1 lat=13.8227648 lon=100.5122299 alt=3.84 armed=1"}
+{"ts": "2026-08-11T18:36:34.176311+00:00", "entry": "t=117.8s TELEM phase=land flight=1 lat=13.8227641 lon=100.5122297 alt=3.51 armed=1"}
+{"ts": "2026-08-11T18:36:35.175845+00:00", "entry": "t=118.7s TELEM phase=land flight=1 lat=13.8227640 lon=100.5122294 alt=3.14 armed=1"}
+{"ts": "2026-08-11T18:36:36.176684+00:00", "entry": "t=119.6s TELEM phase=land flight=1 lat=13.8227642 lon=100.5122295 alt=2.76 armed=1"}
+{"ts": "2026-08-11T18:36:37.177385+00:00", "entry": "t=120.5s TELEM phase=land flight=1 lat=13.8227643 lon=100.5122291 alt=2.39 armed=1"}
+{"ts": "2026-08-11T18:36:38.177473+00:00", "entry": "t=121.4s TELEM phase=land flight=1 lat=13.8227643 lon=100.5122294 alt=2.01 armed=1"}
+{"ts": "2026-08-11T18:36:39.177193+00:00", "entry": "t=122.4s TELEM phase=land flight=1 lat=13.8227642 lon=100.5122290 alt=1.63 armed=1"}
+{"ts": "2026-08-11T18:36:40.177664+00:00", "entry": "t=123.3s TELEM phase=land flight=1 lat=13.8227642 lon=100.5122290 alt=1.35 armed=1"}
+{"ts": "2026-08-11T18:36:41.178635+00:00", "entry": "t=124.2s TELEM phase=land flight=1 lat=13.8227644 lon=100.5122292 alt=1.06 armed=1"}
+{"ts": "2026-08-11T18:36:42.179755+00:00", "entry": "t=125.1s TELEM phase=drop flight=1 lat=13.8227642 lon=100.5122291 alt=0.77 armed=1"}
+{"ts": "2026-08-11T18:36:42.294923+00:00", "entry": "t=125.2s DELIVERY 2 RELEASE pad=6 payload=1 lat=13.8227642 lon=100.5122291"}
+{"ts": "2026-08-11T18:36:42.295479+00:00", "entry": "t=125.2s target_served id=1"}
+{"ts": "2026-08-11T18:36:42.295754+00:00", "entry": "t=125.2s DELIVERY 2 END delivered=True pad=6 err=0.17m landed=True"}
+{"ts": "2026-08-11T18:36:43.180629+00:00", "entry": "t=126.0s TELEM phase=drop flight=1 lat=13.8227643 lon=100.5122291 alt=0.47 armed=1"}
+{"ts": "2026-08-11T18:36:44.181301+00:00", "entry": "t=126.9s TELEM phase=drop flight=1 lat=13.8227642 lon=100.5122294 alt=0.50 armed=1"}
+{"ts": "2026-08-11T18:36:45.181581+00:00", "entry": "t=127.9s TELEM phase=drop flight=1 lat=13.8227642 lon=100.5122292 alt=1.30 armed=1"}
+{"ts": "2026-08-11T18:36:46.181042+00:00", "entry": "t=128.9s TELEM phase=drop flight=1 lat=13.8227642 lon=100.5122291 alt=2.17 armed=1"}
+{"ts": "2026-08-11T18:36:47.181916+00:00", "entry": "t=129.7s TELEM phase=drop flight=1 lat=13.8227643 lon=100.5122294 alt=2.84 armed=1"}
+{"ts": "2026-08-11T18:36:48.182649+00:00", "entry": "t=130.7s TELEM phase=drop flight=1 lat=13.8227644 lon=100.5122292 alt=3.20 armed=1"}
+{"ts": "2026-08-11T18:36:48.484421+00:00", "entry": "t=130.9s pad_claimed marker=2 id=0 attempt=1"}
+{"ts": "2026-08-11T18:36:48.484973+00:00", "entry": "t=130.9s DELIVERY 3 START pad=2 payload=2 stop_index=2"}
+{"ts": "2026-08-11T18:36:49.183130+00:00", "entry": "t=131.6s TELEM phase=search flight=1 lat=13.8227641 lon=100.5122288 alt=3.19 armed=1"}
+{"ts": "2026-08-11T18:36:50.183454+00:00", "entry": "t=132.5s TELEM phase=search flight=1 lat=13.8227539 lon=100.5122155 alt=3.27 armed=1"}
+{"ts": "2026-08-11T18:36:51.183345+00:00", "entry": "t=133.4s TELEM phase=search flight=1 lat=13.8227382 lon=100.5121970 alt=3.36 armed=1"}
+{"ts": "2026-08-11T18:36:52.183652+00:00", "entry": "t=134.3s TELEM phase=search flight=1 lat=13.8227231 lon=100.5121788 alt=3.50 armed=1"}
+{"ts": "2026-08-11T18:36:53.184295+00:00", "entry": "t=135.3s TELEM phase=search flight=1 lat=13.8227059 lon=100.5121577 alt=3.67 armed=1"}
+{"ts": "2026-08-11T18:36:54.184247+00:00", "entry": "t=136.2s TELEM phase=search flight=1 lat=13.8226903 lon=100.5121387 alt=3.79 armed=1"}
+{"ts": "2026-08-11T18:36:55.184189+00:00", "entry": "t=137.0s TELEM phase=search flight=1 lat=13.8226781 lon=100.5121242 alt=3.88 armed=1"}
+{"ts": "2026-08-11T18:36:56.184815+00:00", "entry": "t=138.0s TELEM phase=localize flight=1 lat=13.8226706 lon=100.5121145 alt=3.94 armed=1"}
+{"ts": "2026-08-11T18:36:57.185077+00:00", "entry": "t=138.9s TELEM phase=localize flight=1 lat=13.8226654 lon=100.5121067 alt=4.02 armed=1"}
+{"ts": "2026-08-11T18:36:58.185550+00:00", "entry": "t=139.8s TELEM phase=localize flight=1 lat=13.8226627 lon=100.5121016 alt=4.03 armed=1"}
+{"ts": "2026-08-11T18:36:59.185328+00:00", "entry": "t=140.7s TELEM phase=localize flight=1 lat=13.8226617 lon=100.5121004 alt=3.72 armed=1"}
+{"ts": "2026-08-11T18:37:00.185157+00:00", "entry": "t=141.6s TELEM phase=localize flight=1 lat=13.8226616 lon=100.5120998 alt=3.36 armed=1"}
+{"ts": "2026-08-11T18:37:01.184961+00:00", "entry": "t=142.5s TELEM phase=land flight=1 lat=13.8226616 lon=100.5120998 alt=3.00 armed=1"}
+{"ts": "2026-08-11T18:37:02.185724+00:00", "entry": "t=143.4s TELEM phase=land flight=1 lat=13.8226618 lon=100.5121000 alt=2.63 armed=1"}
+{"ts": "2026-08-11T18:37:03.186264+00:00", "entry": "t=144.3s TELEM phase=land flight=1 lat=13.8226618 lon=100.5120998 alt=2.27 armed=1"}
+{"ts": "2026-08-11T18:37:04.186966+00:00", "entry": "t=145.2s TELEM phase=land flight=1 lat=13.8226620 lon=100.5121001 alt=1.88 armed=1"}
+{"ts": "2026-08-11T18:37:05.187046+00:00", "entry": "t=146.1s TELEM phase=land flight=1 lat=13.8226619 lon=100.5121000 alt=1.53 armed=1"}
+{"ts": "2026-08-11T18:37:06.187656+00:00", "entry": "t=147.0s TELEM phase=land flight=1 lat=13.8226617 lon=100.5120999 alt=1.24 armed=1"}
+{"ts": "2026-08-11T18:37:07.188946+00:00", "entry": "t=148.0s TELEM phase=land flight=1 lat=13.8226617 lon=100.5121000 alt=0.93 armed=1"}
+{"ts": "2026-08-11T18:37:08.020484+00:00", "entry": "t=148.8s DELIVERY 3 RELEASE pad=2 payload=2 lat=13.8226616 lon=100.5121001"}
+{"ts": "2026-08-11T18:37:08.021238+00:00", "entry": "t=148.8s target_served id=0"}
+{"ts": "2026-08-11T18:37:08.021368+00:00", "entry": "t=148.8s DELIVERY 3 END delivered=True pad=2 err=0.18m landed=True"}
+{"ts": "2026-08-11T18:37:08.189094+00:00", "entry": "t=148.9s TELEM phase=drop flight=1 lat=13.8226616 lon=100.5121001 alt=0.65 armed=1"}
+{"ts": "2026-08-11T18:37:09.189792+00:00", "entry": "t=149.8s TELEM phase=drop flight=1 lat=13.8226615 lon=100.5120999 alt=0.85 armed=1"}
+{"ts": "2026-08-11T18:37:10.190658+00:00", "entry": "t=150.7s TELEM phase=drop flight=1 lat=13.8226615 lon=100.5120998 alt=1.74 armed=1"}
+{"ts": "2026-08-11T18:37:11.191540+00:00", "entry": "t=151.7s TELEM phase=drop flight=1 lat=13.8226617 lon=100.5120999 alt=2.60 armed=1"}
+{"ts": "2026-08-11T18:37:12.191906+00:00", "entry": "t=152.5s TELEM phase=drop flight=1 lat=13.8226617 lon=100.5121001 alt=3.20 armed=1"}
+{"ts": "2026-08-11T18:37:12.833438+00:00", "entry": "t=153.1s pad_claimed marker=1 id=5 attempt=1"}
+{"ts": "2026-08-11T18:37:12.833897+00:00", "entry": "t=153.1s DELIVERY 4 START pad=1 payload=3 stop_index=3"}
+{"ts": "2026-08-11T18:37:13.192682+00:00", "entry": "t=153.5s TELEM phase=search flight=1 lat=13.8226617 lon=100.5121002 alt=3.23 armed=1"}
+{"ts": "2026-08-11T18:37:14.192843+00:00", "entry": "t=154.4s TELEM phase=search flight=1 lat=13.8226687 lon=100.5120933 alt=3.31 armed=1"}
+{"ts": "2026-08-11T18:37:15.193183+00:00", "entry": "t=155.4s TELEM phase=search flight=1 lat=13.8226859 lon=100.5120736 alt=3.34 armed=1"}
+{"ts": "2026-08-11T18:37:16.194558+00:00", "entry": "t=156.2s TELEM phase=search flight=1 lat=13.8227003 lon=100.5120564 alt=3.45 armed=1"}
+{"ts": "2026-08-11T18:37:17.194805+00:00", "entry": "t=157.1s TELEM phase=search flight=1 lat=13.8227168 lon=100.5120376 alt=3.58 armed=1"}
+{"ts": "2026-08-11T18:37:18.195804+00:00", "entry": "t=158.1s TELEM phase=search flight=1 lat=13.8227343 lon=100.5120171 alt=3.72 armed=1"}
+{"ts": "2026-08-11T18:37:19.196549+00:00", "entry": "t=159.0s TELEM phase=search flight=1 lat=13.8227513 lon=100.5119979 alt=3.86 armed=1"}
+{"ts": "2026-08-11T18:37:20.196355+00:00", "entry": "t=159.9s TELEM phase=search flight=1 lat=13.8227670 lon=100.5119802 alt=3.95 armed=1"}
+{"ts": "2026-08-11T18:37:21.196825+00:00", "entry": "t=160.8s TELEM phase=search flight=1 lat=13.8227778 lon=100.5119683 alt=4.01 armed=1"}
+{"ts": "2026-08-11T18:37:22.197868+00:00", "entry": "t=161.8s TELEM phase=localize flight=1 lat=13.8227847 lon=100.5119605 alt=4.06 armed=1"}
+{"ts": "2026-08-11T18:37:23.198479+00:00", "entry": "t=162.7s TELEM phase=localize flight=1 lat=13.8227904 lon=100.5119589 alt=4.10 armed=1"}
+{"ts": "2026-08-11T18:37:24.198546+00:00", "entry": "t=163.6s TELEM phase=localize flight=1 lat=13.8227935 lon=100.5119588 alt=3.92 armed=1"}
+{"ts": "2026-08-11T18:37:25.198018+00:00", "entry": "t=164.5s TELEM phase=land flight=1 lat=13.8227931 lon=100.5119587 alt=3.59 armed=1"}
+{"ts": "2026-08-11T18:37:26.198354+00:00", "entry": "t=165.4s TELEM phase=land flight=1 lat=13.8227930 lon=100.5119590 alt=3.24 armed=1"}
+{"ts": "2026-08-11T18:37:27.197947+00:00", "entry": "t=166.3s TELEM phase=land flight=1 lat=13.8227930 lon=100.5119590 alt=2.85 armed=1"}
+{"ts": "2026-08-11T18:37:28.198360+00:00", "entry": "t=167.2s TELEM phase=land flight=1 lat=13.8227927 lon=100.5119591 alt=2.46 armed=1"}
+{"ts": "2026-08-11T18:37:29.198645+00:00", "entry": "t=168.2s TELEM phase=land flight=1 lat=13.8227927 lon=100.5119593 alt=2.07 armed=1"}
+{"ts": "2026-08-11T18:37:30.199854+00:00", "entry": "t=169.0s TELEM phase=land flight=1 lat=13.8227926 lon=100.5119592 alt=1.72 armed=1"}
+{"ts": "2026-08-11T18:37:31.200302+00:00", "entry": "t=169.9s TELEM phase=land flight=1 lat=13.8227925 lon=100.5119591 alt=1.37 armed=1"}
+{"ts": "2026-08-11T18:37:32.200053+00:00", "entry": "t=170.9s TELEM phase=land flight=1 lat=13.8227925 lon=100.5119591 alt=1.03 armed=1"}
+{"ts": "2026-08-11T18:37:33.200712+00:00", "entry": "t=171.9s TELEM phase=drop flight=1 lat=13.8227925 lon=100.5119592 alt=0.73 armed=1"}
+{"ts": "2026-08-11T18:37:33.468795+00:00", "entry": "t=172.1s DELIVERY 4 RELEASE pad=1 payload=3 lat=13.8227926 lon=100.5119591"}
+{"ts": "2026-08-11T18:37:33.469452+00:00", "entry": "t=172.1s target_served id=5"}
+{"ts": "2026-08-11T18:37:33.469732+00:00", "entry": "t=172.1s DELIVERY 4 END delivered=True pad=1 err=0.19m landed=True"}
+{"ts": "2026-08-11T18:37:34.201042+00:00", "entry": "t=172.7s TELEM phase=drop flight=1 lat=13.8227927 lon=100.5119590 alt=0.46 armed=1"}
+{"ts": "2026-08-11T18:37:35.201449+00:00", "entry": "t=173.7s TELEM phase=drop flight=1 lat=13.8227927 lon=100.5119589 alt=0.83 armed=1"}
+{"ts": "2026-08-11T18:37:36.201615+00:00", "entry": "t=174.6s TELEM phase=drop flight=1 lat=13.8227927 lon=100.5119589 alt=1.58 armed=1"}
+{"ts": "2026-08-11T18:37:37.202106+00:00", "entry": "t=175.5s TELEM phase=drop flight=1 lat=13.8227925 lon=100.5119592 alt=2.09 armed=1"}
+{"ts": "2026-08-11T18:37:38.202874+00:00", "entry": "t=176.4s TELEM phase=transit_egress flight=1 lat=13.8227927 lon=100.5119592 alt=2.19 armed=1"}
+{"ts": "2026-08-11T18:37:39.203597+00:00", "entry": "t=177.4s TELEM phase=transit_egress flight=1 lat=13.8227892 lon=100.5119628 alt=2.26 armed=1"}
+{"ts": "2026-08-11T18:37:40.204901+00:00", "entry": "t=178.3s TELEM phase=transit_egress flight=1 lat=13.8227760 lon=100.5119824 alt=2.33 armed=1"}
+{"ts": "2026-08-11T18:37:41.205091+00:00", "entry": "t=179.2s TELEM phase=transit_egress flight=1 lat=13.8227629 lon=100.5120017 alt=2.46 armed=1"}
+{"ts": "2026-08-11T18:37:42.205816+00:00", "entry": "t=180.1s TELEM phase=transit_egress flight=1 lat=13.8227485 lon=100.5120221 alt=2.61 armed=1"}
+{"ts": "2026-08-11T18:37:43.206245+00:00", "entry": "t=181.0s TELEM phase=transit_egress flight=1 lat=13.8227336 lon=100.5120444 alt=2.79 armed=1"}
+{"ts": "2026-08-11T18:37:44.206363+00:00", "entry": "t=181.9s TELEM phase=transit_egress flight=1 lat=13.8227194 lon=100.5120647 alt=2.94 armed=1"}
+{"ts": "2026-08-11T18:37:45.206604+00:00", "entry": "t=182.8s TELEM phase=transit_egress flight=1 lat=13.8227046 lon=100.5120856 alt=3.07 armed=1"}
+{"ts": "2026-08-11T18:37:46.207094+00:00", "entry": "t=183.8s TELEM phase=transit_egress flight=1 lat=13.8226896 lon=100.5121072 alt=3.23 armed=1"}
+{"ts": "2026-08-11T18:37:47.207557+00:00", "entry": "t=184.7s TELEM phase=transit_egress flight=1 lat=13.8226754 lon=100.5121275 alt=3.37 armed=1"}
+{"ts": "2026-08-11T18:37:48.208078+00:00", "entry": "t=185.6s TELEM phase=transit_egress flight=1 lat=13.8226669 lon=100.5121400 alt=3.45 armed=1"}
+{"ts": "2026-08-11T18:37:48.580155+00:00", "entry": "t=185.9s TRANSIT_PASS P3 egress flight=1 d=1.9m"}
+{"ts": "2026-08-11T18:37:49.208487+00:00", "entry": "t=186.5s TELEM phase=transit_egress flight=1 lat=13.8226607 lon=100.5121480 alt=3.51 armed=1"}
+{"ts": "2026-08-11T18:37:50.208885+00:00", "entry": "t=187.4s TELEM phase=transit_egress flight=1 lat=13.8226505 lon=100.5121439 alt=3.56 armed=1"}
+{"ts": "2026-08-11T18:37:51.209139+00:00", "entry": "t=188.3s TELEM phase=transit_egress flight=1 lat=13.8226284 lon=100.5121368 alt=3.57 armed=1"}
+{"ts": "2026-08-11T18:37:52.209674+00:00", "entry": "t=189.2s TELEM phase=transit_egress flight=1 lat=13.8226050 lon=100.5121305 alt=3.59 armed=1"}
+{"ts": "2026-08-11T18:37:53.210404+00:00", "entry": "t=190.2s TELEM phase=transit_egress flight=1 lat=13.8225842 lon=100.5121236 alt=3.61 armed=1"}
+{"ts": "2026-08-11T18:37:54.106518+00:00", "entry": "t=191.0s TRANSIT_PASS P2 egress flight=1 d=1.8m"}
+{"ts": "2026-08-11T18:37:54.210571+00:00", "entry": "t=191.1s TELEM phase=transit_egress flight=1 lat=13.8225715 lon=100.5121196 alt=3.62 armed=1"}
+{"ts": "2026-08-11T18:37:55.210537+00:00", "entry": "t=191.9s TELEM phase=transit_egress flight=1 lat=13.8225646 lon=100.5121202 alt=3.64 armed=1"}
+{"ts": "2026-08-11T18:37:56.210846+00:00", "entry": "t=192.8s TELEM phase=transit_egress flight=1 lat=13.8225557 lon=100.5121352 alt=3.68 armed=1"}
+{"ts": "2026-08-11T18:37:57.211163+00:00", "entry": "t=193.8s TELEM phase=transit_egress flight=1 lat=13.8225380 lon=100.5121564 alt=3.65 armed=1"}
+{"ts": "2026-08-11T18:37:58.211677+00:00", "entry": "t=194.7s TELEM phase=transit_egress flight=1 lat=13.8225258 lon=100.5121730 alt=3.66 armed=1"}
+{"ts": "2026-08-11T18:37:59.212140+00:00", "entry": "t=195.6s TELEM phase=transit_egress flight=1 lat=13.8225175 lon=100.5121842 alt=3.67 armed=1"}
+{"ts": "2026-08-11T18:37:59.385072+00:00", "entry": "t=195.8s TRANSIT_PASS P1 egress flight=1 d=1.9m"}
+{"ts": "2026-08-11T18:38:00.212551+00:00", "entry": "t=196.5s TELEM phase=land flight=1 lat=13.8225129 lon=100.5121928 alt=3.67 armed=1"}
+{"ts": "2026-08-11T18:38:01.212411+00:00", "entry": "t=197.5s TELEM phase=land flight=1 lat=13.8225096 lon=100.5122138 alt=3.67 armed=1"}
+{"ts": "2026-08-11T18:38:02.211995+00:00", "entry": "t=198.3s TELEM phase=land flight=1 lat=13.8225034 lon=100.5122362 alt=3.67 armed=1"}
+{"ts": "2026-08-11T18:38:03.212856+00:00", "entry": "t=199.2s TELEM phase=land flight=1 lat=13.8224997 lon=100.5122527 alt=3.66 armed=1"}
+{"ts": "2026-08-11T18:38:04.213215+00:00", "entry": "t=200.2s TELEM phase=land flight=1 lat=13.8224971 lon=100.5122647 alt=3.65 armed=1"}
+{"ts": "2026-08-11T18:38:05.213398+00:00", "entry": "t=201.1s TELEM phase=land flight=1 lat=13.8224956 lon=100.5122706 alt=2.92 armed=1"}
+{"ts": "2026-08-11T18:38:06.213972+00:00", "entry": "t=202.0s TELEM phase=land flight=1 lat=13.8224952 lon=100.5122715 alt=1.79 armed=1"}
+{"ts": "2026-08-11T18:38:07.214612+00:00", "entry": "t=202.9s TELEM phase=land flight=1 lat=13.8224948 lon=100.5122727 alt=1.19 armed=1"}
+{"ts": "2026-08-11T18:38:08.215515+00:00", "entry": "t=203.9s TELEM phase=land flight=1 lat=13.8224951 lon=100.5122727 alt=0.84 armed=1"}
+{"ts": "2026-08-11T18:38:09.215592+00:00", "entry": "t=204.7s TELEM phase=land flight=1 lat=13.8224951 lon=100.5122725 alt=0.54 armed=1"}
+{"ts": "2026-08-11T18:38:10.216027+00:00", "entry": "t=205.7s TELEM phase=land flight=1 lat=13.8224950 lon=100.5122724 alt=0.25 armed=1"}
+{"ts": "2026-08-11T18:38:11.215975+00:00", "entry": "t=206.6s TELEM phase=land flight=1 lat=13.8224951 lon=100.5122722 alt=-0.07 armed=1"}
+{"ts": "2026-08-11T18:38:12.215844+00:00", "entry": "t=207.6s TELEM phase=land flight=1 lat=13.8224952 lon=100.5122723 alt=-0.35 armed=1"}
+{"ts": "2026-08-11T18:38:13.215996+00:00", "entry": "t=208.5s TELEM phase=land flight=1 lat=13.8224952 lon=100.5122724 alt=-0.64 armed=1"}
+{"ts": "2026-08-11T18:38:14.216180+00:00", "entry": "t=209.4s TELEM phase=land flight=1 lat=13.8224951 lon=100.5122727 alt=-0.92 armed=1"}
+{"ts": "2026-08-11T18:38:15.216241+00:00", "entry": "t=210.4s TELEM phase=land flight=1 lat=13.8224948 lon=100.5122730 alt=-1.04 armed=1"}
+{"ts": "2026-08-11T18:38:16.216669+00:00", "entry": "t=211.3s TELEM phase=land flight=1 lat=13.8224951 lon=100.5122730 alt=-1.10 armed=1"}
+{"ts": "2026-08-11T18:38:17.217498+00:00", "entry": "t=212.2s TELEM phase=land flight=1 lat=13.8224953 lon=100.5122729 alt=-1.06 armed=1"}
+{"ts": "2026-08-11T18:38:18.217862+00:00", "entry": "t=213.2s TELEM phase=land flight=1 lat=13.8224951 lon=100.5122729 alt=-0.93 armed=0"}
+{"ts": "2026-08-11T18:38:19.218788+00:00", "entry": "t=214.1s TELEM phase=land flight=1 lat=13.8224951 lon=100.5122729 alt=-0.81 armed=0"}
+{"ts": "2026-08-11T18:38:19.894757+00:00", "entry": "t=214.7s FLIGHT 1 END delivered=4/4 d_home=1.7m remaining=985s"}
+{"ts": "2026-08-11T18:38:19.894940+00:00", "entry": "t=214.7s FLIGHT 1 ENERGY 600mAh total=600mAh"}
+{"ts": "2026-08-11T18:38:19.899062+00:00", "entry": "AUDIT truth pad_1 (pad 3): id-matched cluster=4 err=0.04m served=True"}
+{"ts": "2026-08-11T18:38:19.899447+00:00", "entry": "AUDIT truth pad_2 (pad 6): id-matched cluster=1 err=0.07m served=True"}
+{"ts": "2026-08-11T18:38:19.899712+00:00", "entry": "AUDIT truth pad_3 (pad 2): id-matched cluster=0 err=0.06m served=True"}
+{"ts": "2026-08-11T18:38:19.900090+00:00", "entry": "AUDIT truth pad_4 (pad 1): id-matched cluster=5 err=0.09m served=True"}
+{"ts": "2026-08-11T18:38:19.900481+00:00", "entry": "AUDIT truth pad_5 (pad 5): id-matched cluster=2 err=0.14m served=False"}
+{"ts": "2026-08-11T18:38:19.900747+00:00", "entry": "AUDIT truth pad_6 (pad 4): id-matched cluster=3 err=0.27m served=False"}
+{"ts": "2026-08-11T18:38:19.901097+00:00", "entry": "AUDIT truth audit: matched 6/6, ids correct 6/6, served 4, missed 0"}

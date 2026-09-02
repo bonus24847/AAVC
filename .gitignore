@@ -1,0 +1,31 @@
+# Repo-root ignores. gcs/, mission/ and aruco/ keep their own .gitignore for
+# the rules that only make sense inside them.
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets — never commit a filled-in .env
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# flight-data/ is an ARCHIVE, not a runtime dir: the console writes to
+# gcs/blackbox/ and the orchestrator to mission/runs/, both ignored in their
+# own trees. Nothing new should land in flight-data/ by accident.

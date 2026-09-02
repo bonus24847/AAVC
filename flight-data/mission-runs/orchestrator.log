@@ -1,0 +1,312 @@
+2026-08-24 04:13:50.331 | INFO     | orchestrator.audit:setup_run_logging:43 - [audit] run logging → runs/aavc_delivery_mission/orchestrator.log
+2026-08-24 04:13:50.332 | INFO     | orchestrator.gcs_status:__init__:146 - [gcs_status] live pad feed → captures/mission_status.json
+2026-08-24 04:13:50.332 | INFO     | mavlink_adapter.commands:connect:409 - [mavlink] connecting to udpin://0.0.0.0:14540
+2026-08-24 04:13:51.229 | INFO     | mavlink_adapter.commands:connect:445 - [mavlink] waiting up to 15s for heartbeat — start PX4 SITL or check mavlink-router if this hangs
+2026-08-24 04:13:51.230 | INFO     | mavlink_adapter.commands:_watch:453 - [mavlink] vehicle connection established
+2026-08-24 04:13:51.244 | INFO     | mavlink_adapter.commands:connect:482 - [mavlink] cached home MSL altitude: 15.4 m
+2026-08-24 04:13:51.244 | INFO     | mavlink_adapter.telemetry:start:139 - [telemetry] subscribed to 14 streams
+2026-08-24 04:13:51.244 | INFO     | mavlink_adapter.raw_subscriber:start:82 - [raw_subscriber] disabled (connection.raw_telemetry_port unset)
+2026-08-24 04:13:51.244 | INFO     | __main__:run:853 - [main] waiting for GPS fix…
+2026-08-24 04:13:51.745 | INFO     | __main__:run:866 - [main] home=(13.8228032,100.5116267); search area 6 legs / 12 waypoints @ 12 m, transit 3 pts @ 20 m
+2026-08-24 04:13:51.794 | INFO     | mavlink_adapter.commands:upload_geofence:1125 - [mavlink] uploaded INCLUSION geofence (4 vertices), read back from the FC and verified — the aircraft is fenced
+2026-08-24 04:13:52.227 | INFO     | mavlink_adapter.commands:_apply_params:646 - [mavlink] applied 30/30 PX4 tuning params
+2026-08-24 04:13:52.324 | INFO     | mavlink_adapter.commands:_apply_params:646 - [mavlink] applied 3/3 PX4 tuning params
+2026-08-24 04:13:52.331 | INFO     | orchestrator.vision_worker:start:187 - [vision] camera worker started; nadir=/tmp/aavc_nadir.jpg interval=0.02s
+2026-08-24 04:13:52.331 | INFO     | orchestrator.frame_recorder:start:69 - [frames] recording ~5.0 Hz → runs/aavc_delivery_mission/frames
+2026-08-24 04:13:52.331 | INFO     | orchestrator.mission:run_delivery_mission:791 - [mission] delivery mission: ≤2 flights (eggs_aboard=4), transit 3 pts @ 20 m, sweep 6 legs @ 12 m, window 1200 s
+2026-08-24 04:13:52.332 | INFO     | __main__:_gate:620 - [preflight] sortie 1: headless — auto-proceed when all critical checks pass…
+2026-08-24 04:13:52.332 | INFO     | __main__:_gate:625 - [preflight] flight 1: criticals pass — assigned pads [6, 3, 5, 1]
+2026-08-24 04:13:52.636 | INFO     | mavlink_adapter.commands:arm_and_takeoff:500 - [mavlink] arming + takeoff to 17.5 m AGL
+2026-08-24 04:13:53.721 | INFO     | mavlink_adapter.commands:_refresh_home_alt:550 - [mavlink] home MSL re-cached after arming: 15.392001152038574 → 15.2 m
+2026-08-24 04:14:13.604 | INFO     | mavlink_adapter.commands:arm_and_takeoff:524 - [mavlink] takeoff complete — switching to HOLD
+2026-08-24 04:14:14.639 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822480, 100.511866, AGL=19.5 m → MSL=34.7 m, yaw=nan)
+2026-08-24 04:14:31.170 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822513, 100.511958, AGL=19.5 m → MSL=34.7 m, yaw=nan)
+2026-08-24 04:14:36.061 | INFO     | orchestrator.gcs_status:_push:417 - [gcs_status] pad 4 on the GCS map (13.8226253, 100.5119570)
+2026-08-24 04:14:36.194 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822583, 100.512077, AGL=19.5 m → MSL=34.7 m, yaw=nan)
+2026-08-24 04:14:42.256 | INFO     | orchestrator.gcs_status:_push:417 - [gcs_status] pad 6 on the GCS map (13.8226592, 100.5121290)
+2026-08-24 04:14:42.958 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822878, 100.511774, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:14:53.063 | INFO     | orchestrator.gcs_status:_push:417 - [gcs_status] pad 1 on the GCS map (13.8227747, 100.5119519)
+2026-08-24 04:15:03.486 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822227, 100.512275, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:15:36.022 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822274, 100.512339, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:15:40.293 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822924, 100.511838, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:15:45.155 | INFO     | orchestrator.gcs_status:_push:417 - [gcs_status] pad 2 on the GCS map (13.8223789, 100.5123034)
+2026-08-24 04:16:13.088 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822971, 100.511902, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:16:17.361 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822320, 100.512403, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:16:50.157 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822367, 100.512467, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:16:54.426 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823017, 100.511966, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:17:27.212 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823064, 100.512030, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:17:31.731 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822413, 100.512531, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:18:04.266 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822460, 100.512595, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:18:08.541 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823110, 100.512094, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:18:15.577 | INFO     | orchestrator.gcs_status:_push:417 - [gcs_status] pad 3 on the GCS map (13.8225835, 100.5124835)
+2026-08-24 04:18:37.395 | INFO     | orchestrator.gcs_status:_push:417 - [gcs_status] pad 5 on the GCS map (13.8230648, 100.5121725)
+2026-08-24 04:18:37.588 | INFO     | orchestrator.mission:run_delivery_mission:972 - [mission] flight 1: serving nearest-first [5, 1, 6, 3] (queue was [6, 3, 5, 1])
+2026-08-24 04:18:37.589 | INFO     | orchestrator.mission:_serve:730 - [mission] flight 1 delivery 1: serving pad 5 (13.8230647,100.5121726) attempt=1
+2026-08-24 04:18:37.589 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823065, 100.512173, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:18:40.359 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:463 - [align] sortie #0: acquiring pad 5 near (13.8230647,100.5121726) at 12 m
+2026-08-24 04:18:40.376 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823065, 100.512173, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:18:40.549 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823051, 100.512179, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:18:40.956 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823055, 100.512179, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:18:41.535 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823051, 100.512171, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:18:42.043 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823050, 100.512175, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:18:42.454 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823053, 100.512176, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:18:42.623 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823054, 100.512173, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:18:42.873 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #0: rung 12 m err=0.19 m locked=True
+2026-08-24 04:18:43.043 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823053, 100.512171, AGL=8.0 m → MSL=23.2 m, yaw=nan)
+2026-08-24 04:18:43.454 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823056, 100.512173, AGL=8.0 m → MSL=23.2 m, yaw=nan)
+2026-08-24 04:18:44.121 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #0: rung 8 m err=0.09 m locked=True
+2026-08-24 04:18:44.286 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823055, 100.512172, AGL=5.0 m → MSL=20.2 m, yaw=nan)
+2026-08-24 04:18:45.369 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #0: rung 5 m err=0.24 m locked=True
+2026-08-24 04:18:45.454 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823057, 100.512172, AGL=3.0 m → MSL=18.2 m, yaw=nan)
+2026-08-24 04:18:48.371 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #0: rung 3 m err=0.24 m locked=True
+2026-08-24 04:18:48.537 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823057, 100.512172, AGL=2.0 m → MSL=17.2 m, yaw=nan)
+2026-08-24 04:18:49.702 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #0: rung 2 m err=0.23 m locked=True
+2026-08-24 04:18:49.787 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823057, 100.512172, AGL=1.5 m → MSL=16.7 m, yaw=nan)
+2026-08-24 04:18:55.373 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #0: rung 2 m err=0.15 m locked=True
+2026-08-24 04:18:55.383 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:622 - [align] sortie #0: final err=0.15 m id_seen=107 → LAND on pad 5
+2026-08-24 04:18:55.384 | INFO     | mavlink_adapter.commands:land:1013 - [mavlink] landing (disarm=False)
+2026-08-24 04:19:11.663 | INFO     | mavlink_adapter.commands:drop_payload:917 - [mavlink] drop payload 0 (actuator set 4 = AUX 4)
+2026-08-24 04:19:12.302 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:689 - [align] sortie #0: released=True landed=True err=0.15 m pad=5
+2026-08-24 04:19:12.302 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823057, 100.512172, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:19:44.853 | WARNING  | orchestrator.mission:_climb_out_to_hop_alt:680 - [mission] climb-out to hop altitude timed out at 10.0 m (target 12.0 m) — proceeding anyway
+2026-08-24 04:19:44.853 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.823057, 100.512172, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:20:17.386 | WARNING  | orchestrator.mission:_climb_out_to_hop_alt:680 - [mission] climb-out to hop altitude timed out at 10.0 m (target 12.0 m) — proceeding anyway
+2026-08-24 04:20:17.387 | INFO     | orchestrator.mission:_serve:730 - [mission] flight 1 delivery 2: serving pad 1 (13.8227839,100.5119495) attempt=1
+2026-08-24 04:20:17.388 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822784, 100.511949, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:20:31.919 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:463 - [align] sortie #1: acquiring pad 1 near (13.8227839,100.5119495) at 12 m
+2026-08-24 04:20:31.945 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822784, 100.511949, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:20:32.097 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822788, 100.511953, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:20:33.101 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822791, 100.511955, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:20:33.187 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #1: rung 12 m err=0.08 m locked=True
+2026-08-24 04:20:33.348 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822790, 100.511955, AGL=8.0 m → MSL=23.2 m, yaw=nan)
+2026-08-24 04:20:34.514 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #1: rung 8 m err=0.08 m locked=True
+2026-08-24 04:20:34.604 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822790, 100.511955, AGL=5.0 m → MSL=20.2 m, yaw=nan)
+2026-08-24 04:20:35.764 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #1: rung 5 m err=0.14 m locked=True
+2026-08-24 04:20:35.849 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822791, 100.511955, AGL=3.0 m → MSL=18.2 m, yaw=nan)
+2026-08-24 04:20:37.014 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #1: rung 3 m err=0.04 m locked=True
+2026-08-24 04:20:37.100 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822791, 100.511955, AGL=2.0 m → MSL=17.2 m, yaw=nan)
+2026-08-24 04:20:38.266 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #1: rung 2 m err=0.09 m locked=True
+2026-08-24 04:20:38.430 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822791, 100.511955, AGL=1.5 m → MSL=16.7 m, yaw=nan)
+2026-08-24 04:20:39.430 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #1: rung 2 m err=0.08 m locked=True
+2026-08-24 04:20:39.434 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:622 - [align] sortie #1: final err=0.08 m id_seen=55 → LAND on pad 1
+2026-08-24 04:20:39.434 | INFO     | mavlink_adapter.commands:land:1013 - [mavlink] landing (disarm=False)
+2026-08-24 04:21:01.730 | INFO     | mavlink_adapter.commands:drop_payload:917 - [mavlink] drop payload 1 (actuator set 1 = AUX 1)
+2026-08-24 04:21:02.353 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:689 - [align] sortie #1: released=True landed=True err=0.08 m pad=1
+2026-08-24 04:21:03.180 | INFO     | mavlink_adapter.commands:arm_and_takeoff:498 - [mavlink] takeoff (already armed) to 12.0 m AGL
+2026-08-24 04:21:18.582 | INFO     | mavlink_adapter.commands:arm_and_takeoff:524 - [mavlink] takeoff complete — switching to HOLD
+2026-08-24 04:21:19.595 | INFO     | orchestrator.mission:_serve:730 - [mission] flight 1 delivery 3: serving pad 6 (13.8226752,100.5121177) attempt=1
+2026-08-24 04:21:19.595 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822675, 100.512118, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:21:28.107 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:463 - [align] sortie #2: acquiring pad 6 near (13.8226752,100.5121177) at 12 m
+2026-08-24 04:21:28.122 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822675, 100.512118, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:21:28.292 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822683, 100.512121, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:21:29.456 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822686, 100.512123, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:21:29.702 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #2: rung 12 m err=0.60 m locked=True
+2026-08-24 04:21:29.789 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822684, 100.512121, AGL=8.0 m → MSL=23.2 m, yaw=nan)
+2026-08-24 04:21:30.869 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #2: rung 8 m err=0.14 m locked=True
+2026-08-24 04:21:31.036 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822684, 100.512121, AGL=5.0 m → MSL=20.2 m, yaw=nan)
+2026-08-24 04:21:32.205 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #2: rung 5 m err=0.05 m locked=True
+2026-08-24 04:21:32.286 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822684, 100.512120, AGL=3.0 m → MSL=18.2 m, yaw=nan)
+2026-08-24 04:21:33.372 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #2: rung 3 m err=0.06 m locked=True
+2026-08-24 04:21:33.537 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822685, 100.512120, AGL=2.0 m → MSL=17.2 m, yaw=nan)
+2026-08-24 04:21:34.620 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #2: rung 2 m err=0.09 m locked=True
+2026-08-24 04:21:34.785 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822685, 100.512120, AGL=1.5 m → MSL=16.7 m, yaw=nan)
+2026-08-24 04:21:35.955 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #2: rung 2 m err=0.11 m locked=True
+2026-08-24 04:21:35.962 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:622 - [align] sortie #2: final err=0.11 m id_seen=57 → LAND on pad 6
+2026-08-24 04:21:35.963 | INFO     | mavlink_adapter.commands:land:1013 - [mavlink] landing (disarm=False)
+2026-08-24 04:22:01.494 | INFO     | mavlink_adapter.commands:drop_payload:917 - [mavlink] drop payload 2 (actuator set 2 = AUX 2)
+2026-08-24 04:22:02.138 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:689 - [align] sortie #2: released=True landed=True err=0.11 m pad=6
+2026-08-24 04:22:02.855 | INFO     | mavlink_adapter.commands:arm_and_takeoff:498 - [mavlink] takeoff (already armed) to 12.0 m AGL
+2026-08-24 04:22:18.060 | INFO     | mavlink_adapter.commands:arm_and_takeoff:524 - [mavlink] takeoff complete — switching to HOLD
+2026-08-24 04:22:19.072 | INFO     | orchestrator.mission:_serve:730 - [mission] flight 1 delivery 4: serving pad 3 (13.8225789,100.5124856) attempt=1
+2026-08-24 04:22:19.072 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822579, 100.512486, AGL=12.0 m → MSL=27.2 m, yaw=143.2)
+2026-08-24 04:22:34.592 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:463 - [align] sortie #3: acquiring pad 3 near (13.8225789,100.5124856) at 12 m
+2026-08-24 04:22:34.610 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822579, 100.512486, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:22:34.770 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822578, 100.512489, AGL=12.0 m → MSL=27.2 m, yaw=nan)
+2026-08-24 04:22:36.687 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #3: rung 12 m err=0.45 m locked=True
+2026-08-24 04:22:36.851 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822578, 100.512488, AGL=8.0 m → MSL=23.2 m, yaw=nan)
+2026-08-24 04:22:38.020 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #3: rung 8 m err=0.15 m locked=True
+2026-08-24 04:22:38.102 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822578, 100.512488, AGL=5.0 m → MSL=20.2 m, yaw=nan)
+2026-08-24 04:22:39.192 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #3: rung 5 m err=0.10 m locked=True
+2026-08-24 04:22:39.360 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822578, 100.512488, AGL=3.0 m → MSL=18.2 m, yaw=nan)
+2026-08-24 04:22:40.437 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #3: rung 3 m err=0.09 m locked=True
+2026-08-24 04:22:40.604 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822578, 100.512488, AGL=2.0 m → MSL=17.2 m, yaw=nan)
+2026-08-24 04:22:41.772 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #3: rung 2 m err=0.09 m locked=True
+2026-08-24 04:22:41.941 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822579, 100.512488, AGL=1.5 m → MSL=16.7 m, yaw=nan)
+2026-08-24 04:22:43.021 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:567 - [align] #3: rung 2 m err=0.08 m locked=True
+2026-08-24 04:22:43.036 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:622 - [align] sortie #3: final err=0.08 m id_seen=61 → LAND on pad 3
+2026-08-24 04:22:43.036 | INFO     | mavlink_adapter.commands:land:1013 - [mavlink] landing (disarm=False)
+2026-08-24 04:23:09.558 | INFO     | mavlink_adapter.commands:drop_payload:917 - [mavlink] drop payload 3 (actuator set 3 = AUX 3)
+2026-08-24 04:23:10.208 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:689 - [align] sortie #3: released=True landed=True err=0.08 m pad=3
+2026-08-24 04:23:10.909 | INFO     | mavlink_adapter.commands:arm_and_takeoff:498 - [mavlink] takeoff (already armed) to 17.5 m AGL
+2026-08-24 04:23:31.025 | INFO     | mavlink_adapter.commands:arm_and_takeoff:524 - [mavlink] takeoff complete — switching to HOLD
+2026-08-24 04:23:32.039 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822583, 100.512077, AGL=19.5 m → MSL=34.7 m, yaw=nan)
+2026-08-24 04:23:48.584 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822513, 100.511958, AGL=19.5 m → MSL=34.7 m, yaw=nan)
+2026-08-24 04:23:55.102 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822480, 100.511866, AGL=19.5 m → MSL=34.7 m, yaw=nan)
+2026-08-24 04:24:00.125 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822803, 100.511627, AGL=19.5 m → MSL=34.7 m, yaw=nan)
+2026-08-24 04:24:34.686 | INFO     | mavlink_adapter.commands:goto:597 - [mavlink] goto (13.822803, 100.511627, AGL=5.0 m → MSL=20.2 m, yaw=nan)
+2026-08-24 04:25:08.236 | INFO     | orchestrator.mission:run_delivery_mission:1112 - [mission] flight 1: over L&R (d=91.4 m, alt=6.0 m) → land + disarm for resupply
+2026-08-24 04:25:08.236 | INFO     | mavlink_adapter.commands:land:1013 - [mavlink] landing (disarm=True)
+2026-08-24 04:25:26.094 | INFO     | orchestrator.mission:run_delivery_mission:805 - [mission] no assignment for flight 2 — mission ends
+2026-08-24 04:25:26.094 | INFO     | orchestrator.mission:run_delivery_mission:1171 - [mission] complete: 4 delivered over 1 flights → completed
+2026-08-24 04:25:26.095 | INFO     | orchestrator.vision_worker:stop:202 - [vision] decode provenance: frames=3667 direct=1465 boosted=153 cue_only=247
+2026-08-24 04:25:26.097 | INFO     | mavlink_adapter.telemetry:stop:145 - [telemetry] stopped
+2026-08-24 04:25:26.098 | INFO     | __main__:run:1141 - [audit] truth pad_1 (pad 4): id-matched cluster=0 err=0.29m served=False
+2026-08-24 04:25:26.098 | INFO     | __main__:run:1141 - [audit] truth pad_2 (pad 6): id-matched cluster=1 err=0.66m served=True
+2026-08-24 04:25:26.099 | INFO     | __main__:run:1141 - [audit] truth pad_3 (pad 3): id-matched cluster=4 err=0.17m served=True
+2026-08-24 04:25:26.099 | INFO     | __main__:run:1141 - [audit] truth pad_4 (pad 5): id-matched cluster=5 err=0.12m served=True
+2026-08-24 04:25:26.099 | INFO     | __main__:run:1141 - [audit] truth pad_5 (pad 1): id-matched cluster=2 err=0.58m served=True
+2026-08-24 04:25:26.099 | INFO     | __main__:run:1141 - [audit] truth pad_6 (pad 2): id-matched cluster=3 err=0.71m served=False
+2026-08-24 04:25:26.099 | INFO     | __main__:run:1141 - [audit] truth audit: matched 6/6, ids correct 6/6, served 4, missed 0
+2026-08-24 04:25:26.100 | INFO     | __main__:run:1144 - [main] mission terminal=completed
+2026-08-29 19:26:13.507 | INFO     | orchestrator.audit:setup_run_logging:43 - [audit] run logging → runs/aavc_delivery_mission/orchestrator.log
+2026-08-29 19:26:13.508 | INFO     | orchestrator.audit:_rotate_stale:86 - [audit] rotated stale audit trail → audit_20260823T212526Z.jsonl
+2026-08-29 19:26:13.509 | INFO     | orchestrator.gcs_status:__init__:146 - [gcs_status] live pad feed → captures/mission_status.json
+2026-08-29 19:26:13.510 | INFO     | mavlink_adapter.commands:connect:503 - [mavlink] connecting to udpin://0.0.0.0:14540
+2026-08-29 19:26:14.368 | INFO     | mavlink_adapter.commands:connect:539 - [mavlink] waiting up to 15s for heartbeat — start PX4 SITL or check mavlink-router if this hangs
+2026-08-29 19:26:14.372 | INFO     | mavlink_adapter.commands:_watch:547 - [mavlink] vehicle connection established
+2026-08-29 19:26:14.396 | INFO     | mavlink_adapter.commands:connect:576 - [mavlink] cached home MSL altitude: 15.4 m
+2026-08-29 19:26:14.396 | INFO     | mavlink_adapter.telemetry:start:264 - [telemetry] subscribed to 16 streams
+2026-08-29 19:26:14.396 | INFO     | mavlink_adapter.raw_subscriber:start:82 - [raw_subscriber] disabled (connection.raw_telemetry_port unset)
+2026-08-29 19:26:14.396 | INFO     | __main__:run:892 - [main] waiting for GPS fix…
+2026-08-29 19:26:14.897 | INFO     | __main__:run:924 - [main] home=(13.8228031,100.5116266); search area 7 legs / 14 waypoints @ 8 m, transit 3 pts @ 20 m
+2026-08-29 19:26:14.947 | INFO     | mavlink_adapter.commands:upload_geofence:1377 - [mavlink] uploaded INCLUSION geofence (4 vertices), read back from the FC and verified — the aircraft is fenced
+2026-08-29 19:26:15.318 | INFO     | mavlink_adapter.telemetry:_maybe_latch_home:371 - [telemetry] home MSL latched: 15.36 m
+2026-08-29 19:26:15.392 | INFO     | mavlink_adapter.commands:_apply_params:753 - [mavlink] applied 31/31 PX4 tuning params
+2026-08-29 19:26:15.483 | INFO     | mavlink_adapter.commands:_apply_params:753 - [mavlink] applied 3/3 PX4 tuning params
+2026-08-29 19:26:15.498 | INFO     | orchestrator.vision_worker:start:187 - [vision] camera worker started; nadir=/tmp/aavc_nadir.jpg interval=0.02s
+2026-08-29 19:26:15.498 | INFO     | orchestrator.frame_recorder:start:69 - [frames] recording ~5.0 Hz → runs/aavc_delivery_mission/frames
+2026-08-29 19:26:15.499 | INFO     | orchestrator.mission:run_delivery_mission:1117 - [mission] delivery mission: ≤2 flights (eggs_aboard=4), transit 3 pts @ 20 m, sweep 7 legs @ 8 m, window 1200 s
+2026-08-29 19:26:15.499 | INFO     | __main__:_gate:629 - [preflight] sortie 1: headless — auto-proceed when all critical checks pass…
+2026-08-29 19:26:15.499 | INFO     | __main__:_gate:634 - [preflight] flight 1: criticals pass — assigned pads [4, 6, 3]
+2026-08-29 19:26:16.358 | INFO     | mavlink_adapter.commands:arm_and_takeoff:597 - [mavlink] arming + takeoff to 17.5 m AGL
+2026-08-29 19:26:38.390 | INFO     | mavlink_adapter.commands:arm_and_takeoff:621 - [mavlink] takeoff complete — switching to HOLD
+2026-08-29 19:26:39.419 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822480, 100.511866, AGL=19.5 m → MSL=34.8 m, yaw=nan)
+2026-08-29 19:26:55.956 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822513, 100.511958, AGL=19.5 m → MSL=34.8 m, yaw=nan)
+2026-08-29 19:27:00.973 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822583, 100.512077, AGL=19.5 m → MSL=34.8 m, yaw=nan)
+2026-08-29 19:27:04.670 | INFO     | orchestrator.gcs_status:_push:431 - [gcs_status] pad 4 on the GCS map (13.8226615, 100.5119536)
+2026-08-29 19:27:07.501 | INFO     | orchestrator.mission:_decode_visits:928 - [mission] decode visit → candidate #1 (13.8226847,100.5121360) @ 10 m
+2026-08-29 19:27:07.501 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822685, 100.512136, AGL=10.5 m → MSL=25.8 m, yaw=143.2)
+2026-08-29 19:27:08.069 | INFO     | orchestrator.gcs_status:_push:431 - [gcs_status] pad 6 on the GCS map (13.8226850, 100.5121358)
+2026-08-29 19:27:28.037 | INFO     | orchestrator.mission:_serve_found:1358 - [mission] flight 1: pad 4 confirmed mid-sweep — delivering now, sweep resumes after
+2026-08-29 19:27:28.040 | INFO     | orchestrator.mission:_serve:1055 - [mission] flight 1 delivery 1: serving pad 4 (13.8226641,100.5119527) attempt=1
+2026-08-29 19:27:28.040 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822664, 100.511953, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:27:37.308 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:613 - [align] sortie #0: acquiring pad 4 near (13.8226641,100.5119527) at 12 m
+2026-08-29 19:27:37.329 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822664, 100.511953, AGL=12.0 m → MSL=27.3 m, yaw=nan)
+2026-08-29 19:27:37.574 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822655, 100.511940, AGL=11.2 m → MSL=26.5 m, yaw=nan)
+2026-08-29 19:27:38.328 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822655, 100.511940, AGL=11.5 m → MSL=26.8 m, yaw=nan)
+2026-08-29 19:27:38.735 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822655, 100.511939, AGL=11.9 m → MSL=27.2 m, yaw=nan)
+2026-08-29 19:27:39.237 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822654, 100.511941, AGL=12.2 m → MSL=27.6 m, yaw=nan)
+2026-08-29 19:27:39.656 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822655, 100.511940, AGL=14.4 m → MSL=29.7 m, yaw=nan)
+2026-08-29 19:27:43.745 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822655, 100.511941, AGL=14.1 m → MSL=29.4 m, yaw=nan)
+2026-08-29 19:27:44.575 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #0: rung 12 m err=0.19 m locked=True
+2026-08-29 19:27:44.662 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822655, 100.511941, AGL=10.0 m → MSL=25.4 m, yaw=nan)
+2026-08-29 19:27:48.834 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #0: rung 8 m err=0.07 m locked=True
+2026-08-29 19:27:48.988 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822655, 100.511941, AGL=7.2 m → MSL=22.6 m, yaw=nan)
+2026-08-29 19:27:51.571 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822655, 100.511941, AGL=7.5 m → MSL=22.9 m, yaw=nan)
+2026-08-29 19:27:52.990 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #0: rung 5 m err=0.02 m locked=True
+2026-08-29 19:27:53.156 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822655, 100.511941, AGL=5.6 m → MSL=21.0 m, yaw=nan)
+2026-08-29 19:27:57.574 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #0: rung 3 m err=0.04 m locked=True
+2026-08-29 19:27:57.742 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822655, 100.511941, AGL=4.6 m → MSL=20.0 m, yaw=nan)
+2026-08-29 19:28:02.157 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #0: rung 2 m err=0.05 m locked=True
+2026-08-29 19:28:02.171 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:964 - [align] sortie #0: final err=0.05 m id_seen=180 → LAND on pad 4
+2026-08-29 19:28:02.171 | INFO     | mavlink_adapter.commands:land:1137 - [mavlink] landing (disarm=False)
+2026-08-29 19:28:18.207 | INFO     | mavlink_adapter.commands:drop_payload:1031 - [mavlink] drop payload 0 (actuator set 4 = AUX 4)
+2026-08-29 19:28:18.818 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:1046 - [align] sortie #0: released=True landed=True err=0.05 m pad=4
+2026-08-29 19:28:18.819 | INFO     | orchestrator.mission:_serve_found:1358 - [mission] flight 1: pad 6 confirmed mid-sweep — delivering now, sweep resumes after
+2026-08-29 19:28:18.820 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822656, 100.511941, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:28:20.359 | WARNING  | mavlink_adapter.telemetry:_note_home_gap:378 - [telemetry] AGL 3.4 m vs PX4 relative_alt -0.0 m — home rewrite in flight; flying on the latched home
+2026-08-29 19:28:26.607 | INFO     | orchestrator.mission:_serve:1055 - [mission] flight 1 delivery 2: serving pad 6 (13.8226904,100.5121241) attempt=1
+2026-08-29 19:28:26.607 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822690, 100.512124, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:28:34.631 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:613 - [align] sortie #1: acquiring pad 6 near (13.8226904,100.5121241) at 12 m
+2026-08-29 19:28:34.643 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822690, 100.512124, AGL=12.0 m → MSL=27.3 m, yaw=nan)
+2026-08-29 19:28:34.731 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512122, AGL=10.8 m → MSL=26.2 m, yaw=nan)
+2026-08-29 19:28:35.564 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512121, AGL=11.2 m → MSL=26.5 m, yaw=nan)
+2026-08-29 19:28:35.897 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512121, AGL=11.5 m → MSL=26.8 m, yaw=nan)
+2026-08-29 19:28:36.227 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512120, AGL=11.8 m → MSL=27.1 m, yaw=nan)
+2026-08-29 19:28:36.643 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512120, AGL=12.1 m → MSL=27.5 m, yaw=nan)
+2026-08-29 19:28:37.059 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512120, AGL=12.5 m → MSL=27.8 m, yaw=nan)
+2026-08-29 19:28:37.565 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512120, AGL=12.9 m → MSL=28.2 m, yaw=nan)
+2026-08-29 19:28:37.982 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512119, AGL=13.2 m → MSL=28.5 m, yaw=nan)
+2026-08-29 19:28:38.398 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512120, AGL=13.6 m → MSL=28.9 m, yaw=nan)
+2026-08-29 19:28:38.815 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512119, AGL=13.9 m → MSL=29.3 m, yaw=nan)
+2026-08-29 19:28:39.229 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512120, AGL=15.0 m → MSL=30.3 m, yaw=nan)
+2026-08-29 19:28:45.732 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #1: rung 12 m err=0.09 m locked=True
+2026-08-29 19:28:45.900 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512120, AGL=11.0 m → MSL=26.3 m, yaw=nan)
+2026-08-29 19:28:49.308 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #1: rung 8 m err=0.04 m locked=True
+2026-08-29 19:28:49.477 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512120, AGL=8.0 m → MSL=23.3 m, yaw=nan)
+2026-08-29 19:28:50.391 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512120, AGL=9.2 m → MSL=24.6 m, yaw=nan)
+2026-08-29 19:28:52.726 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #1: rung 5 m err=0.02 m locked=True
+2026-08-29 19:28:52.893 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512120, AGL=7.3 m → MSL=22.7 m, yaw=nan)
+2026-08-29 19:28:58.063 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #1: rung 3 m err=0.04 m locked=True
+2026-08-29 19:28:58.232 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822686, 100.512120, AGL=6.3 m → MSL=21.6 m, yaw=nan)
+2026-08-29 19:29:03.394 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #1: rung 2 m err=0.01 m locked=True
+2026-08-29 19:29:03.399 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:964 - [align] sortie #1: final err=0.01 m id_seen=205 → LAND on pad 6
+2026-08-29 19:29:03.400 | INFO     | mavlink_adapter.commands:land:1137 - [mavlink] landing (disarm=False)
+2026-08-29 19:29:19.423 | INFO     | mavlink_adapter.commands:drop_payload:1031 - [mavlink] drop payload 1 (actuator set 1 = AUX 1)
+2026-08-29 19:29:20.036 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:1046 - [align] sortie #1: released=True landed=True err=0.01 m pad=6
+2026-08-29 19:29:20.036 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822687, 100.512120, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:29:26.565 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822875, 100.511769, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:29:35.477 | INFO     | orchestrator.gcs_status:_push:431 - [gcs_status] pad 1 on the GCS map (13.8228004, 100.5119549)
+2026-08-29 19:29:42.600 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822224, 100.512271, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:30:14.894 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822264, 100.512326, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:30:18.413 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822914, 100.511824, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:30:50.958 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822954, 100.511879, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:30:54.489 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822303, 100.512381, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:31:22.664 | INFO     | orchestrator.gcs_status:_push:431 - [gcs_status] pad 2 on the GCS map (13.8223826, 100.5123095)
+2026-08-29 19:31:27.030 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822343, 100.512435, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:31:30.552 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822994, 100.511934, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:32:03.103 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.823034, 100.511989, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:32:06.872 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822383, 100.512490, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:32:39.420 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822423, 100.512545, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:32:42.938 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.823074, 100.512044, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:33:15.738 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.823114, 100.512099, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:33:19.260 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822463, 100.512600, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:33:24.175 | INFO     | orchestrator.gcs_status:_push:431 - [gcs_status] pad 5 on the GCS map (13.8230569, 100.5121810)
+2026-08-29 19:33:45.976 | INFO     | orchestrator.gcs_status:_push:431 - [gcs_status] pad 3 on the GCS map (13.8225713, 100.5124896)
+2026-08-29 19:33:46.055 | INFO     | orchestrator.mission:_serve_found:1358 - [mission] flight 1: pad 3 confirmed mid-sweep — delivering now, sweep resumes after
+2026-08-29 19:33:46.056 | INFO     | orchestrator.mission:_serve:1055 - [mission] flight 1 delivery 3: serving pad 3 (13.8225713,100.5124896) attempt=1
+2026-08-29 19:33:46.057 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822571, 100.512490, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:33:48.823 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:613 - [align] sortie #2: acquiring pad 3 near (13.8225713,100.5124896) at 12 m
+2026-08-29 19:33:48.837 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822571, 100.512490, AGL=12.0 m → MSL=27.3 m, yaw=nan)
+2026-08-29 19:33:48.864 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822607, 100.512490, AGL=12.0 m → MSL=27.3 m, yaw=nan)
+2026-08-29 19:33:49.091 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822580, 100.512484, AGL=11.1 m → MSL=26.4 m, yaw=nan)
+2026-08-29 19:33:49.758 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822580, 100.512488, AGL=11.4 m → MSL=26.8 m, yaw=nan)
+2026-08-29 19:33:50.171 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822580, 100.512488, AGL=11.8 m → MSL=27.2 m, yaw=nan)
+2026-08-29 19:33:50.339 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822580, 100.512487, AGL=13.8 m → MSL=29.2 m, yaw=nan)
+2026-08-29 19:33:55.501 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #2: rung 12 m err=0.02 m locked=True
+2026-08-29 19:33:55.586 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822579, 100.512488, AGL=9.5 m → MSL=24.9 m, yaw=nan)
+2026-08-29 19:34:00.007 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #2: rung 8 m err=0.10 m locked=True
+2026-08-29 19:34:00.168 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822578, 100.512489, AGL=6.8 m → MSL=22.2 m, yaw=nan)
+2026-08-29 19:34:02.419 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822579, 100.512489, AGL=7.1 m → MSL=22.5 m, yaw=nan)
+2026-08-29 19:34:04.756 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #2: rung 5 m err=0.11 m locked=True
+2026-08-29 19:34:04.924 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822579, 100.512489, AGL=5.3 m → MSL=20.6 m, yaw=nan)
+2026-08-29 19:34:10.008 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #2: rung 3 m err=0.05 m locked=True
+2026-08-29 19:34:10.168 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822579, 100.512489, AGL=4.4 m → MSL=19.8 m, yaw=nan)
+2026-08-29 19:34:14.333 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:885 - [align] #2: rung 2 m err=0.05 m locked=True
+2026-08-29 19:34:14.342 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:964 - [align] sortie #2: final err=0.05 m id_seen=184 → LAND on pad 3
+2026-08-29 19:34:14.342 | INFO     | mavlink_adapter.commands:land:1137 - [mavlink] landing (disarm=False)
+2026-08-29 19:34:26.867 | INFO     | mavlink_adapter.commands:drop_payload:1031 - [mavlink] drop payload 2 (actuator set 2 = AUX 2)
+2026-08-29 19:34:27.489 | INFO     | orchestrator.tactical_align:acquire_and_land_drop:1046 - [align] sortie #2: released=True landed=True err=0.05 m pad=3
+2026-08-29 19:34:27.489 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822579, 100.512489, AGL=8.0 m → MSL=23.3 m, yaw=143.2)
+2026-08-29 19:34:35.516 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822579, 100.512488, AGL=17.5 m → MSL=32.8 m, yaw=nan)
+2026-08-29 19:34:46.794 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822583, 100.512077, AGL=19.5 m → MSL=34.8 m, yaw=nan)
+2026-08-29 19:35:03.326 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822513, 100.511958, AGL=19.5 m → MSL=34.8 m, yaw=nan)
+2026-08-29 19:35:09.853 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822480, 100.511866, AGL=19.5 m → MSL=34.8 m, yaw=nan)
+2026-08-29 19:35:14.874 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822803, 100.511627, AGL=19.5 m → MSL=34.8 m, yaw=nan)
+2026-08-29 19:35:31.426 | INFO     | mavlink_adapter.commands:goto:704 - [mavlink] goto (13.822803, 100.511627, AGL=5.0 m → MSL=20.3 m, yaw=nan)
+2026-08-29 19:35:42.453 | INFO     | orchestrator.mission:run_delivery_mission:1570 - [mission] flight 1: over L&R (d=1.9 m, alt=6.0 m) → land + disarm for resupply
+2026-08-29 19:35:42.453 | INFO     | mavlink_adapter.commands:land:1137 - [mavlink] landing (disarm=True)
+2026-08-29 19:35:51.687 | INFO     | mavlink_adapter.telemetry:_maybe_latch_home:371 - [telemetry] home MSL latched: 18.05 m
+2026-08-29 19:35:52.700 | INFO     | mavlink_adapter.telemetry:_maybe_latch_home:371 - [telemetry] home MSL latched: 19.68 m
+2026-08-29 19:35:53.706 | INFO     | orchestrator.mission:run_delivery_mission:1131 - [mission] no assignment for flight 2 — mission ends
+2026-08-29 19:35:53.707 | INFO     | orchestrator.mission:run_delivery_mission:1629 - [mission] complete: 3 delivered over 1 flights → completed
+2026-08-29 19:35:53.707 | INFO     | orchestrator.vision_worker:stop:202 - [vision] decode provenance: frames=3790 direct=1635 boosted=19 cue_only=1
+2026-08-29 19:35:53.709 | INFO     | mavlink_adapter.telemetry:stop:270 - [telemetry] stopped
+2026-08-29 19:35:53.710 | INFO     | __main__:run:1201 - [audit] truth pad_1 (pad 4): id-matched cluster=0 err=0.07m served=True
+2026-08-29 19:35:53.710 | INFO     | __main__:run:1201 - [audit] truth pad_2 (pad 6): id-matched cluster=1 err=0.06m served=True
+2026-08-29 19:35:53.711 | INFO     | __main__:run:1201 - [audit] truth pad_3 (pad 3): id-matched cluster=5 err=0.03m served=True
+2026-08-29 19:35:53.711 | INFO     | __main__:run:1201 - [audit] truth pad_4 (pad 5): id-matched cluster=4 err=0.76m served=False
+2026-08-29 19:35:53.711 | INFO     | __main__:run:1201 - [audit] truth pad_5 (pad 1): id-matched cluster=2 err=0.17m served=False
+2026-08-29 19:35:53.712 | INFO     | __main__:run:1201 - [audit] truth pad_6 (pad 2): id-matched cluster=3 err=0.52m served=False
+2026-08-29 19:35:53.712 | INFO     | __main__:run:1201 - [audit] truth audit: matched 6/6, ids correct 6/6, served 3, missed 0
+2026-08-29 19:35:53.712 | INFO     | __main__:run:1204 - [main] mission terminal=completed
