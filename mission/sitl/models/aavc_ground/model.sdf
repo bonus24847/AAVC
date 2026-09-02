@@ -1,0 +1,12 @@
+<?xml version="1.0" ?>
+<!-- Texture-resource model (see model.config). The real ground plane is defined
+     inline in sitl/worlds/aavc_field.sdf and references this model's grass
+     albedo via model://aavc_ground/materials/textures/grass.png. This stub keeps
+     a single tiny static link so the model:// URI resolves; it is not included
+     in the world. -->
+<sdf version="1.9">
+  <model name="aavc_ground">
+    <static>true</static>
+    <link name="link"/>
+  </model>
+</sdf>

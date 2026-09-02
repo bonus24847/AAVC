@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>AAVC Practice Checklist</title>
+<style>
+@page { size: A4; margin: 12mm 12mm; }
+body { font-family: 'Garuda','Norasi','DejaVu Sans',sans-serif; color:#141414; font-size:10.5pt; line-height:1.4; }
+.mono { font-family:'Tlwg Typo','Garuda',monospace; font-size:9.5pt; color:#111; }
+h1 { font-size:17pt; margin:0 0 1mm 0; color:#0b1f3a; }
+.sub { font-size:9.5pt; color:#444; margin:0 0 1mm 0; }
+.meta { font-size:9.5pt; color:#222; margin:0 0 2mm 0; }
+.meta b { color:#0b1f3a; }
+.sec { font-size:12.5pt; font-weight:bold; margin:4.5mm 0 1mm 0; padding-bottom:0.6mm; }
+.sec.stop   { color:#b91c1c; }
+.sec.field  { color:#b45309; }
+.sec.verify { color:#15803d; }
+.sec.fly    { color:#1d4ed8; }
+table { width:100%; border-collapse:collapse; margin:0; }
+td { vertical-align:top; padding:1.6mm 2mm; border:none; }
+.cbcol { width:6mm; text-align:left; font-family:'DejaVu Sans',sans-serif; font-size:12pt; }
+.k { color:#0b1f3a; font-weight:bold; }
+.warn { color:#b91c1c; font-weight:bold; }
+.note { color:#555; }
+.foot { font-size:8.5pt; color:#666; border-top:1pt solid #999; padding-top:1.5mm; margin-top:4mm; }
+</style>
+</head>
+<body>
+
+<h1>AAVC 2026 — Checklist ซ้อม (KMUTNB Practice)</h1>
+<p class="sub">profile <b>kmutnb_skyfield</b> · เพดาน 10 m · แบต 17000 mAh · RC-GO conops</p>
+<p class="meta">วันที่ <b>__________</b> &nbsp; เวลา <b>_______</b> &nbsp; นักบิน RC <b>____________</b> &nbsp; operator <b>____________</b> &nbsp; แบต% เริ่ม <b>______</b></p>
+
+<p class="sec stop">1 · โหลดโค้ด + เปิดให้ถูก icon &nbsp;[STOP]</p>
+<table>
+<tr><td class="cbcol">☐</td><td><span class="k">Restart AAVC GCS</span> — เปิดใหม่เพื่อโหลดของที่เพิ่งแก้ (servo fix / chip รั้ว→mission geofence / camera auto-start)</td></tr>
+<tr><td class="cbcol">☐</td><td>เปิดด้วย <span class="k">icon PRACTICE</span> (ไม่ใช่ COMP) — จะรัน <span class="mono">clear_state.sh</span> ล้าง state เก่าให้เอง, profile = kmutnb_skyfield</td></tr>
+<tr><td class="cbcol">☐</td><td>เชื่อมลิงก์: <span class="k">laptop กับ CM4</span> (hotspot) · NOMAD กับ FC · ELRS RC กับ FC (safety pilot)</td></tr>
+</table>
+
+<p class="sec stop">2 · STOP gates — ต้องผ่านก่อน arm &nbsp;[STOP]</p>
+<table>
+<tr><td class="cbcol">☐</td><td><span class="mono">preflight_params.py</span> → <span class="k">BOARD 15/15 ถูกทั้งหมด</span> &nbsp; <span class="warn">⚠ motor map PWM_MAIN_FUNC1..6 เคย regress เป็น 0 = บินไม่ได้ — เช็คทุกครั้ง อย่าเชื่อค่าเก่า</span></td></tr>
+<tr><td class="cbcol">☐</td><td>แบต 17000 <span class="k">ชาร์จ ≥ 90%</span> (เต็ม 25.1 V) &nbsp; <span class="note">— ถ้าเสียบค้างไว้ตอนพักจะไหลหาย</span></td></tr>
+<tr><td class="cbcol">☐</td><td>ไม่มี <span class="k">Crash dump บน SD</span> &nbsp; <span class="note">— ถ้าขึ้น "Crash dump present" = บล็อก arm; อ่าน log ก่อนลบ</span></td></tr>
+<tr><td class="cbcol">☐</td><td>egg servo <span class="k">4 ตัวขยับครบ</span> (bench, ถอดใบพัด)</td></tr>
+</table>
+
+<p class="sec field">3 · ที่สนาม — setup</p>
+<table>
+<tr><td class="cbcol">☐</td><td><span class="k">pad สะอาด</span> ไม่มีของ/กล่องรอบก่อนวางบัง ArUco marker</td></tr>
+<tr><td class="cbcol">☐</td><td>รอ <span class="k">GPS 3D fix + HDOP ต่ำ</span> (no RTK = หยาบ) — chip GPS เขียวเมื่อ PX4 พร้อม arm จริง</td></tr>
+<tr><td class="cbcol">☐</td><td>โดรน <span class="k">อยู่ในรั้ว geofence</span> ตอนวาง (chip รั้วขึ้น "ในรั้ว")</td></tr>
+<tr><td class="cbcol">☐</td><td>ยืนยัน <span class="k">CM4 profile = kmutnb_skyfield</span> (ไม่ใช่ comp/KMITL)</td></tr>
+</table>
+
+<p class="sec verify">4 · verify ของใหม่ (รอบแรกที่ใช้จริง)</p>
+<table>
+<tr><td class="cbcol">☐</td><td><span class="k">camera chip เขียว ~15 วิ</span> หลัง GCS ต่อ CM4 (auto-start เอง) — ถ้าไม่เขียว เช็ค hotspot/ssh</td></tr>
+<tr><td class="cbcol">☐</td><td><span class="k">fence chip "ในรั้ว"</span> เมื่อมี GPS fix (ไม่ต้องอัปผ่านปุ่ม geofence แล้ว)</td></tr>
+<tr><td class="cbcol">☐</td><td><span class="k">servo bench test</span> (DISARMED): กดเปิด/ปิดทีละอัน + ปิดทั้งหมด — เช็คไม่เด้งเอง + ปิดทั้งหมดเร็ว</td></tr>
+</table>
+
+<p class="sec fly">5 · ตอนบิน — RC-GO</p>
+<table>
+<tr><td class="cbcol">☐</td><td>🚀 → checklist → <span class="k">slide ยืนยัน</span> upload → นักบิน <span class="k">arm RC + สลับ OFFBOARD</span> (web ไม่บินเอง)</td></tr>
+<tr><td class="cbcol">☐</td><td><span class="k">POSCTL = นักบินยึดคืน</span> ทันที (companion stand down) — ซ้อมท่านี้ด้วย</td></tr>
+<tr><td class="cbcol">☐</td><td>window <span class="k">20 นาที</span> เริ่มนับที่ GO แรก</td></tr>
+<tr><td class="cbcol">☐</td><td>หลังบิน: <span class="mono">verify_flight.py runs/&lt;id&gt;/audit.jsonl</span> ต้องผ่าน</td></tr>
+</table>
+
+<p class="foot">AAVC 2026 · Team KMUTNB · practice @ KMUTNB sky field · gen 2026-08-20 — ถ้าต่อ CM4 แล้วให้ผมช่วยรัน preflight_params + เช็ค profile/infra สดได้</p>
+
+</body>
+</html>

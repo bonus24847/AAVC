@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>เดินสำรวจสนาม มจพ.</title>
+<style>
+  :root {
+    --ground:#F1F4F6; --surface:#FFFFFF; --surface-2:#E7ECEF; --hair:#D3DADF;
+    --ink:#131A20; --ink-2:#4C5A64; --ink-3:#75838D;
+    --accent:#1D4E89; --accent-soft:#E2EBF6; --accent-line:#B7CCE6;
+    --ok:#1B6E4B; --ok-soft:#E1F1E8;
+    --warn:#8F4C0B; --warn-soft:#F8ECDD;
+    --stop:#A02A20; --stop-soft:#F8E4E1;
+    --term-bg:#101820; --term-ink:#D9E4EC; --term-dim:#78909F; --term-hair:#25323D;
+    --mono: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+    --sans: "Noto Sans Thai", "IBM Plex Sans Thai", "Sarabun", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --r: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#0D1319; --surface:#141C23; --surface-2:#1C262F; --hair:#28343E;
+      --ink:#E5EDF2; --ink-2:#A0B0BC; --ink-3:#7A8B98;
+      --accent:#74AAE2; --accent-soft:#16283A; --accent-line:#2C4761;
+      --ok:#54C08E; --ok-soft:#13291F;
+      --warn:#DBA25A; --warn-soft:#2C2216;
+      --stop:#E4867B; --stop-soft:#2E1A18;
+      --term-bg:#0A0F14; --term-ink:#D9E4EC; --term-dim:#6D8494; --term-hair:#1D2831;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#0D1319; --surface:#141C23; --surface-2:#1C262F; --hair:#28343E;
+    --ink:#E5EDF2; --ink-2:#A0B0BC; --ink-3:#7A8B98;
+    --accent:#74AAE2; --accent-soft:#16283A; --accent-line:#2C4761;
+    --ok:#54C08E; --ok-soft:#13291F;
+    --warn:#DBA25A; --warn-soft:#2C2216;
+    --stop:#E4867B; --stop-soft:#2E1A18;
+    --term-bg:#0A0F14; --term-ink:#D9E4EC; --term-dim:#6D8494; --term-hair:#1D2831;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.72;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px 80px; }
+
+  /* ---------- masthead ---------- */
+  .mast { padding: 44px 0 26px; border-bottom: 2px solid var(--ink); }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 10px;
+  }
+  h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.25; margin: 0 0 12px; text-wrap: balance; }
+  .goal { margin: 0; color: var(--ink-2); max-width: 62ch; }
+  .goal code { font-family: var(--mono); font-size: .88em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+
+  /* ---------- config strip ---------- */
+  .config {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+    background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r);
+    padding: 12px 16px; margin: 22px 0 34px;
+    box-shadow: 0 2px 12px rgba(16,24,32,.07);
+  }
+  .field { display: flex; align-items: center; gap: 8px; }
+  .field label {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+  .config select {
+    font-family: var(--mono); font-size: 14px;
+    background: var(--ground); color: var(--ink);
+    border: 1px solid var(--hair); border-radius: 6px; padding: 6px 9px;
+  }
+  .config select:focus-visible, .check input:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  .tally {
+    margin-inline-start: auto; font-family: var(--mono); font-size: 13px;
+    color: var(--ink-2); font-variant-numeric: tabular-nums;
+  }
+  .tally b { color: var(--ok); }
+
+  /* ---------- stages ---------- */
+  .stage {
+    background: var(--surface); border: 1px solid var(--hair);
+    border-radius: var(--r); padding: 22px 22px 24px; margin-bottom: 20px;
+  }
+  .stage > * + * { margin-top: 14px; }
+  .head { display: flex; align-items: flex-start; gap: 14px; }
+  .badge {
+    flex: none; width: 38px; height: 38px; display: grid; place-items: center;
+    background: var(--accent); color: #fff; border-radius: 8px;
+    font-family: var(--mono); font-size: 19px; font-weight: 700;
+  }
+  .head h2 { margin: 0; font-size: 20px; line-height: 1.4; }
+  .where {
+    display: block; font-family: var(--mono); font-size: 11px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin-top: 2px;
+  }
+  p { margin: 0; }
+  .note { color: var(--ink-2); }
+
+  /* ---------- terminal ---------- */
+  .term {
+    background: var(--term-bg); color: var(--term-ink);
+    border: 1px solid var(--term-hair); border-radius: var(--r);
+    padding: 14px 16px; overflow-x: auto;
+  }
+  .term pre { margin: 0; font-family: var(--mono); font-size: 13.5px; line-height: 1.75; }
+  .term .c { color: var(--term-dim); }
+  .term .v { color: #F2B441; }
+  .out {
+    border-inline-start: 3px solid var(--accent-line);
+    background: var(--accent-soft); border-radius: 0 var(--r) var(--r) 0;
+    padding: 10px 14px; overflow-x: auto;
+  }
+  .out code { font-family: var(--mono); font-size: 13px; color: var(--ink); white-space: pre; }
+  .out .lead {
+    display: block; font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 4px;
+  }
+
+  /* ---------- callouts ---------- */
+  .call { border-radius: var(--r); padding: 12px 16px; border-inline-start: 3px solid; }
+  .call b { font-weight: 700; }
+  .call.warn { background: var(--warn-soft); border-color: var(--warn); }
+  .call.warn b { color: var(--warn); }
+  .call.stop { background: var(--stop-soft); border-color: var(--stop); }
+  .call.stop b { color: var(--stop); }
+  .call code { font-family: var(--mono); font-size: .88em; }
+
+  /* ---------- checklists ---------- */
+  .checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .check {
+    display: flex; align-items: flex-start; gap: 12px;
+    background: var(--surface-2); border: 1px solid transparent;
+    border-radius: 8px; padding: 10px 14px; cursor: pointer;
+  }
+  .check input { flex: none; width: 20px; height: 20px; margin: 3px 0 0; accent-color: var(--ok); cursor: pointer; }
+  .check .mark { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--ink-3); flex: none; min-width: 3.4em; margin-top: 2px; }
+  .check:has(input:checked) { background: var(--ok-soft); border-color: var(--ok); }
+  .check:has(input:checked) .txt { color: var(--ink-3); text-decoration: line-through; }
+  .check:has(input:checked) .mark { color: var(--ok); }
+  .txt { flex: 1; }
+  .txt code { font-family: var(--mono); font-size: .88em; }
+
+  ul.plain { margin: 0; padding-inline-start: 1.2em; color: var(--ink-2); }
+  ul.plain li + li { margin-top: 6px; }
+  ul.plain code { font-family: var(--mono); font-size: .88em; }
+
+  .targets { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; }
+  .targets div {
+    font-family: var(--mono); font-size: 12.5px; color: var(--ink-2);
+    background: var(--surface-2); border-radius: 6px; padding: 8px 12px;
+  }
+
+  footer { margin-top: 34px; padding-top: 20px; border-top: 1px solid var(--hair); color: var(--ink-3); font-size: 14px; }
+  footer code { font-family: var(--mono); }
+
+  @media (max-width: 620px) {
+    .config { position: static; }
+    .stage { padding: 18px 16px 20px; }
+    .term pre { font-size: 12.5px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  @media print {
+    body { background: #fff; }
+    .config { position: static; }
+    .stage { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="mast">
+    <p class="eyebrow">Ground survey · KMUTNB sky field</p>
+    <h1>ใบเช็กวันเดินสำรวจสนาม</h1>
+    <p class="goal">
+      เป้าหมายวันนี้: ได้ไฟล์ <code>captures/survey_track.jsonl</code> ที่มี
+      <b>5 จุดยืนนิ่ง</b> — NW, NE, SE, SW และจุด L&amp;R — เพื่อเอาไปทำพิกัดแมพชุดใหม่
+      วิธีเดียว: <b>เสียบสาย USB โน้ตบุ๊ก ↔ Pixhawk แล้วอุ้มเดินไปด้วยกัน</b>
+    </p>
+  </header>
+
+  <div class="config">
+    <div class="field">
+      <label for="port">พอร์ต FC</label>
+      <select id="port">
+        <option value="/dev/ttyACM0">/dev/ttyACM0</option>
+        <option value="/dev/ttyACM1">/dev/ttyACM1</option>
+        <option value="/dev/ttyUSB0">/dev/ttyUSB0</option>
+      </select>
+    </div>
+    <span class="tally">ติ๊กแล้ว <b id="done">0</b>/<span id="total">0</span></span>
+  </div>
+
+  <div class="call stop">
+    <b>วันนี้ไม่ต้อง arm ไม่ต้องบิน</b> — แค่เปิดเครื่องแล้วอุ้มเดิน (ถอดใบพัดได้ยิ่งดี) ·
+    ทุกจุดต้องเก็บใน <b>รอบเดียว วันเดียว</b> — ข้ามวันแล้ว bias ของ GPS จะไม่หักล้างกัน
+  </div>
+
+  <!-- ============ A ============ -->
+  <section class="stage">
+    <div class="head">
+      <span class="badge">A</span>
+      <h2>เช็กสาย + logger ก่อนออกจากบ้าน
+        <span class="where">ที่โต๊ะ · เปิดโดรนเสียบสายไว้</span>
+      </h2>
+    </div>
+    <div class="term"><pre><span class="c">cd ~/Desktop/"mission AAVC in kmutnb"</span>
+
+<span class="c"># A1 เสียบสาย USB จากโน้ตบุ๊กเข้า Pixhawk แล้วดูว่าโผล่พอร์ตไหน</span>
+ls /dev/ttyACM* /dev/ttyUSB* 2&gt;/dev/null
+
+<span class="c"># A2 ลองรันจริง 30 วิ แล้วกด Ctrl-C (ไฟล์ทดสอบ ไม่ใช่ของจริง)</span>
+env -u PYTHONPATH .venv/bin/python tools/survey_logger.py \
+    --url <span class="v port">/dev/ttyACM0</span> --baud 921600 --out /tmp/survey_test.jsonl</pre></div>
+    <div class="out">
+      <span class="lead">ต้องเห็น</span>
+      <code>[survey] linked (sys 1). Recording → /tmp/survey_test.jsonl</code>
+      แล้วตามด้วยบรรทัดสดที่นับจุดขึ้นเรื่อย ๆ · เจอพอร์ตไหนให้เลือกในแถบด้านบน คำสั่งข้างล่างจะเปลี่ยนตาม
+    </div>
+    <div class="call warn">
+      <b>ปิด QGC / AAVC GCS / mavlink-router ให้หมดก่อน</b> — โปรแกรมพวกนี้จับพอร์ต serial ไว้
+      logger จะขึ้น <code>no heartbeat</code> ทั้งที่สายเสียบอยู่ดี ๆ
+    </div>
+    <div class="call warn">
+      <b>ตั้งโน้ตบุ๊กไม่ให้หลับตอนปิดฝา</b> — วันเดินต้องอุ้มโน้ตบุ๊กไปด้วยและ logger ต้องรันตลอด
+      ถ้าเครื่อง suspend การบันทึกจะขาดกลางคัน (จะเดินแบบเปิดฝาค้างไว้ก็ได้)
+    </div>
+  </section>
+
+  <!-- ============ B ============ -->
+  <section class="stage">
+    <div class="head">
+      <span class="badge">B</span>
+      <h2>เริ่มบันทึกจริง
+        <span class="where">ยืนที่จุด L&amp;R ก่อนออกเดิน</span>
+      </h2>
+    </div>
+    <p class="note">เปิดโดรน รอ GPS ขึ้น 3D fix ดาวเทียม ≥ 10 ดวงก่อน แล้วค่อยสั่ง</p>
+    <div class="term"><pre>cd ~/Desktop/"mission AAVC in kmutnb"
+env -u PYTHONPATH .venv/bin/python tools/survey_logger.py \
+    --url <span class="v port">/dev/ttyACM0</span> --baud 921600 --out captures/survey_track.jsonl</pre></div>
+    <div class="out">
+      <span class="lead">บรรทัดสดที่ต้องเห็น</span>
+      <code>[survey]  1234 จุด | 3D sats 14 | 13.8224940, 100.5122771  นิ่งมา   42s</code>
+    </div>
+    <p class="note">ขึ้น <b>⚠ สัญญาณอ่อน</b> = fix ต่ำกว่า 3D หรือดาวน้อยกว่า 8 → รอ อย่าเพิ่งเดิน</p>
+  </section>
+
+  <!-- ============ C ============ -->
+  <section class="stage">
+    <div class="head">
+      <span class="badge">C</span>
+      <h2>เดินเก็บมุม — ไม่ต้องพิมพ์อะไรเลย
+        <span class="where">กลางสนาม · ~10 นาที</span>
+      </h2>
+    </div>
+    <p class="note">อุ้มโดรน + โน้ตบุ๊กไปด้วยกัน (สายห้ามหลุด) เดินตามเข็มนาฬิกาเริ่มมุมบนซ้าย
+      แล้วจบที่จุดขึ้น-ลงจริง ยืนนิ่งจุดละ ≥ 30 วินาที — หน้าจอนับ “นิ่งมา …s” ให้เห็น</p>
+    <ul class="checks">
+      <li><label class="check"><input type="checkbox"><span class="mark">NW</span><span class="txt">มุมบนซ้าย — ยืนนิ่ง ≥ 30 วิ</span></label></li>
+      <li><label class="check"><input type="checkbox"><span class="mark">NE</span><span class="txt">มุมบนขวา — ยืนนิ่ง ≥ 30 วิ</span></label></li>
+      <li><label class="check"><input type="checkbox"><span class="mark">SE</span><span class="txt">มุมล่างขวา — ยืนนิ่ง ≥ 30 วิ</span></label></li>
+      <li><label class="check"><input type="checkbox"><span class="mark">SW</span><span class="txt">มุมล่างซ้าย — ยืนนิ่ง ≥ 30 วิ</span></label></li>
+      <li><label class="check"><input type="checkbox"><span class="mark">L&amp;R</span><span class="txt">จุดขึ้น-ลงจริง บนลู่วิ่งมุม NW/W — ยืนนิ่ง ≥ 30 วิ</span></label></li>
+    </ul>
+    <ul class="plain">
+      <li>ยืนที่ <b>ขอบที่ยอมให้โดรนบินถึง</b> (ขอบนอกลู่วิ่ง) ไม่ใช่ขอบหญ้า — ค่านี้จะกลายเป็น geofence</li>
+      <li><b>อย่าเดินตัดมุม</b> ระหว่างเดินระบบทิ้งอัตโนมัติ นับเฉพาะช่วงที่ยืนนิ่ง</li>
+      <li>นิ่ง = ขยับน้อยกว่า 0.8 m · ยืนไม่ถึง 20 วิ = จุดนั้นหายไปเลย ยืนเผื่อเป็น 45 วิปลอดภัยกว่า</li>
+      <li>ถือโดรนสูงระดับเดิมทุกจุด อย่าเอาตัวเองบังท้องฟ้าฝั่งเสา GPS</li>
+      <li>ถ้าสายหลุด/เครื่องหลับกลางทาง: กด Ctrl-C ทิ้ง แล้ว<b>เริ่มใหม่ทั้งรอบ</b> — ครึ่งรอบใช้ไม่ได้</li>
+    </ul>
+  </section>
+
+  <!-- ============ D ============ -->
+  <section class="stage">
+    <div class="head">
+      <span class="badge">D</span>
+      <h2>ปิดงานแล้วเช็กว่ามีข้อมูลจริง
+        <span class="where">ยืนอยู่จุดสุดท้ายนั่นแหละ</span>
+      </h2>
+    </div>
+    <div class="term"><pre><span class="c"># D1 กด Ctrl-C ในหน้าต่างที่รัน logger</span>
+
+<span class="c"># D2 ควรได้หลายพันบรรทัด</span>
+wc -l captures/survey_track.jsonl</pre></div>
+    <div class="out">
+      <span class="lead">ต้องเห็นตอนกด Ctrl-C</span>
+      <code>[survey] wrote &lt;N&gt; samples → captures/survey_track.jsonl</code>
+    </div>
+  </section>
+
+  <!-- ============ E ============ -->
+  <section class="stage">
+    <div class="head">
+      <span class="badge">E</span>
+      <h2>แปลงเป็นพิกัด — ทำตรงนั้นเลย ก่อนเก็บโดรน
+        <span class="where">ยังอยู่ในสนาม</span>
+      </h2>
+    </div>
+    <div class="term"><pre>env -u PYTHONPATH .venv/bin/python tools/survey_extract.py \
+    captures/survey_track.jsonl --names "NW,NE,SE,SW,LR"</pre></div>
+    <p class="note">ตรวจ 3 อย่างนี้ก่อนเก็บของ — ไม่ผ่านก็ยังยืนอยู่ในสนาม เดินซ้ำได้ทันที</p>
+    <ul class="checks">
+      <li><label class="check"><input type="checkbox"><span class="mark">1</span><span class="txt">ได้ครบ <b>5 จุด</b> — ถ้าขาด ลองผ่อนเกณฑ์ <code>--dwell 15</code> หรือ <code>--radius 2.0</code></span></label></li>
+      <li><label class="check"><input type="checkbox"><span class="mark">2</span><span class="txt">ค่ากระจายทุกจุด <b>&lt; 1.5 m</b> และจำนวนดาวเทียมไม่ต่ำผิดปกติ</span></label></li>
+      <li><label class="check"><input type="checkbox"><span class="mark">3</span><span class="txt">กรอบสนามที่ fit ได้ (แกน + ขนาด) ดูสมเหตุสมผลกับสนามจริง</span></label></li>
+    </ul>
+    <div class="call warn">
+      <b>ถ้าต้องเดินซ้ำ</b> ให้เริ่ม logger ใหม่โดยเปลี่ยนชื่อไฟล์
+      <code>--out captures/survey_track_2.jsonl</code> — ใช้ชื่อเดิมมันจะ<b>เขียนทับ</b>ของที่เพิ่งเดินมา
+    </div>
+  </section>
+
+  <!-- ============ F ============ -->
+  <section class="stage">
+    <div class="head">
+      <span class="badge">F</span>
+      <h2>แก้แมพจริง
+        <span class="where">กลับถึงบ้าน</span>
+      </h2>
+    </div>
+    <div class="term"><pre><span class="c"># F1 วางค่าที่ extract พิมพ์ออกมา (FIELD_CENTER_LAT/LON, AXIS_DEG,</span>
+<span class="c">#    AIRSPACE_S/T, LNR_ST) ลงหัวไฟล์ tools/gen_geo.py แล้วสั่ง</span>
+env -u PYTHONPATH .venv/bin/python tools/gen_geo.py
+
+<span class="c"># F2 ก๊อป output ไปวางให้ครบทั้ง invariant (gen_geo ไม่เขียนไฟล์เอง โดยตั้งใจ)</span>
+
+<span class="c"># F3 ภาพพื้นสนามใหม่ตามกรอบใหม่ — ต่อเน็ต + ใช้ system python3 (venv ไม่มี PIL)</span>
+python3 tools/fetch_sat.py
+<span class="c">#    เห็นภาพใหม่ต้อง restart sim + ล้าง cache ~/.gz</span>
+
+<span class="c"># F4 ตรวจว่าไม่พัง — โดรนต้องเกิดที่ L&amp;R ใหม่ และสนามตรงกับภาพ</span>
+make test
+make sitl</pre></div>
+    <p class="note">6 จุดของ geometry invariant ที่ต้องอัปเดตพร้อมกันใน F2:</p>
+    <div class="targets">
+      <div>sitl/aavc_config.yaml</div>
+      <div>sitl/worlds/kmutnb_skyfield.sdf</div>
+      <div>sitl/launch_sitl.sh · PX4_HOME_*</div>
+      <div>sitl/spawn_targets.py · BASELINE_PADS</div>
+      <div>gcs/kmutnb_field.yaml</div>
+      <div>tools/fetch_sat.py · import GEO เอง</div>
+    </div>
+  </section>
+
+  <!-- ============ kit ============ -->
+  <section class="stage">
+    <div class="head">
+      <span class="badge">✚</span>
+      <h2>ของที่ต้องหิ้วไป
+        <span class="where">เช็กก่อนออกจากบ้าน</span>
+      </h2>
+    </div>
+    <ul class="checks">
+      <li><label class="check"><input type="checkbox"><span class="mark">01</span><span class="txt">โดรน + แบต (เปิดค้างได้ ~15 นาที) — <b>ไม่ต้องใส่ใบพัด</b></span></label></li>
+      <li><label class="check"><input type="checkbox"><span class="mark">02</span><span class="txt">โน้ตบุ๊กชาร์จเต็ม + ตั้งไม่ให้หลับตอนปิดฝา</span></label></li>
+      <li><label class="check"><input type="checkbox"><span class="mark">03</span><span class="txt">สาย USB ↔ Pixhawk <b>+ เส้นสำรอง</b> (สายหลุด = เดินใหม่ทั้งรอบ)</span></label></li>
+      <li><label class="check"><input type="checkbox"><span class="mark">04</span><span class="txt">นาฬิกา/มือถือจับเวลา 30 วิ</span></label></li>
+      <li><label class="check"><input type="checkbox"><span class="mark">05</span><span class="txt">คนช่วยอีกคน — คนอุ้มโดรน คนถือโน้ตบุ๊กดูหน้าจอ</span></label></li>
+    </ul>
+  </section>
+
+  <footer>
+    ที่มา: <code>tools/survey_logger.py</code> · <code>tools/survey_extract.py</code> ·
+    <code>tools/gen_geo.py</code> · <code>docs/FIELD_SURVEY.md</code>
+    — ช่องพอร์ตด้านบนแก้คำสั่งในหน้านี้ให้ทุกที่พร้อมกัน
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var KEY = 'aavc-survey-checklist-usb';
+    var portSel = document.getElementById('port');
+    var boxes = Array.prototype.slice.call(document.querySelectorAll('.check input'));
+    var doneEl = document.getElementById('done');
+    document.getElementById('total').textContent = boxes.length;
+
+    function load() {
+      try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; }
+    }
+    function save(s) {
+      try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) { /* ไม่มีที่เก็บก็ใช้งานต่อได้ */ }
+    }
+    var state = load();
+    if (!state.checked) state.checked = {};
+
+    function applyPort() {
+      var nodes = document.querySelectorAll('.term .port');
+      for (var i = 0; i < nodes.length; i++) nodes[i].textContent = portSel.value;
+      state.port = portSel.value; save(state);
+    }
+    function tally() {
+      var n = 0;
+      for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) n++;
+      doneEl.textContent = n;
+    }
+
+    if (state.port) portSel.value = state.port;
+    boxes.forEach(function (b, i) {
+      b.checked = !!state.checked[i];
+      b.addEventListener('change', function () {
+        state.checked[i] = b.checked; save(state); tally();
+      });
+    });
+
+    portSel.addEventListener('change', applyPort);
+    applyPort(); tally();
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+# AAVC onboard HITL stack — OPTIONAL systemd unit for the CM4 companion.
+# CM4-in-the-loop HITL: the real CM4 flies the real mission against the real 6X
+# (on the HIL firmware, SYS_HITL=1) while jMAVSim provides physics from the laptop.
+# NO MOTORS SPIN. Convenience for process management + journald logging.
+#
+# Install:
+#   sudo cp cm4/aavc-hitl.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl start aavc-hitl        # start a HITL run; logs: journalctl -u aavc-hitl -f
+#   sudo systemctl stop  aavc-hitl        # tear the stack down
+#
+# PRECONDITIONS (this unit does NOT do them — see docs/HITL.md):
+#   1. 6X on the HIL build (`make px4_fmu-v6x_hil upload`) + `make hitl-params` done.
+#   2. jMAVSim running on the LAPTOP, owning the 6X USB HIL link.
+#   3. `make spawn-targets` has written /tmp/aavc_targets.json (synthetic-cam pads).
+#   4. The 6X MISSION link reaches this CM4 on SERIAL= (TELEM2, /dev/ttyAMA0).
+#
+# SAFETY: do NOT `systemctl enable` this — auto-start on boot + HEADLESS would
+# auto-arm and auto-fly the mission (harmless in HITL — no motors — but it would
+# start unattended). Start it MANUALLY, deliberately. Restart=no so a finished
+# mission never re-flies. Default is bench-safe (dashboard up, operator GO per
+# sortie); set Environment=HEADLESS=1 + ASSIGNED_IDS= only for an unattended run.
+# Edit User=, WorkingDirectory=, and the Environment= knobs for your CM4.
+[Unit]
+Description=AAVC onboard HITL stack (mavlink-router + synthetic camera + orchestrator)
+After=multi-user.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/AAVC
+Environment=SERIAL=/dev/ttyAMA0
+Environment=TARGETS=/tmp/aavc_targets.json
+# Environment=HEADLESS=1                 # uncomment ONLY for an unattended HITL run
+# Environment=ASSIGNED_IDS=3,1,4,6       # committee stand-in (per-sortie ids) when HEADLESS
+ExecStart=/usr/bin/env bash cm4/launch_hitl.sh
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

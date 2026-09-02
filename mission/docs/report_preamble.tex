@@ -1,0 +1,97 @@
+% ─────────────────────────────────────────────────────────────────────────────
+% LaTeX preamble for the AAVC 2026 technical report (pandoc --include-in-header)
+% Built by docs/build_report.sh — edit here, not in the generated .tex.
+% ─────────────────────────────────────────────────────────────────────────────
+\usepackage{etoolbox}
+\usepackage{fancyhdr}
+
+% Glyph fallback: TeX Gyre Termes has no prime, implication or superset sign.
+% Borrow those few from DejaVu Serif rather than mangling the Markdown source,
+% which is read on its own as well as through this build.
+\usepackage{newunicodechar}
+\newfontfamily\aavcfallback{DejaVu Serif}[Scale=MatchLowercase]
+% pandoc's XeLaTeX template loads unicode-math, which claims these code
+% points for math mode; the redefinition therefore has to happen after it.
+\AtBeginDocument{%
+  \newunicodechar{′}{{\aavcfallback\symbol{"2032}}}
+  \newunicodechar{″}{{\aavcfallback\symbol{"2033}}}
+  \newunicodechar{⇒}{{\aavcfallback\symbol{"21D2}}}
+  \newunicodechar{⊃}{{\aavcfallback\symbol{"2283}}}
+  \newunicodechar{⌀}{{\aavcfallback\symbol{"2300}}}
+}
+
+% Tables carry most of this document: smaller type, tighter gutters, taller rows.
+\AtBeginEnvironment{longtable}{\small\setlength{\tabcolsep}{4pt}}
+\renewcommand{\arraystretch}{1.15}
+
+% The ASCII architecture / CONOPS diagrams are ~80 columns wide.
+\AtBeginEnvironment{verbatim}{\scriptsize}
+
+% Note blocks (markdown block quotes) read as commentary, not body text.
+\AtBeginEnvironment{quote}{\small}
+
+% Figures: captions a size down, and let them float only within reason.
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf,labelsep=period,skip=6pt}
+\usepackage{float}
+% Figures belong to the paragraph that introduces them: place them where
+% they are written rather than letting LaTeX drift them to the end.
+\floatplacement{figure}{H}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.7}
+\renewcommand{\textfraction}{0.1}
+\renewcommand{\floatpagefraction}{0.75}
+
+% Running heads.
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\itshape AAVC 2026 — Technical Design \& Analysis Report}
+\fancyhead[R]{\footnotesize\itshape Team AeroOptix · KMUTNB}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\setlength{\headheight}{14pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}\fancyfoot[C]{\thepage}\renewcommand{\headrulewidth}{0pt}}
+
+% Slightly looser paragraph spacing than the LaTeX default for a report read on screen.
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+
+% Start the body on a clean page after the table of contents.
+\let\aavcoldtoc\tableofcontents
+\renewcommand{\tableofcontents}{\aavcoldtoc\clearpage}
+
+% Title page. Overrides pandoc's plain \maketitle; the title/author/date
+% variables passed by build_report.sh still populate the PDF metadata.
+\renewcommand{\maketitle}{%
+  \begin{titlepage}
+    \centering
+    \vspace*{1.8cm}
+    {\scshape\large Autonomous Aerial Vehicle Challenge 2026\par}
+    \vspace{0.5em}
+    {International Academy of Aviation Industry (IAAI), KMITL Ladkrabang\par}
+    {28--30 August 2026\par}
+    \vspace{1.8cm}
+    \rule{\textwidth}{1.1pt}\par
+    \vspace{0.9cm}
+    {\huge\bfseries AAVC 2026\par}
+    \vspace{0.45em}
+    {\huge\bfseries Technical Design \& Analysis Report\par}
+    \vspace{0.9cm}
+    {\large Autonomous PX4 Hexacopter for Precision Fragile-Cargo Delivery\par}
+    \vspace{0.5em}
+    {EFT X6100 hexacopter · Pixhawk 6X · Raspberry Pi CM4\par}
+    \vspace{0.9cm}
+    \rule{\textwidth}{1.1pt}\par
+    \vspace{2.2cm}
+    {\Large\bfseries Team AeroOptix\par}
+    \vspace{0.6em}
+    {King Mongkut's University of Technology North Bangkok\par}
+    {Faculty of Engineering\par}
+    \vfill
+    {\small Document version 2.0 · 28 August 2026\par}
+    \vspace{0.4em}
+    {\small Rules \& Regulations V1.3 (July 2026), as amended by the\par}
+    {\small 24 July and 28 August 2026 event briefings\par}
+    \vspace{1.2cm}
+  \end{titlepage}}

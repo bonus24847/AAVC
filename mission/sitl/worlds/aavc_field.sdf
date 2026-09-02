@@ -1,0 +1,479 @@
+<?xml version="1.0" ?>
+<!--
+  AAVC 2026 Gazebo Harmonic world — the IAAI KMITL field (rules V1.1).
+
+  MISSION: an autonomous PX4 hexacopter delivers ONE egg cargo per sortie to the
+  landing pad matching the committee-ASSIGNED ArUco id (DICT_4X4_50, ids 1-6):
+  mandatory transit P1->P2->P3 at 20 m, land ON the pad, release after
+  touchdown, egress, land at L&R, resupply, repeat. Event briefing: the field
+  carries all 6 physical pads; the committee assigns only 4 per team, so the
+  other 2 are permanent distractors (sitl/aavc_config.yaml sitl.n_pads).
+
+  This world is deliberately SPARSE + FAST: a sun, a ground plane, the L&R
+  launch pad at the origin, and 6 included landing_pad_id_* models
+  (sitl/models/, baked by tools/gen_pads.py).
+
+  Coordinate origin (spherical_coordinates) is the LAUNCH & RECOVERY point at
+  IAAI KMITL: 13.730250 N, 100.787300 E, 2 m MSL — identical to
+  sitl/aavc_config.yaml site.center and launch_sitl.sh PX4_HOME_*, so the
+  vehicle spawns at the L&R pad. Local ENU offsets are relative to this
+  origin: +X = east, +Y = north, z = 0 at ground.
+
+  FIELD LAYOUT (local ENU, metres — from the rules coordinates):
+    - controlled airspace quad: x -13..283, y -49..123 (~296 x 167 m).
+    - search area quad (the pads live here): x 57..283, y 50..123.
+    - transit route: P1 (16, 8) -> P2 (151, 16) -> P3 (157, 51).
+    - no-fly zone (APPROX): x 196..261, y -6..50.
+    - baseline pads at (90, 75) id1, (150, 95) id3, (200, 70) id4,
+      (250, 105) id6, (120, 86) id2, (225, 88) id5 — mirrored as the no-seed
+      defaults in spawn_targets.py's BASELINE_PADS (>=25 m pairwise
+      separation, >=10 m polygon inset — see tests/test_spawn_targets.py).
+-->
+<sdf version="1.9">
+  <world name="aavc_field">
+
+    <!-- Spherical coordinates: world origin = the IAAI KMITL Launch & Recovery
+         point (== config site.center == PX4_HOME_*; keep all in sync). -->
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <latitude_deg>13.730250</latitude_deg>
+      <longitude_deg>100.787300</longitude_deg>
+      <elevation>2</elevation>
+      <heading_deg>0</heading_deg>
+    </spherical_coordinates>
+
+    <!-- Physics step. PX4 v1.15+ SITL expects 1 kHz update rate. Without
+         an explicit <physics> block gz-sim 8 (Harmonic) falls back to its
+         own default which can desynchronise the gz_bridge handshake and
+         trigger "Service call timed out" on model spawn. -->
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+
+    <!-- Standard physics + sensors plugins -->
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-air-pressure-system" name="gz::sim::systems::AirPressure"/>
+    <plugin filename="gz-sim-magnetometer-system" name="gz::sim::systems::Magnetometer"/>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+
+    <!-- Wind plugin — light, steady breeze for landing-precision realism.
+         Tuning lives in sitl/aavc_config.yaml.wind_sitl. -->
+    <plugin filename="gz-sim-wind-effects-system" name="gz::sim::systems::WindEffects">
+      <horizontal>
+        <magnitude>
+          <time_for_rise>10</time_for_rise>
+          <sin>
+            <amplitude_percent>0.5</amplitude_percent>
+            <period>60</period>
+          </sin>
+          <noise type="gaussian">
+            <mean>0</mean>
+            <stddev>0.5</stddev>
+          </noise>
+        </magnitude>
+        <direction>
+          <time_for_rise>20</time_for_rise>
+          <sin>
+            <amplitude>15</amplitude>
+            <period>120</period>
+          </sin>
+        </direction>
+      </horizontal>
+      <vertical>
+        <noise type="gaussian">
+          <mean>0</mean>
+          <stddev>0.1</stddev>
+        </noise>
+      </vertical>
+    </plugin>
+    <wind>
+      <linear_velocity>3 0 0</linear_velocity>
+    </wind>
+
+    <!-- Sun -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 200 0 0 0</pose>
+      <diffuse>1 1 1 1</diffuse>
+      <specular>0.6 0.6 0.6 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.2 -0.9</direction>
+    </light>
+
+    <!-- Ambient + sky -->
+    <scene>
+      <ambient>0.4 0.4 0.4 1</ambient>
+      <background>0.7 0.85 1.0</background>
+      <sky/>
+    </scene>
+
+    <!-- Ground plane, comfortably larger than the ~296 x 167 m controlled
+         airspace. Grass green with a dull specular so the WHITE pads stand
+         out for the pad-blob cue + ArUco decode. -->
+    <model name="ground_plane">
+      <static>true</static>
+      <!-- Centred on the airspace centroid ENU (134, 41) and sized 400 x 260 m
+           so the grass covers the whole airspace, the search area, the L&R pad
+           at the origin, and the perimeter scenery. -->
+      <pose>134 41 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>400 260</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>400 260</size>
+            </plane>
+          </geometry>
+          <!-- Procedural grass/earth albedo (sitl/models/aavc_ground, generated
+               by tools/gen_grass.py) — realistic green + olive-dirt + dead-grass
+               variation, verified to contain no pad-white pixels so it can't
+               false-trigger the landing-pad detector's white-blob cue. -->
+          <material>
+            <ambient>0.6 0.6 0.6 1</ambient>
+            <diffuse>0.9 0.9 0.9 1</diffuse>
+            <specular>0.03 0.03 0.03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>model://aavc_ground/materials/textures/grass.png</albedo_map>
+                <metalness>0.0</metalness>
+                <roughness>1.0</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Launch / recovery pad (10 x 10 m, light grey) AT the world origin —
+         which IS the rules' L&R point (site.center == PX4_HOME). Grey (V~128)
+         stays under the pad detector's white-cue threshold (V>=170). -->
+    <!-- Resupply set-dressing: the 4 cargo-box dummies (rules V1.3 Fig. 5 —
+         heart box ~16x7x18 cm, one egg each) staged on the east side of the
+         L&R pad, clear of the (0,0) spawn, the H-marker bars (|x|<=2) and the
+         corner posts (±4.5,±4.5). z=0.10 = the pad's top face. Detector-safe:
+         the 16x7 cm top face is ~4 px from 20 m — far under the 18 px blob
+         floor — and fails the square-aspect gate; vision is also inactive in
+         the TAKEOFF/LAND phases flown over this area. -->
+    <include>
+      <name>cargo_box_1</name>
+      <uri>model://cargo_box</uri>
+      <pose>3.0 3.0 0.10 0 0 0.3</pose>
+    </include>
+    <include>
+      <name>cargo_box_2</name>
+      <uri>model://cargo_box</uri>
+      <pose>3.0 -3.0 0.10 0 0 -0.5</pose>
+    </include>
+    <include>
+      <name>cargo_box_3</name>
+      <uri>model://cargo_box</uri>
+      <pose>4.2 1.2 0.10 0 0 1.1</pose>
+    </include>
+    <include>
+      <name>cargo_box_4</name>
+      <uri>model://cargo_box</uri>
+      <pose>4.2 -1.2 0.10 0 0 -1.2</pose>
+    </include>
+
+    <!-- ============================================================
+         DYNAMIC BELLY CARGO (Task 10, rules V1.3): 4 cargo_payload boxes
+         (sitl/models/cargo_payload — ~90 g each with mass + inertia, unlike
+         the STATIC cargo_box dressing above) pre-placed at the WORLD-ORIGIN
+         spawn belly so their DetachableJoints (sitl/models/eft_x6100/
+         model.sdf, base_link <-> cargo_payload_N) bind the instant PX4
+         spawns the aircraft there. Coupled to sitl/launch_sitl.sh's
+         PX4_GZ_MODEL_POSE="0,0,0.35,0,0,0" (base_link origin at world
+         (0,0,0.35) at spawn) — see the SITL geometry invariant in
+         CLAUDE.md §8: if that spawn pose or the world origin ever moves,
+         these poses move with it, since they are placed in the SAME world
+         frame, not relative to the aircraft.
+
+         Placement (world frame; base_link-relative z = world z - 0.35):
+         two boxes ahead of and two behind the belly sensors at x=+-0.24,
+         paired across y=+-0.09, each YAWED 90 deg (long 0.16 m axis across
+         the airframe), at z=0.19 (box spans world z 0.10-0.28).
+
+         SENSOR CLEARANCE (2026-07-25) is what sets x and the yaw. Both
+         downward sensors sit on the base_link centreline — the nadir camera
+         at z=-0.02 (sitl/models/eft_x6100/model.sdf) and the TFmini-S
+         surrogate lidar at z=-0.05 (eft_x6100_base/model.sdf) — while the
+         boxes hang from z=-0.07 down to -0.25. The original placement put
+         all four at x=0 spread along y: 0.18 m of cardboard 0.05 m under
+         the lens, filling the camera's entire 99.7 x 67.3 deg cone (the
+         operator's nadir feed showed box tops, accent bands and a single
+         ~11%-of-frame slit of grass — no ground, no pads, so the detector
+         had nothing to decode), and parking the lidar's single ray 0.02 m
+         off a box face, below its own 0.1 m minimum range.
+
+         The frustum is a rectangular pyramid whose cross-section at the
+         box's deepest point (0.23 m under the lens) is +-0.153 m fore/aft
+         by +-0.273 m laterally: camera_link is pitched +pi/2 about Y, which
+         maps the image's NARROW axis (aspect-scaled vertical FOV) onto body
+         X and its WIDE axis (horizontal_fov 1.74 rad) onto body Y. Fore/aft
+         is therefore the cheap escape axis — 1.78x cheaper than lateral —
+         and yawing each box 90 deg shrinks its fore/aft half-extent from
+         0.08 to 0.035 m. x=+-0.24 clears the cone by 0.052 m (34% of the
+         cone half-width) and the lidar ray by 0.205 m, while keeping a shed
+         box's outer edge 0.275 m from the aircraft centre so it still falls
+         inside a 1 m pad after a typical 0.2 m touchdown error. Regression-
+         locked by tests/test_world_assets.py, which re-derives the cone from
+         the camera's own mount pose, FOV and image aspect rather than
+         trusting the numbers written here.
+
+         The x/y signs alternate so the payload adds zero net roll/pitch
+         moment when full and zero again after the first two releases (order
+         is 0,1,2,3); the worst intermediate offset is one box's own moment,
+         0.09 kg x 0.256 m / 7.17 kg = 3.2 mm of CG travel.
+
+         I6 fix (review 2026-07-24) — z=0.19 is unchanged by the 2026-07-25
+         move, and its derivation still governs: z used to be 0.14 (box spanning world z
+         0.05-0.23), cleared against the world GROUND PLANE (z=0) — the WRONG
+         datum. These boxes sit directly over the `launch_pad` slab (pose
+         z=0.05, height 0.1 => TOP face at world z=0.10, footprint x,y in
+         [-5,5]), not bare ground, and gz starts the world RUNNING (`-r`)
+         seconds before PX4 spawns the aircraft — so at z=0.14 each box's
+         bottom (0.05) sat 0.05 m INSIDE the slab as a free rigid body in
+         penetrating contact, with no DetachableJoint yet formed to hold it
+         (that only binds once base_link exists). The physics engine ejects a
+         penetrating body on its first step, and the joint then welds the box
+         wherever it scattered to — for the whole flight. Fixed: z=0.19 =
+         slab top (0.10) + box half-height (0.09) — resting exactly ON the
+         slab. Verified clear (arithmetic re-derived in full in the Task
+         "final-review-fixes-2" report; the slab-top bound is regression-
+         locked as LAUNCH_PAD_TOP_Z in tests/test_world_assets.py, derived
+         from launch_pad's own pose + collision size, not hard-coded) of:
+           - the slab top: box bottom = 0.19-0.09 = 0.10 = slab top exactly
+             (0 m gap, not overlap — the equilibrium rest pose for a body
+             under gravity with nothing below the slab).
+           - each other (yawed footprint = 0.07 m in X, 0.16 m in Y => half
+             0.035 / 0.08): the two boxes sharing an x sit at y=+-0.09, so
+             their Y ranges are [0.01,0.17] and [-0.17,-0.01] => 0.02 m gap;
+             fore vs aft, X ranges [0.205,0.275] and [-0.275,-0.205] =>
+             0.41 m gap.
+           - base_link's `base_link_collision_body`
+             (sitl/models/eft_x6100_base/model.sdf: local pose z=0.02, box
+             height 0.08 => half 0.04; spawn z=0.35, PX4_GZ_MODEL_POSE, =>
+             world z-range [0.33, 0.41]; x,y footprint [-0.18,0.18]): clear
+             TWICE over since the 2026-07-25 move — box top = 0.28 stays
+             0.05 m under its underside, and every box's |x| >= 0.205 now
+             falls outside its 0.18 m footprint as well (it used to cover
+             every box's x,y, leaving only the z gap).
+           - both landing-gear skid rails (`base_link_collision_rail_left`/
+             `_right`: local pose z=-0.283 => world z-range [0.052,0.082];
+             y=+-0.32, half-width 0.015 => y-range +-[0.305,0.335]): every
+             box's y stays within +-0.17, so the rails are never in the same
+             Y band regardless of z (>=0.135 m clear either way) — and the
+             rails' z-range [0.052,0.082] doesn't reach the box z-range
+             [0.10,0.28] either. No intersection on either axis.
+         Gear legs are visual-only (no <collision> in eft_x6100_base) so they
+         cannot be hit physically; they are the one part the 2026-07-25 move
+         brought alongside in X (legs x=+-[0.1875,0.2125] vs box X ranges
+         +-[0.205,0.275]), but they sit at y=+-[0.3075,0.3325], so the boxes
+         clear them by 0.1375 m in Y. Shed onto the pad by
+         sitl/payload_detach_bridge.py (Task 11). -->
+    <include>
+      <name>cargo_payload_0</name>
+      <uri>model://cargo_payload</uri>
+      <pose>0.24 0.09 0.19 0 0 1.5708</pose>
+    </include>
+    <include>
+      <name>cargo_payload_1</name>
+      <uri>model://cargo_payload</uri>
+      <pose>-0.24 -0.09 0.19 0 0 1.5708</pose>
+    </include>
+    <include>
+      <name>cargo_payload_2</name>
+      <uri>model://cargo_payload</uri>
+      <pose>0.24 -0.09 0.19 0 0 1.5708</pose>
+    </include>
+    <include>
+      <name>cargo_payload_3</name>
+      <uri>model://cargo_payload</uri>
+      <pose>-0.24 0.09 0.19 0 0 1.5708</pose>
+    </include>
+
+    <model name="launch_pad">
+      <static>true</static>
+      <pose>0 0 0.05 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>10 10 0.1</size></box>
+          </geometry>
+          <material>
+            <ambient>0.55 0.55 0.55 1</ambient>
+            <diffuse>0.62 0.62 0.62 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry><box><size>10 10 0.1</size></box></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <!-- ============================================================
+         6 ARUCO LANDING PADS (rules V1.1: 1x1 m white pad, black ring,
+         central 0.4 m DICT_4X4_50 marker). Included from
+         sitl/models/landing_pad_id_* (baked by tools/gen_pads.py; resolved via
+         GZ_SIM_RESOURCE_PATH — sitl/launch_sitl.sh prepends sitl/models).
+         ENU positions sit INSIDE the search-area quad (x 57..283, y 50..123)
+         with >=25 m separation; each pad at a different YAW so decode must be
+         rotation-invariant. These EXACT poses/ids are the no-seed defaults in
+         spawn_targets.py — keep this static set as the world's baseline so a
+         bare `make px4_sitl` already has pads. `make spawn-targets SEED=n`
+         re-places them (random n_pads-of-6 ids + positions, default 6) at
+         runtime. Event briefing: the committee assigns only 4 of these 6 ids
+         per team (mission.assigned_marker_ids), so ids 2 and 5 below (pad_5,
+         pad_6) are permanent distractors whenever they are not assigned.
+         ============================================================ -->
+    <include>
+      <name>pad_1</name>
+      <uri>model://landing_pad_id_1</uri>
+      <pose>90 75 0 0 0 0.0</pose>
+    </include>
+    <include>
+      <name>pad_2</name>
+      <uri>model://landing_pad_id_3</uri>
+      <pose>150 95 0 0 0 0.95993</pose>
+    </include>
+    <include>
+      <name>pad_3</name>
+      <uri>model://landing_pad_id_4</uri>
+      <pose>200 70 0 0 0 2.09440</pose>
+    </include>
+    <include>
+      <name>pad_4</name>
+      <uri>model://landing_pad_id_6</uri>
+      <pose>250 105 0 0 0 4.18879</pose>
+    </include>
+    <include>
+      <name>pad_5</name>
+      <uri>model://landing_pad_id_2</uri>
+      <pose>120 86 0 0 0 2.96706</pose>
+    </include>
+    <include>
+      <name>pad_6</name>
+      <uri>model://landing_pad_id_5</uri>
+      <pose>225 88 0 0 0 5.23599</pose>
+    </include>
+
+    <!-- ============================================================
+         TAKEOFF MARKER at the launch pad (world origin = drone spawn).
+         White helipad "H" + a magenta beacon pole (just north of the pad,
+         clear of the 0,0,0 spawn) + four orange corner posts. All visuals
+         are collision-free so nothing obstructs the takeoff/landing.
+         ============================================================ -->
+    <model name="takeoff_marker">
+      <static>true</static>
+      <link name="link">
+        <visual name="h_bar_left">
+          <pose>0 -1.6 0.13 0 0 0</pose>
+          <geometry><box><size>4.0 0.5 0.06</size></box></geometry>
+          <material><ambient>0.95 0.95 0.95 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="h_bar_right">
+          <pose>0 1.6 0.13 0 0 0</pose>
+          <geometry><box><size>4.0 0.5 0.06</size></box></geometry>
+          <material><ambient>0.95 0.95 0.95 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="h_cross">
+          <pose>0 0 0.13 0 0 0</pose>
+          <geometry><box><size>0.6 3.2 0.06</size></box></geometry>
+          <material><ambient>0.95 0.95 0.95 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="beacon_pole">
+          <pose>0 6.5 3.0 0 0 0</pose>
+          <geometry><cylinder><radius>0.12</radius><length>6.0</length></cylinder></geometry>
+          <material><ambient>0.7 0.0 0.6 1</ambient><diffuse>0.95 0.1 0.85 1</diffuse></material>
+        </visual>
+        <visual name="beacon_ball">
+          <pose>0 6.5 6.2 0 0 0</pose>
+          <geometry><sphere><radius>0.45</radius></sphere></geometry>
+          <material>
+            <ambient>0.9 0.8 0.0 1</ambient>
+            <diffuse>1.0 0.9 0.1 1</diffuse>
+            <emissive>0.6 0.5 0.0 1</emissive>
+          </material>
+        </visual>
+        <visual name="post_ne"><pose>4.5 4.5 0.6 0 0 0</pose><geometry><cylinder><radius>0.12</radius><length>1.2</length></cylinder></geometry><material><ambient>0.85 0.4 0.0 1</ambient><diffuse>1.0 0.5 0.0 1</diffuse></material></visual>
+        <visual name="post_nw"><pose>-4.5 4.5 0.6 0 0 0</pose><geometry><cylinder><radius>0.12</radius><length>1.2</length></cylinder></geometry><material><ambient>0.85 0.4 0.0 1</ambient><diffuse>1.0 0.5 0.0 1</diffuse></material></visual>
+        <visual name="post_se"><pose>4.5 -4.5 0.6 0 0 0</pose><geometry><cylinder><radius>0.12</radius><length>1.2</length></cylinder></geometry><material><ambient>0.85 0.4 0.0 1</ambient><diffuse>1.0 0.5 0.0 1</diffuse></material></visual>
+        <visual name="post_sw"><pose>-4.5 -4.5 0.6 0 0 0</pose><geometry><cylinder><radius>0.12</radius><length>1.2</length></cylinder></geometry><material><ambient>0.85 0.4 0.0 1</ambient><diffuse>1.0 0.5 0.0 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- ============================================================
+         SPECTATOR CAMERA (Tuning view): a fixed third-person ground camera
+         18 m south of the pad, 2.5 m up, looking NORTH and pitched up ~15 deg so
+         the drone stays fully in frame from touchdown through ~16 m AGL during
+         System-ID / Autotune. The include <pose> does all the aiming (the model's
+         own sensor pose is identity) — see sitl/models/spectator_cam/model.sdf for
+         the framing math. Publishes /spectator_camera → sitl/gz_camera_bridge.py
+         → /tmp/aavc_spectator.png → dashboard /api/camera/spectator.png. Off to the
+         side of the launch pad, never on a flight path, so it is harmless to the
+         scored mission (the flight GCS simply ignores the extra feed).
+         ============================================================ -->
+    <include>
+      <name>spectator_cam</name>
+      <uri>model://spectator_cam</uri>
+      <pose>0 -18 2.5 0 -0.26 1.5708</pose>
+    </include>
+
+    <!-- ============================================================
+         DECORATIVE SCENERY scattered OUTSIDE the controlled airspace
+         (x -13..283, y -49..123) so it never obstructs the transit corridor,
+         the search area, the pads, or any landing — and never enters a camera
+         frame during the scored mission. Trees line the far north + south;
+         houses sit outside the corners; cars park along a south "road".
+         Models resolve via GZ_SIM_RESOURCE_PATH (sitl/models/{tree,house,car}).
+         ============================================================ -->
+    <!-- Trees — beyond the north boundary (y >= 130) -->
+    <include><name>tree_n1</name><uri>model://tree</uri><pose>5 132 0 0 0 0</pose></include>
+    <include><name>tree_n2</name><uri>model://tree</uri><pose>55 136 0 0 0 0</pose></include>
+    <include><name>tree_n3</name><uri>model://tree</uri><pose>105 131 0 0 0 0</pose></include>
+    <include><name>tree_n4</name><uri>model://tree</uri><pose>155 137 0 0 0 0</pose></include>
+    <include><name>tree_n5</name><uri>model://tree</uri><pose>205 132 0 0 0 0</pose></include>
+    <include><name>tree_n6</name><uri>model://tree</uri><pose>255 136 0 0 0 0</pose></include>
+    <!-- Trees — beyond the south boundary (y <= -58) -->
+    <include><name>tree_s1</name><uri>model://tree</uri><pose>20 -60 0 0 0 0</pose></include>
+    <include><name>tree_s2</name><uri>model://tree</uri><pose>80 -63 0 0 0 0</pose></include>
+    <include><name>tree_s3</name><uri>model://tree</uri><pose>140 -58 0 0 0 0</pose></include>
+    <include><name>tree_s4</name><uri>model://tree</uri><pose>200 -62 0 0 0 0</pose></include>
+    <include><name>tree_s5</name><uri>model://tree</uri><pose>260 -59 0 0 0 0</pose></include>
+    <!-- Houses — outside the corners -->
+    <include><name>house_w_n</name><uri>model://house</uri><pose>-35 130 0 0 0 0.3</pose></include>
+    <include><name>house_w_s</name><uri>model://house</uri><pose>-35 -60 0 0 0 -0.2</pose></include>
+    <include><name>house_e_n</name><uri>model://house</uri><pose>305 130 0 0 0 2.9</pose></include>
+    <include><name>house_e_s</name><uri>model://house</uri><pose>305 -60 0 0 0 -2.9</pose></include>
+    <include><name>house_mid_n</name><uri>model://house</uri><pose>140 142 0 0 0 0.1</pose></include>
+    <!-- Cars — west of the L&R pad (outside the airspace) + south "road" -->
+    <include><name>car_launch1</name><uri>model://car</uri><pose>-20 9 0 0 0 0.2</pose></include>
+    <include><name>car_launch2</name><uri>model://car</uri><pose>-20 -9 0 0 0 -0.4</pose></include>
+    <include><name>car_road1</name><uri>model://car</uri><pose>60 -56 0 0 0 0</pose></include>
+    <include><name>car_road2</name><uri>model://car</uri><pose>150 -56 0 0 0 0</pose></include>
+    <include><name>car_road3</name><uri>model://car</uri><pose>240 -56 0 0 0 0</pose></include>
+
+  </world>
+</sdf>

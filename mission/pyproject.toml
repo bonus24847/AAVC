@@ -1,0 +1,90 @@
+[project]
+name = "aavc-2026"
+version = "0.1.0"
+description = "KMUTNB AAVC 2026 — lightweight autonomous land-and-drop competition build"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Pakin Champasak", email = "pakin.c@eng.kmutnb.ac.th" },
+]
+
+# Lean runtime stack. Classical CV only — NO torch / ultralytics / llama-cpp /
+# moondream / open3d / SLAM / mapping / planning. The whole flight core runs on
+# a Raspberry Pi CM4 CPU.
+dependencies = [
+    # MAVLink command + telemetry. Pinned to mavsdk 3.x — commands.py's connect()
+    # + drop paths are written against the 3.x mavsdk-server behaviour (the lock
+    # ships 3.15.x); the 2.x battery 0..100 contract is unchanged in 3.x.
+    "mavsdk>=3,<4",
+    "pymavlink>=2.4.41",
+    # pymavlink imports pyserial LAZILY — inside mavutil.mavlink_connection(),
+    # and only for a serial URL. So a venv without it passes every UDP-based test
+    # and then dies the moment something opens /dev/ttyACM0. That is exactly what
+    # happened on 2026-08-17, at the desk, minutes before the ground survey:
+    # tools/survey_logger.py is a CABLE tool now (laptop -> Pixhawk over USB; the
+    # CM4 route was removed), so the serial path is not optional for this repo any
+    # more. Declared here rather than discovered as `pip install pyserial` at the
+    # field, where there may be no network.
+    "pyserial",
+
+    # Vision (deterministic OpenCV — ArUco landing-pad decode + projection)
+    "opencv-python-headless",
+    "numpy",
+
+    # Validation + config
+    "pydantic>=2",
+    "pyyaml",
+
+    # Logging
+    "loguru",
+
+    # Live web dashboard (FastAPI + uvicorn)
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mission_brain*", "orchestrator*", "mavlink_adapter*", "vision*", "dashboard*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# The SIBLING project's repo is sitting inside this working tree (untracked,
+# 361 MB, found 2026-08-18). It is not our code and not our style budget, but
+# `ruff check .` walked into it and failed the G0 gate with 14 errors that no
+# one here can fix. Excluded so `make lint` answers the question it is asked:
+# is THIS repo clean. (cm4/deploy.sh excludes the same path for the matching
+# reason — the aircraft should carry only what it flies with.)
+# docs/ holds presentation/report generators (docs/presentation/v2/build_deck.py
+# alone carried 227 findings on 2026-08-27) — not flight code, not the G0 gate.
+extend-exclude = ["mission_AAVC", "docs"]
+
+[tool.ruff.lint]
+# Minimal: pycodestyle errors/warnings, pyflakes, import sort.
+select = ["E", "F", "I", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# Verbatim ports of the model-based design from ../aavc-2026 — the long lines are
+# mathematical derivation strings + pydantic Field descriptions; kept as-is so
+# the modules re-sync cleanly against the reference. (The numpy-only
+# and our own routers/tests still hold the 100-col line limit.)
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+exclude = ["^sitl/", "^\\.venv/", "^tests/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,244 @@
+[ WARN:0@10.058] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir v4l2 dev=/tmp/testcam -> /tmp/test_nadir.jpg (mirror OFF) every 0.20s
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#1)
+[ WARN:0@20.087] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=1 reopen=1
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#2)
+[ WARN:0@30.117] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=2 reopen=2
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#3)
+[ WARN:0@40.145] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=3 reopen=3
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#4)
+[ WARN:0@50.166] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=4 reopen=4
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#5)
+[ WARN:0@60.197] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=5 reopen=5
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#6)
+[ WARN:0@70.227] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=6 reopen=6
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#7)
+[ WARN:0@80.257] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=7 reopen=7
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#8)
+[ WARN:0@90.289] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=8 reopen=8
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#9)
+[ WARN:0@100.318] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=9 reopen=9
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#10)
+[ WARN:0@110.348] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=10 reopen=10
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#11)
+[ WARN:0@120.370] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=11 reopen=11
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#12)
+[ WARN:0@130.399] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=12 reopen=12
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#13)
+[ WARN:0@140.430] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=13 reopen=13
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#14)
+[ WARN:0@150.463] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=14 reopen=14
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#15)
+[ WARN:0@160.493] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=15 reopen=15
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#16)
+[ WARN:0@170.524] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=16 reopen=16
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#17)
+[ WARN:0@180.559] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=17 reopen=17
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#18)
+[ WARN:0@190.586] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=18 reopen=18
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#19)
+[ WARN:0@200.613] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=19 reopen=19
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#20)
+[ WARN:0@210.644] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=20 reopen=20
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#21)
+[ WARN:0@220.673] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=21 reopen=21
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#22)
+[ WARN:0@230.703] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=22 reopen=22
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#23)
+[ WARN:0@240.729] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=23 reopen=23
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#24)
+[ WARN:0@250.750] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=24 reopen=24
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#25)
+[ WARN:0@260.780] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=25 reopen=25
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#26)
+[ WARN:0@270.810] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=26 reopen=26
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#27)
+[ WARN:0@280.840] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=27 reopen=27
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#28)
+[ WARN:0@290.874] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=28 reopen=28
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#29)
+[ WARN:0@300.904] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=29 reopen=29
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#30)
+[ WARN:0@310.934] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=30 reopen=30
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#31)
+[ WARN:0@320.961] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=31 reopen=31
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#32)
+[ WARN:0@330.991] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=32 reopen=32
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#33)
+[ WARN:0@341.020] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=33 reopen=33
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#34)
+[ WARN:0@351.041] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=34 reopen=34
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#35)
+[ WARN:0@361.071] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=35 reopen=35
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#36)
+[ WARN:0@371.102] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=36 reopen=36
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopened (#37)
+[ WARN:0@381.136] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/tmp/testcam): select() timeout.
+[grabber] nadir ok=0 fail=37 reopen=37
+[grabber] no frame for 10.0s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 1s
+[grabber] nadir ok=0 fail=38 reopen=37
+[grabber] no frame for 11.0s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 2s
+[grabber] nadir ok=0 fail=49 reopen=37
+[grabber] no frame for 13.2s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 4s
+[grabber] nadir ok=0 fail=59 reopen=37
+[grabber] nadir ok=0 fail=69 reopen=37
+[grabber] no frame for 17.2s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 8s
+[grabber] nadir ok=0 fail=79 reopen=37
+[grabber] nadir ok=0 fail=89 reopen=37
+[grabber] nadir ok=0 fail=99 reopen=37
+[grabber] nadir ok=0 fail=109 reopen=37
+[grabber] no frame for 25.2s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 15s
+[grabber] nadir ok=0 fail=119 reopen=37
+[grabber] nadir ok=0 fail=129 reopen=37
+[grabber] nadir ok=0 fail=139 reopen=37
+[grabber] nadir ok=0 fail=149 reopen=37
+[grabber] nadir ok=0 fail=159 reopen=37
+[grabber] nadir ok=0 fail=169 reopen=37
+[grabber] nadir ok=0 fail=179 reopen=37
+[grabber] nadir ok=0 fail=189 reopen=37
+[grabber] no frame for 40.2s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 15s
+[grabber] nadir ok=0 fail=199 reopen=37
+[grabber] nadir ok=0 fail=209 reopen=37
+[grabber] nadir ok=0 fail=219 reopen=37
+[grabber] nadir ok=0 fail=229 reopen=37
+[grabber] nadir ok=0 fail=239 reopen=37
+[grabber] nadir ok=0 fail=249 reopen=37
+[grabber] nadir ok=0 fail=259 reopen=37
+[grabber] no frame for 55.2s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 15s
+[grabber] nadir ok=0 fail=269 reopen=37
+[grabber] nadir ok=0 fail=279 reopen=37
+[grabber] nadir ok=0 fail=289 reopen=37
+[grabber] nadir ok=0 fail=299 reopen=37
+[grabber] nadir ok=0 fail=309 reopen=37
+[grabber] nadir ok=0 fail=319 reopen=37
+[grabber] nadir ok=0 fail=329 reopen=37
+[grabber] nadir ok=0 fail=339 reopen=37
+[grabber] no frame for 70.3s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 15s
+[grabber] nadir ok=0 fail=349 reopen=37
+[grabber] nadir ok=0 fail=359 reopen=37
+[grabber] nadir ok=0 fail=369 reopen=37
+[grabber] nadir ok=0 fail=379 reopen=37
+[grabber] nadir ok=0 fail=389 reopen=37
+[grabber] nadir ok=0 fail=399 reopen=37
+[grabber] nadir ok=0 fail=409 reopen=37
+[grabber] no frame for 85.3s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 15s
+[grabber] nadir ok=0 fail=419 reopen=37
+[grabber] nadir ok=0 fail=429 reopen=37
+[grabber] nadir ok=0 fail=439 reopen=37
+[grabber] nadir ok=0 fail=449 reopen=37
+[grabber] nadir ok=0 fail=459 reopen=37
+[grabber] nadir ok=0 fail=469 reopen=37
+[grabber] nadir ok=0 fail=479 reopen=37
+[grabber] nadir ok=0 fail=489 reopen=37
+[grabber] no frame for 100.3s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 15s
+[grabber] nadir ok=0 fail=499 reopen=37
+[grabber] nadir ok=0 fail=509 reopen=37
+[grabber] nadir ok=0 fail=519 reopen=37
+[grabber] nadir ok=0 fail=529 reopen=37
+[grabber] nadir ok=0 fail=539 reopen=37
+[grabber] nadir ok=0 fail=549 reopen=37
+[grabber] nadir ok=0 fail=559 reopen=37
+[grabber] no frame for 115.3s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 15s
+[grabber] nadir ok=0 fail=569 reopen=37
+[grabber] nadir ok=0 fail=579 reopen=37
+[grabber] nadir ok=0 fail=589 reopen=37
+[grabber] nadir ok=0 fail=599 reopen=37
+[grabber] nadir ok=0 fail=609 reopen=37
+[grabber] nadir ok=0 fail=619 reopen=37
+[grabber] nadir ok=0 fail=629 reopen=37
+[grabber] nadir ok=0 fail=639 reopen=37
+[grabber] no frame for 130.3s — reopening /tmp/testcam
+[grabber] reopen failed (v4l2 device '/tmp/testcam' did not open) — retrying in 15s
+[grabber] nadir ok=0 fail=649 reopen=37
+[grabber] nadir ok=0 fail=659 reopen=37
+[grabber] nadir ok=0 fail=669 reopen=37
+[grabber] nadir ok=0 fail=679 reopen=37
+[grabber] nadir ok=0 fail=689 reopen=37
+[grabber] nadir ok=0 fail=699 reopen=37
+[grabber] nadir ok=0 fail=709 reopen=37
+[grabber] no frame for 145.3s — reopening /tmp/testcam
+[grabber] reopened (#38)

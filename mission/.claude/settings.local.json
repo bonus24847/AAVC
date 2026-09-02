@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(lsusb)",
+      "Read(//dev/serial/by-id/**)",
+      "Bash(fuser -v /dev/ttyACM0)",
+      "Bash(pkill -f \"[Q]GroundControl\")",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/python *)",
+      "Read(//home/pakin-champasak/Desktop/Qground/**)",
+      "Bash(nohup ./QGroundControl-x86_64.AppImage)",
+      "Bash(disown)",
+      "Bash(echo \"QGC relaunched pid $!\")",
+      "Read(//home/pakin-champasak/PX4-Autopilot-v1.17/src/modules/simulation/gz_plugins/**)",
+      "Bash(dpkg -l)",
+      "Bash(awk '{print $2, $3}')",
+      "Bash(awk '{print $2}')",
+      "Bash(grep -vE '\\\\.\\(png|jpg|jpeg|gif|pdf|xlsx|docx|zip|html\\)$')",
+      "Bash(git -C /home/pakin-champasak/Desktop/AAVC log --oneline --all -i --grep='vtol\\\\|pcb\\\\|kicad\\\\|schematic\\\\|hardware\\\\|fmu\\\\|stm32\\\\|wayfinder')",
+      "Bash(git -C /home/pakin-champasak/Desktop/AAVC branch -a)",
+      "Bash(git -C /home/pakin-champasak/Desktop/AAVC log --oneline -8)",
+      "Bash(pdfinfo \"/home/pakin-champasak/Desktop/AeroOptixRVC/pcb_tutorial.pdf\")",
+      "Read(//home/pakin-champasak/Desktop/PCB_AERO/**)",
+      "Bash(git config *)",
+      "Bash(git -C /home/pakin-champasak/Desktop/AAVC config user.name)",
+      "Bash(git -C /home/pakin-champasak/Desktop/AAVC config user.email)",
+      "Bash(chmod +x sitl/launch_stack.sh)",
+      "Bash(bash -n sitl/launch_stack.sh)",
+      "Bash(curl -s http://127.0.0.1:8020/)",
+      "Bash(grep -v \"^$\")"
+    ]
+  }
+}

@@ -1,0 +1,59 @@
+<?xml version="1.0" ?>
+<!--
+  Static third-person SPECTATOR camera for the AAVC Tuning view.
+
+  Watches the launch pad / sys-ID hover column: during System-ID / Autotune the
+  drone takes off at the world origin and chirp-sweeps at ~12-15 m AGL. This is
+  NOT an onboard camera — it is a fixed ground camera that keeps the WHOLE drone
+  in frame so the operator can watch it sweep from the Tuning webapp.
+
+  Placement + aim come from the world <include><pose> in
+  sitl/worlds/aavc_field.sdf (18 m south of the pad, z = 2.5 m, yawed +90 deg to
+  look NORTH, pitched up ~15 deg). The sensor's own pose is identity, so the
+  framing math lives in ONE place next to the pad geometry. Framing check from
+  (0, -18, 2.5) with hFOV 1.25 rad (vFOV ~57 deg for 4:3): the ground at the pad
+  sits ~22.8 deg below the optical centreline and a 16 m hover ~22.0 deg above it
+  — both inside the +/-28.5 deg half-vFOV, so the drone stays framed from
+  touchdown through the sweep ceiling.
+
+  A camera in gz looks down its local +X axis. 640x480 RGB keeps the bridge's
+  3-channel decode valid. Publishes gz topic `/spectator_camera`;
+  sitl/gz_camera_bridge.py captures it to /tmp/aavc_spectator.png, served at
+  /api/camera/spectator.png. Harmless to the flight mission — it sits off to the
+  side of the launch pad and is never on a flight path.
+-->
+<sdf version="1.9">
+  <model name="spectator_cam">
+    <static>true</static>
+    <link name="link">
+      <!-- Tiny dark camera body so the rig is locatable in a GUI run. It sits at
+           the optical origin, entirely inside the 0.1 m near-clip, so the sensor
+           never sees (and is never occluded by) its own body. No collision. -->
+      <visual name="body">
+        <geometry><box><size>0.12 0.12 0.12</size></box></geometry>
+        <material>
+          <ambient>0.05 0.05 0.06 1</ambient>
+          <diffuse>0.12 0.12 0.14 1</diffuse>
+        </material>
+      </visual>
+      <sensor name="spectator_imager" type="camera">
+        <pose>0 0 0 0 0 0</pose>
+        <camera>
+          <horizontal_fov>1.25</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>1000</far>
+          </clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>15</update_rate>
+        <visualize>false</visualize>
+        <topic>/spectator_camera</topic>
+      </sensor>
+    </link>
+  </model>
+</sdf>

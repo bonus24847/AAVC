@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AAVC DYNAMIC cargo payload (rules-V1.3 organiser package, Fig. 5): a
+  ~16x7x18 cm heart box + one no.0 egg, ~90 g. Unlike the STATIC cargo_box
+  (ground dressing at the L&R pad, sitl/models/cargo_box/), this model is
+  carried in the aircraft belly via a gz DetachableJoint (one per box,
+  declared on sitl/models/eft_x6100/model.sdf) and shed onto the pad on
+  release: while attached, its mass + inertia load the flight dynamics
+  through the joint constraint (Tier 1, no extra code needed — the physics
+  solver carries it as dead weight); publishing an Empty on the joint's
+  <detach_topic> frees it to fall onto the pad (Tier 2, sitl/
+  payload_detach_bridge.py).
+
+  KMUTNB 2026-08-11: depth slimmed 0.07 -> 0.065 m. The 4-servo rack pins the
+  boxes at y = ±0.035 (user-mandated servo positions), where 0.07-wide boxes
+  would TOUCH along their y faces (0.035*2 == 0.07) and grind in the contact
+  solver all flight. 5 mm of daylight costs nothing visually and keeps the
+  mandated servo geometry exact.
+
+  Link origin = box CENTROID (unlike cargo_box, whose link origin is the box
+  BASE) so the inertia tensor below — computed about the link origin, the SDF
+  default when no <inertial><pose> is given — is exact with no extra offset.
+
+  Solid-box inertia about the centroid, m=0.090 kg, size w(x)=0.16 d(y)=0.065
+  h(z)=0.18 m (Ix=m/12(d^2+h^2), Iy=m/12(w^2+h^2), Iz=m/12(w^2+d^2)):
+    Ixx = 0.090/12 * (0.065^2 + 0.18^2) = 0.0075 * 0.036625 = 0.00027469
+    Iyy = 0.090/12 * (0.16^2 + 0.18^2)  = 0.0075 * 0.0580   = 0.00043500
+    Izz = 0.090/12 * (0.16^2 + 0.065^2) = 0.0075 * 0.029825 = 0.00022369
+  Triangle inequality (gz rejects a model where any axis exceeds the sum of
+  the other two): ixx+iyy=7.10e-4 >= izz, iyy+izz=6.59e-4 >= ixx,
+  izz+ixx=4.98e-4 >= iyy — all hold.
+-->
+<sdf version="1.9">
+  <model name="cargo_payload">
+    <static>false</static>
+    <link name="payload">
+      <inertial>
+        <mass>0.090</mass>
+        <inertia>
+          <ixx>0.00027469</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.00043500</iyy><iyz>0</iyz>
+          <izz>0.00022369</izz>
+        </inertia>
+      </inertial>
+      <!-- white/cream card body, centred on the link origin -->
+      <visual name="body">
+        <geometry>
+          <box><size>0.16 0.065 0.18</size></box>
+        </geometry>
+        <material>
+          <ambient>0.92 0.92 0.90 1</ambient>
+          <diffuse>0.96 0.96 0.94 1</diffuse>
+          <specular>0.05 0.05 0.05 1</specular>
+        </material>
+      </visual>
+      <!-- orange accent band (same motif as cargo_box's accent_stripe) so a
+           shed box reads clearly against the white pad + green turf. -->
+      <visual name="accent_band">
+        <pose>0 0 0.03 0 0 0</pose>
+        <geometry>
+          <box><size>0.162 0.067 0.05</size></box>
+        </geometry>
+        <material>
+          <ambient>0.85 0.40 0.05 1</ambient>
+          <diffuse>1.00 0.50 0.08 1</diffuse>
+        </material>
+      </visual>
+      <!-- single collision = the card box itself.
+           collide_bitmask 0x02 (2026-08-12, user z-spec): the box now rides
+           with its TOP at the CG plane, overlapping base_link_collision_body
+           (z [-0.02,+0.06]) by 2 cm — without isolation the contact solver
+           ejects it at spawn before the DetachableJoint binds. The body
+           collision masks to 0xfd (bit 1 clear), so box<->body NEVER contact
+           while ground/slab/pads (default 0xffff) still catch a shed box. -->
+      <collision name="collision">
+        <geometry>
+          <box><size>0.16 0.065 0.18</size></box>
+        </geometry>
+        <surface>
+          <contact><collide_bitmask>0x02</collide_bitmask></contact>
+        </surface>
+      </collision>
+    </link>
+  </model>
+</sdf>

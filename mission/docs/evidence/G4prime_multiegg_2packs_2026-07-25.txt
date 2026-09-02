@@ -1,0 +1,24 @@
+G4' — eggs_aboard=4 (ONE flight, four deliveries), 6-pad field, 2x7500 mAh packs
+2026-07-25 · EFT X6100 @ AUW 8.22 kg · gains re-tuned this day (roll/pitch designed
+from a fresh 3-axis chirp sys-ID; yaw held at the validated softening)
+Also the first run on the FLIGHT clock (orchestrator/flight_clock.py) and the
+progress-based leg guard (mission.py::_ProgressGuard).
+Host real-time factor this run: 0.95 (headless). 457 s of flight time / 482 s wall.
+
+OK   483 telemetry samples, 1 flights started, 4 of 4 deliveries released
+OK   altitude: max 19.69 m ≤ 20.5 m
+OK   transit altitude: 100% of 59 post-capture samples within [18.8, 20.5] m
+OK   search floor: no sub-10 m flight outside the delivery descent
+OK   airspace: whole armed track inside the geofence
+OK   no-fly: track clear of zone 0
+OK   flight 1: transit P1→P2→P3 / P3→P2→P1 all passed in order
+OK   delivery 1: released 0.15 m from truth pad 4 centre ✓ (id correct)
+OK   delivery 2: released 0.21 m from truth pad 5 centre ✓ (id correct)
+OK   delivery 3: released 0.19 m from truth pad 3 centre ✓ (id correct)
+OK   delivery 4: released 0.15 m from truth pad 2 centre ✓ (id correct)
+OK   flight 1: landed 2.6 m from the L&R point
+OK   timing: 457 s elapsed ≤ 1200 s window
+OK   deliveries: 4 of 4 planned eggs delivered
+
+deliveries: 4/4 across 1 flight(s)
+drone-response verification: PASS (14 checks ok, 0 warnings)

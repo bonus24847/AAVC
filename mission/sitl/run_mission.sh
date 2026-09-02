@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+# GCS "🚀 บิน mission" launcher — spawned by the AAVC GCS console
+# (aavc_gcs.py --mission-cmd '<this script> {ids}'). $1 = comma-separated
+# assigned pad ids from the operator's saved selection.
+#
+# SITL: launch_stack.sh / `make aavc-gcs` wire this script in automatically.
+# REAL BIRD: the orchestrator runs on the CM4, not the GCS laptop — point the
+# console at ssh instead:
+#   --mission-cmd "ssh <user>@<cm4> 'REAL=1 ~/mission/sitl/run_mission.sh {ids}'"
+# REAL=1 switches to the offboard link (mavlink-router 14540) and drops the
+# SITL-only truth audit; everything else is identical to the SITL path.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+IDS="${1:?usage: run_mission.sh <id,id,...>}"
+
+# One mission at a time — the GCS also guards this, but a CLI-started run
+# must be protected too.
+if pgrep -f 'orchestrator.mai[n]' >/dev/null; then
+    echo "[run_mission] refused: an orchestrator is already running" >&2
+    exit 1
+fi
+
+# ── the aircraft's own infrastructure, brought up by the SAME button ───────
+# Until 2026-08-18 this script started ONLY the orchestrator, which then
+# connects to udpin://…:14540 — a port that exists only because mavlink-router
+# is running. Nothing in the 🚀 path started the router, the camera grabber or
+# the status beacon; they were started by hand over ssh. On a CM4 that has
+# rebooted at the field (a battery swap is enough) pressing 🚀 therefore spawned
+# an orchestrator that logged one line — "connecting to udpin://0.0.0.0:14540" —
+# and died with no MAVLink, no audit trail and nothing on the operator's screen
+# to say why. Seen live at 14:33 on 2026-08-18. The operator cannot ssh in
+# during a scored round, so the button has to be self-sufficient.
+#
+# Idempotent: anything already running is left exactly as it is. Detached with
+# setsid so it OUTLIVES this script — that matters most when the mission refuses
+# to launch, because the beacon is what carries the refusal ("swap the pack") to
+# the console over the radio. Killing it with the mission would hide the answer.
+ensure_infra() {
+    local serial="${SERIAL:-/dev/ttyAMA0}" baud="${BAUD:-921600}"
+    local routerd="${ROUTERD:-}"
+    if [ -z "$routerd" ]; then
+        # A non-interactive ssh does not read the login PATH, so the locally
+        # built binary in ~/.local/bin is invisible unless we look for it.
+        for c in "$HOME/.local/bin/mavlink-routerd" "$(command -v mavlink-routerd 2>/dev/null)"; do
+            [ -n "$c" ] && [ -x "$c" ] && { routerd="$c"; break; }
+        done
+    fi
+
+    if ! pgrep -f 'mavlink-route[r]d' >/dev/null 2>&1; then
+        if [ -z "$routerd" ]; then
+            echo "[run_mission] ERROR: mavlink-router not found — the orchestrator" >&2
+            echo "               cannot reach the FC. Install it or pass ROUTERD=<path>." >&2
+            exit 3
+        fi
+        [ -e "$serial" ] || { echo "[run_mission] ERROR: $serial not found (FC cable?)" >&2; exit 3; }
+        cat > /tmp/aavc_flight_router.conf <<EOF
+[General]
+TcpServerPort = 0
+[UartEndpoint fc]
+Device = $serial
+Baud = $baud
+[UdpEndpoint offboard]
+Mode = Normal
+Address = 127.0.0.1
+Port = 14540
+[UdpEndpoint qgc]
+Mode = Server
+Address = ${GCS_HOST:-127.0.0.1}
+Port = 14550
+EOF
+        echo "[run_mission] starting mavlink-router ($serial@$baud -> :14540, :14550)"
+        setsid "$routerd" -c /tmp/aavc_flight_router.conf \
+            >/tmp/aavc_router.log 2>&1 </dev/null &
+        # 0.5 s, not 3 — and the difference is whether the operator sees errors.
+        # The GCS spawns this over ssh, sleeps exactly 1.5 s, then checks whether
+        # the process already exited (aavc_gcs.py::start_mission); a failure
+        # inside that window is shown in the browser, one after it is invisible —
+        # the button reports "✅ up" and then quietly reverts. A 3 s wait here
+        # pushed every orchestrator startup failure (broken venv, ImportError,
+        # rejected --assigned-ids) to t≈3.1 s on exactly the cold-CM4 case this
+        # function exists to rescue. Nothing needs the longer wait: the
+        # orchestrator's own connect() waits up to 15 s for a heartbeat, so the
+        # router only has to be STARTING, not ready.
+        sleep 0.5
+    else
+        echo "[run_mission] mavlink-router already up"
+    fi
+
+    if [ "${NO_CAMERA:-0}" != "1" ]; then
+        if ! pgrep -f 'camera_grabber.p[y]' >/dev/null 2>&1; then
+            # กล้อง UVC ย้ายเลข device ได้ทุกครั้งที่ไฟกระตุก (เจอจริง 2026-08-20:
+            # หลุดจาก video0 ไปเกิดใหม่เป็น video1 → grabber เปิด '0' ไม่ได้ ตายเงียบ
+            # แล้ว beacon ร้อง cam=DEAD) — ใช้ path แบบ by-id ที่ตามกล้องไปทุกการ
+            # enumerate เมื่อหาได้ ผู้เรียกยัง override ได้ด้วย GRAB_ARGS เดิม
+            if [ -z "${GRAB_ARGS:-}" ]; then
+                cam_dev=$(ls /dev/v4l/by-id/*-video-index0 2>/dev/null | head -1)
+                [ -n "$cam_dev" ] && GRAB_ARGS="--nadir-device $cam_dev"
+            fi
+            # ⚠ ย้อนกลับเป็น AUTO เมื่อ 2026-08-24 — คอมเมนต์เดิมตรงนี้บอกว่า
+            # "auto ค้าง 16.6 ms เลยเบลอ" ซึ่ง**ผิด**: วัดกลางแจ้งบนเครื่องจริง
+            # auto เลือก 1 ms สั้นกว่า 2 ms ที่ไปบังคับด้วยซ้ำ ตัวที่ทำให้ decode
+            # ไม่ได้คือการบังคับเอง (สว่าง ~190 ขอบขาวของ marker กลืนพื้นหลัง)
+            # AUTO by default (0) — measured 2026-08-24. The forced 2 ms this
+            # used to default to was added on a premise that turned out to be
+            # false: auto picks 1 ms outdoors, SHORTER than the 2 ms forced on
+            # it, and the forcing left frames at ~190 mean where the marker's
+            # white quiet zone blows out and ArUco loses its edge. On auto a
+            # marker carried at running speed across 8-10 m decoded 145/222
+            # frames. Set CAM_EXPOSURE=<n*100us> only to pin it deliberately.
+            CAM_EXPOSURE="${CAM_EXPOSURE:-0}"
+            # Pass the value ALWAYS (0 included): 0 is no longer "don't touch",
+            # it is "restore auto exposure + the default gain", which is what
+            # undoes a bench sweep or a previous forced run. Silently inheriting
+            # manual exposure from whoever ran last is exactly how the decode
+            # broke between 2026-08-21 and 2026-08-24.
+            if [ "${BACKEND:-v4l2}" = "v4l2" ]; then
+                GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--exposure-100us $CAM_EXPOSURE"
+                [ -n "${CAM_GAIN:-}" ] && GRAB_ARGS="$GRAB_ARGS --gain $CAM_GAIN"
+                # Highlight-priority AE (2026-08-26) whenever exposure is not
+                # pinned: the driver's AE meters the grass and clips a white
+                # pad at 255 (2788 flight frames, 0 decodes). CAM_AE=auto
+                # restores the driver's AE.
+                if [ "$CAM_EXPOSURE" = "0" ] && [ "${CAM_AE:-highlight}" = "highlight" ]; then
+                    GRAB_ARGS="$GRAB_ARGS --ae-highlight"
+                    [ -n "${CAM_AE_MAX:-}" ] && GRAB_ARGS="$GRAB_ARGS --ae-max-100us $CAM_AE_MAX"
+                    [ -n "${CAM_AE_INIT:-}" ] && GRAB_ARGS="$GRAB_ARGS --ae-init-100us $CAM_AE_INIT"
+                fi
+            fi
+            # ทุกเฟรมที่เขียน = โอกาสอ่าน marker เพิ่มหนึ่งครั้ง (vision worker
+            # decode ทุกเฟรมใหม่ตั้งแต่ 2026-08-21) — เซนเซอร์ให้ 10 fps ที่
+            # 1280x720 จึงเขียน 10 Hz; ปิด mirror เพราะเป็น encode ตัวที่
+            # สอง (JPEG q95 = 12 ms/เฟรม; ตอนเป็น PNG คือ 62 ms) ซึ่งมีแค่
+            # dashboard เว็บที่อ่าน — จอ GCS กับ vision worker ใช้ nadir ทั้งคู่
+            # MJPEG PASSTHROUGH (default): the camera already produces JPEG,
+            # so write ITS bytes — no decode, no re-encode. วัดบน CM4: 20 Hz
+            # ที่ 7% ของคอร์เดียว (ทางเดิม 39%), เฟรม 33 KB, และไม่มีการบีบ
+            # ซ้ำสองรอบ. ทดสอบแล้วว่า ArUco ยัง decode ได้แม้บีบถึง q60 ที่
+            # ขนาด marker 17-42 px (= 8-16 m) ส่วนกล้องส่งมาที่ ~q80-85.
+            # CAM_PASSTHROUGH=0 กลับไปทาง YUYV + re-encode ได้ทันที
+            if [ "${CAM_PASSTHROUGH:-1}" != "0" ] && [ "${BACKEND:-v4l2}" = "v4l2" ]; then
+                GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--mjpeg-passthrough"
+                CAM_INTERVAL="${CAM_INTERVAL:-0.04}"     # 25 Hz — /tmp is tmpfs (RAM) on
+                                         # the CM4, so frames cost no SD wear
+            fi
+            GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--interval-s ${CAM_INTERVAL:-0.1}"
+            # กล้อง USB หลุดแล้วขึ้นใหม่คนละ node ได้ (2026-08-23: usb 1-1.1
+            # disconnect ย้าย video0 -> video1) โดย grabber ยังรันบน fd ที่ตาย
+            # แล้วเงียบ ๆ — ตัว watchdog ในกrabber จะเปิด by-id ใหม่เมื่อไม่มี
+            # เฟรมถูกเขียนนานเกินค่านี้. CAM_REOPEN_S=0 = ปิด (พฤติกรรมเดิม)
+            GRAB_ARGS="${GRAB_ARGS:+$GRAB_ARGS }--reopen-after-s ${CAM_REOPEN_S:-3}"
+            [ "${CAM_MIRROR:-0}" = "0" ] && GRAB_ARGS="$GRAB_ARGS --no-mirror"
+            echo "[run_mission] starting camera grabber (BACKEND=${BACKEND:-v4l2}${GRAB_ARGS:+ $GRAB_ARGS})"
+            setsid make -C "$REPO_ROOT" camera-real BACKEND="${BACKEND:-v4l2}" \
+                GRAB_ARGS="${GRAB_ARGS:-}" \
+                >/tmp/aavc_camera.log 2>&1 </dev/null &
+        else
+            echo "[run_mission] camera grabber already up"
+        fi
+    fi
+
+    if [ "${BEACON:-1}" = "1" ]; then
+        if ! pgrep -f 'status_beacon.p[y]' >/dev/null 2>&1; then
+            echo "[run_mission] starting status beacon (radio STATUSTEXT)"
+            setsid env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" \
+                "$REPO_ROOT/cm4/status_beacon.py" \
+                --captures "$REPO_ROOT/captures" \
+                --endpoint "udpout:127.0.0.1:14550" \
+                >/tmp/aavc_beacon.log 2>&1 </dev/null &
+        else
+            echo "[run_mission] status beacon already up"
+        fi
+    fi
+}
+
+EXTRA=()
+# ⚠ REAL=1 is the ONLY thing that turns RC-GO on (RC_GO defaults to 1 inside the
+# branch below, and to 0 outside it). A command that reaches the AIRCRAFT without
+# it — a hand-typed recovery line, a mangled missions.yaml entry, REAL=0, or
+# `INFRA_ONLY=1 run_mission.sh 1` typed without REAL=1 — therefore falls into the
+# SITL branch, connects to the real FC anyway through mavlink-router's
+# udpin://0.0.0.0:14540, takes the HEADLESS gate, and ARMS AND TAKES OFF BY
+# ITSELF while the safety pilot is waiting to be asked. INFRA_ONLY does not save
+# it either: that check lives inside the REAL branch and is never read.
+# Refuse instead, on the one piece of evidence that says "this is the aircraft":
+# the FC's serial port exists (the laptop running SITL has no /dev/ttyAMA0).
+# Review 2026-08-30, pre-competition.
+if [ "${REAL:-0}" != "1" ] && [ -e "${SERIAL:-/dev/ttyAMA0}" ]; then
+    echo "❌ [run_mission] ปฏิเสธ: นี่คือเครื่องบินจริง (${SERIAL:-/dev/ttyAMA0} มีอยู่) แต่ไม่ได้ส่ง REAL=1" >&2
+    echo "   ถ้าไม่ใส่ REAL=1 สคริปต์จะเข้าโหมด SITL แล้ว 'arm + takeoff เอง' โดยไม่รอนักบิน" >&2
+    echo "   ใช้:  REAL=1 AAVC_PROFILE=competition AAVC_CONFIG=sitl/kmitl_config.yaml $0 <ids>" >&2
+    exit 4
+fi
+if [ "${REAL:-0}" = "1" ]; then
+    ensure_infra
+    # INFRA_ONLY: bring the aircraft's own stack up (router + camera grabber +
+    # status beacon) but DO NOT start the orchestrator — no arm, no flight. The
+    # REAL console auto-triggers this on connect so the camera sensor chip lights
+    # from the radio beacon without staging a mission (operator 2026-08-19).
+    if [ "${INFRA_ONLY:-0}" = "1" ]; then
+        echo "[run_mission] INFRA_ONLY: router + camera grabber + status beacon up —"
+        echo "              orchestrator NOT started (no arm, no flight)."
+        exit 0
+    fi
+    EXTRA+=(--connect "udpin://0.0.0.0:14540")
+    # REAL bird defaults to RC-GO (operator conops 2026-08-12): the console's
+    # 🚀 only STAGES the flight — the SAFETY PILOT arms via RC and flips to
+    # OFFBOARD to launch; flipping to POSCTL mid-flight makes the orchestrator
+    # stand down. The web never moves the aircraft. RC_GO=0 restores the
+    # auto-launch behaviour (orchestrator arms itself right after preflight).
+    RC_GO="${RC_GO:-1}"
+else
+    # SITL dirty-field precheck (2026-08-12, hit live by the operator): cargo
+    # boxes shed by a PREVIOUS run stay lying ON the pads and hide the ArUco
+    # markers — the next mission then can't decode those pads at all (looks
+    # like "pads missing" on the GCS map) and flies home with eggs unserved.
+    # The detach bridge's log is truncated at every stack (re)start, so any
+    # "shed" line in it means THIS field already has boxes down. Refuse with
+    # a clear message — the console surfaces this line in the browser.
+    # (2026-08-15: the bridge's line reads "shed box <n>" since the release
+    # rack stopped being wired in delivery order — box index != payload_id.
+    # The old wording is kept in the pattern so a stale log still trips it.)
+    if grep -qE 'shed (box|payload)' /tmp/aavc_detach.log 2>/dev/null; then
+        echo "❌ สนามยังมีกล่องจากรอบก่อนวางบัง marker อยู่ — กดปุ่ม 🧹 รีเซ็ตสนาม ก่อนบินใหม่" >&2
+        exit 1
+    fi
+    # SITL: enable the post-flight truth audit when the spawner wrote one.
+    [ -f /tmp/aavc_targets.json ] && EXTRA+=(--truth-json /tmp/aavc_targets.json)
+fi
+
+if [ "${RC_GO:-0}" = "1" ]; then
+    EXTRA+=(--rc-go)
+fi
+
+echo "[run_mission] assigned ids: $IDS (${REAL:+REAL bird}${REAL:-SITL})${RC_GO:+ rc-go=$RC_GO}"
+
+# Announce simulated wind. It is set at RUNTIME (sitl/set_wind.sh), so it leaves
+# no trace in the world file, the audit or the ULog — a flight in 10 m/s reads
+# exactly like a calm one afterwards, and its numbers get compared against calm
+# baselines by someone who has no way to know. Say it loudly instead.
+WIND_STATE=/tmp/aavc_wind_state
+if [ "${REAL:-0}" != "1" ] && [ -f "$WIND_STATE" ]; then
+    read -r W_SPEED W_DIR < "$WIND_STATE"
+    echo "🌬  WIND IS ON: ${W_SPEED} m/s from ${W_DIR}deg — this flight is NOT a"
+    echo "   still-air baseline. 'bash sitl/set_wind.sh off' first if you wanted one."
+fi
+
+# ── SITE: which field this flight is for. Precedence: an icon's explicit env
+# wins, then this repo's own .aavc_site marker (aavc-practice ships the KMUTNB
+# one, aavc-comp the KMITL one — sync_core.sh never copies it, so each repo
+# keeps its field), then the KMUTNB fallback below. A bare run is unchanged.
+[ -f "$REPO_ROOT/.aavc_site" ] && . "$REPO_ROOT/.aavc_site"
+AAVC_PROFILE="${AAVC_PROFILE:-kmutnb_skyfield}"
+AAVC_CONFIG="${AAVC_CONFIG:-sitl/aavc_config.yaml}"
+echo "🌐 SITE: profile=${AAVC_PROFILE}  config=${AAVC_CONFIG}"
+
+if [ "${REAL:-0}" = "1" ]; then
+    exec env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" -m orchestrator.main \
+        --config "$AAVC_CONFIG" --profile "$AAVC_PROFILE" --no-dashboard \
+        --assigned-ids "$IDS" "${EXTRA[@]}"
+fi
+
+# SITL: do NOT exec — the shed boxes only exist inside the running simulator,
+# so where each egg actually landed has to be read BEFORE anything tears gz
+# down. Kill gz first and the evidence is gone with it; the only way back is
+# to fly the whole mission again (the parallel session lost a ~40-minute round
+# exactly this way, 2026-08-16). Saved next to the audit so it survives the
+# teardown that follows.
+set +e
+env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" -m orchestrator.main \
+    --config "$AAVC_CONFIG" --profile "$AAVC_PROFILE" --no-dashboard \
+    --assigned-ids "$IDS" "${EXTRA[@]}"
+rc=$?
+set -e
+
+RUN_DIR="$(ls -dt "$REPO_ROOT"/runs/*/ 2>/dev/null | head -1)"
+if [ -n "$RUN_DIR" ] && pgrep -f 'gz [s]im' >/dev/null; then
+    echo "[run_mission] reading where the eggs landed (gz still up)…"
+    env -u PYTHONPATH "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/tools/box_truth.py" \
+        2>&1 | tee "${RUN_DIR}box_truth.txt" | tail -n 6
+    # Stamp the air the numbers were measured in, next to the numbers.
+    if [ -f "$WIND_STATE" ]; then
+        read -r W_SPEED W_DIR < "$WIND_STATE"
+        echo "wind: ${W_SPEED} m/s from ${W_DIR} deg" >> "${RUN_DIR}box_truth.txt"
+    else
+        echo "wind: still air" >> "${RUN_DIR}box_truth.txt"
+    fi
+fi
+exit "$rc"
