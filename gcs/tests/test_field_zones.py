@@ -15,7 +15,11 @@ import aavc_gcs  # noqa: E402
 
 _HERE = os.path.dirname(__file__)
 _COMP_FIELD = os.path.join(_HERE, "..", "aavc_field.yaml")
-_FLIGHT_CFG = os.path.expanduser("~/Desktop/aavc-comp/sitl/kmitl_config.yaml")
+# The flight config lives in this same repo since the three repos became one
+# (gcs/ + mission/ + aruco/), so the digit-for-digit test below RUNS instead of
+# skipping. AAVC_FLIGHT_CFG still overrides it for a split checkout.
+_FLIGHT_CFG = os.environ.get("AAVC_FLIGHT_CFG") or os.path.join(
+    _HERE, "..", "..", "mission", "sitl", "kmitl_config.yaml")
 
 
 def _zones(path, monkeypatch):
@@ -27,16 +31,20 @@ def test_competition_field_carries_the_whole_planned_route(monkeypatch):
     z = _zones(_COMP_FIELD, monkeypatch)
     assert z["transit"] and len(z["transit"]) == 3            # root-level {id,lat,lon} rows
     assert z["transit"][0] == z["home"]                        # P1 = L&R
-    # 15 since the 2026-08-29 evening redraw (the operator's line over the
-    # coverage map): waypoint 6 straight into ONE middle column at E 110, and
-    # the strip legs reaching back to E 122. The digit-for-digit check against
-    # the flight config is the test below; this one just pins the shape.
-    assert len(z["sweep"]) == 15
-    assert len(z["keepout"]) == 4 and all(len(p) == 4 for p in z["keepout"])   # building, courtyard, east, trees (2026-08-29)
+    # 29 since the 2026-08-30 morning redraw — the operator drew the whole
+    # field again on the satellite map before the scored flight, and the sweep
+    # became E-W legs with a dip into the building/courtyard pocket and a
+    # detour around the north object. (It was 15 after the 2026-08-29 evening
+    # redraw, 17 before that.) The digit-for-digit check against the flight
+    # config is the test below; this one just pins the shape.
+    assert len(z["sweep"]) == 29
+    # 6 since 2026-08-30: trees, building-west, pocket-south, building-east,
+    # east band, north object (was 4: building, courtyard, east, trees).
+    assert len(z["keepout"]) == 6 and all(len(p) == 4 for p in z["keepout"])
     assert len(z["gateways"]) == 4 and z["gateway"] == z["gateways"][0]
     # the sweep's east ends stop short of the east band, its west ends inside the airspace
     lons = [p[1] for p in z["sweep"]]
-    assert max(lons) < min(p[1] for p in z["keepout"][2])   # west of the EAST band (index 2 since 2026-08-29: building, courtyard, east, trees)
+    assert max(lons) < min(p[1] for p in z["keepout"][4])   # west of the EAST band (index 4 since 2026-08-30)
     assert min(lons) > min(p[1] for p in z["airspace"])
 
 
