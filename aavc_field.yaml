@@ -28,16 +28,31 @@ geofence:
   # Controlled airspace boundary — [lat, lon]. Leaving it = disqualification
   # (rules p.13: "Leaving the operation airspace ... is strictly prohibited").
   controlled_airspace:
-    - [13.731312, 100.787175]   # NW
-    - [13.731359, 100.789916]   # NE
-    - [13.729994, 100.789841]   # SE
-    - [13.729806, 100.787228]   # SW
+    # ⚠ REDRAWN 30-Aug-2026 (operator's PURPLE loop on KMITL_map_blank_2.jpg,
+    # georeferenced against these tiles). Digit-for-digit aavc-comp
+    # sitl/kmitl_config.yaml controlled_airspace. Superseded PDF corners:
+    # NW [13.731312,100.787175] NE [13.731359,100.789916]
+    # SE [13.729994,100.789841] SW [13.729806,100.787228]
+    - [13.731463, 100.787206]   # NW  ENU  -26 / 127
+    - [13.731463, 100.789924]   # NE  ENU  268 / 127
+    - [13.730044, 100.789924]   # SE  ENU  268 / -31
+    - [13.730044, 100.787206]   # SW  ENU  -26 / -31
   # Search area (pads live here) — [lat, lon]. Northern strip, ~227 x 78 m.
   search_area:
-    - [13.731239, 100.787824]   # NW
-    - [13.731359, 100.789916]   # NE
-    - [13.730703, 100.789776]   # SE
-    - [13.730723, 100.787840]   # SW
+    # ⚠ REDRAWN 30-Aug-2026 = the operator's YELLOW loop minus the RED no-fly.
+    # Digit-for-digit aavc-comp sitl/kmitl_config.yaml search_area.
+    - [13.731301, 100.787834]   # ENU  42 / 109
+    - [13.731301, 100.788325]   # ENU  95 / 109
+    - [13.731382, 100.788325]   # ENU  95 / 118
+    - [13.731382, 100.789462]   # ENU 218 / 118
+    - [13.730987, 100.789462]   # ENU 218 /  74
+    - [13.730987, 100.789249]   # ENU 195 /  74
+    - [13.730852, 100.789249]   # ENU 195 /  59
+    - [13.730852, 100.789074]   # ENU 176 /  59
+    - [13.730951, 100.789074]   # ENU 176 /  70
+    - [13.730951, 100.788565]   # ENU 121 /  70
+    - [13.730807, 100.788565]   # ENU 121 /  54
+    - [13.730807, 100.787834]   # ENU  42 /  54
   # Local ENU origin = the Launch & Recovery point = transit P1 (rules Table 1:
   # "RTH / holding point"; kmitl_config.yaml site.center ==
   # ground_operation.launch_recovery == this). The mission's local-frame
@@ -62,9 +77,10 @@ aruco_assignment: [1, 2, 3, 4]
 # coordinates, put THOSE in both files. Superseded PDF values:
 #   P2 [13.730397, 100.788694] · P3 [13.730712, 100.788755]
 transit_waypoints:
+  # ⚠ MOVED 30-Aug-2026 to E 116 (the new RED building band starts at E 121.2).
   - {id: 1, lat: 13.730322, lon: 100.787446}   # P1 — launch / RTH hold (unchanged)
-  - {id: 2, lat: 13.730390, lon: 100.788590}   # P2' — turn north (E 123.7 / N 7.6 m; 11.3 m W of the PDF's P2)
-  - {id: 3, lat: 13.730715, lon: 100.788590}   # P3' — search-area ingress/egress (E 123.7 / N 43.8 m)
+  - {id: 2, lat: 13.730390, lon: 100.788519}   # P2' — turn north (ENU 116.0 / 7.6)
+  - {id: 3, lat: 13.730717, lon: 100.788519}   # P3' — search gate (ENU 116.0 / 44.0)
 
 # ── The PLANNED route, drawn on the map (2026-08-28, operator: "แสดง path ที่บิน").
 # Static, from this file — the console shows where the aircraft WILL go before
@@ -81,26 +97,44 @@ planned_path:
                                       # 579 m / ~166 s; 3 m2 of the RULES polygon unseen (0.04 %),
                                       # 10 m clear of the 18 m trees. Digit-for-digit
                                       # aavc-comp sitl/kmitl_config.yaml search.sweep_waypoints_enu.
-    - [13.730753, 100.788565]   # E 121.0 / N  48.0  S1 east (from P3')
-    - [13.730753, 100.787853]   # E  44.0 / N  48.0  S1 west
-    - [13.730870, 100.787908]   # E  50.0 / N  61.0  W1 bottom
-    - [13.731256, 100.787908]   # E  50.0 / N 104.0  W1 top
-    - [13.731256, 100.788093]   # E  70.0 / N 104.0  W2 top
-    - [13.730870, 100.788093]   # E  70.0 / N  61.0  W2 bottom
-    - [13.730870, 100.788565]   # E 121.0 / N  61.0  S2 east
-    - [13.730987, 100.788463]   # E 110.0 / N  74.0  middle column bottom
-    - [13.731256, 100.788463]   # E 110.0 / N 104.0  middle column top
-    - [13.731238, 100.789434]   # E 215.0 / N 102.0  strip NE
-    - [13.731077, 100.789434]   # E 215.0 / N  84.0  step down
-    - [13.731077, 100.789166]   # E 186.0 / N  84.0  pocket gate
-    - [13.730771, 100.789166]   # E 186.0 / N  50.0  pocket bottom
-    - [13.731077, 100.789166]   # E 186.0 / N  84.0  pocket gate
-    - [13.731077, 100.788574]   # E 122.0 / N  84.0  strip SW - egress
+                                      # ⚠ REDRAWN 30-Aug-2026 — 24 points at 15 m,
+                                      # 833 m / ~238 s, 0.00 % of the 8671 m2 free
+                                      # ground unseen. Digit-for-digit aavc-comp
+                                      # sitl/kmitl_config.yaml search.sweep_waypoints_enu.
+    - [13.730861, 100.788519]     # E 116.0 / N  60.0
+    - [13.730861, 100.787853]     # E  44.0 / N  60.0
+    - [13.731023, 100.787853]     # E  44.0 / N  78.0
+    - [13.731023, 100.788093]     # E  70.0 / N  78.0
+    - [13.731166, 100.788093]     # E  70.0 / N  94.0
+    - [13.731166, 100.787853]     # E  44.0 / N  94.0
+    - [13.731292, 100.787853]     # E  44.0 / N 108.0
+    - [13.731292, 100.788093]     # E  70.0 / N 108.0
+    - [13.730861, 100.788093]     # E  70.0 / N  60.0
+    - [13.730861, 100.788435]     # E 107.0 / N  60.0
+    - [13.731364, 100.788435]     # E 107.0 / N 116.0
+    - [13.731364, 100.788519]     # E 116.0 / N 116.0
+    - [13.731023, 100.788519]     # E 116.0 / N  78.0
+    - [13.731032, 100.788574]     # E 122.0 / N  79.0
+    - [13.731032, 100.789074]     # E 176.0 / N  79.0
+    - [13.731032, 100.789157]     # E 185.0 / N  79.0
+    - [13.730897, 100.789157]     # E 185.0 / N  64.0
+    - [13.731032, 100.789157]     # E 185.0 / N  79.0
+    - [13.731032, 100.789416]     # E 213.0 / N  79.0
+    - [13.731148, 100.789416]     # E 213.0 / N  92.0
+    - [13.731148, 100.788574]     # E 122.0 / N  92.0
+    - [13.731238, 100.788574]     # E 122.0 / N 102.0
+    - [13.731238, 100.789416]     # E 213.0 / N 102.0
+    - [13.731364, 100.789416]     # E 213.0 / N 116.0
+    - [13.731364, 100.789148]     # E 184.0 / N 116.0
+    - [13.731238, 100.789148]     # E 184.0 / N 102.0
+    - [13.731238, 100.788852]     # E 152.0 / N 102.0
+    - [13.731364, 100.788852]     # E 152.0 / N 116.0
+    - [13.731364, 100.788574]     # E 122.0 / N 116.0
   gateways:                           # via-points the routing chains around the keep-outs
-    - [13.731068, 100.788509]   # NE  ENU 115 / 83
-    - [13.730843, 100.788482]   # SE  ENU 112 / 58
-    - [13.730843, 100.788001]   # SW  ENU  60 / 58
-    - [13.731041, 100.789166]   # PK  ENU 186 / 80 (pocket top, 2026-08-29)
+    - [13.731086, 100.788537]   # NE  ENU 118 / 85
+    - [13.730879, 100.788463]   # SE  ENU 110 / 62
+    - [13.730879, 100.788001]   # SW  ENU  60 / 62
+    - [13.731041, 100.789166]   # PK  ENU 186 / 80
 
 # Plan-level keep-out polygons (= flight config routing.keepout_zones) — the
 # no-fly bands the operator marked on the gridded map at the 28-Aug briefing
@@ -109,26 +143,36 @@ planned_path:
 # no-fly failsafe (that stays unarmed — see the flight config); the mission
 # plans AROUND these instead.
 keepout_zones:
-  - # building band  ENU E 125.6-180 / N 42-73 (2026-08-29: pocket E 180-192 x N 61-73 free)
-    - [13.730978, 100.788607]
-    - [13.730978, 100.789111]
-    - [13.730699, 100.789111]
-    - [13.730699, 100.788607]
-  - # courtyard      ENU E 192-219.8 / N 42-73
-    - [13.730978, 100.789222]
-    - [13.730978, 100.789479]
-    - [13.730699, 100.789479]
-    - [13.730699, 100.789222]
-  - # east band      ENU E 219.8-266 / N 42-116
-    - [13.731362, 100.789479]
-    - [13.731362, 100.789906]
-    - [13.730699, 100.789906]
-    - [13.730699, 100.789479]
-  - # trees (18 m)   ENU E 80-97 / N 71-114 (drawn strokes + 1 m, 2026-08-29)
-    - [13.731346, 100.788186]
-    - [13.731346, 100.788343]
-    - [13.730960, 100.788343]
-    - [13.730960, 100.788186]
+  - # trees (18 m)   ENU E 80-97 / N 70-124  (drawn box UNION the 29-Aug survey)
+    - [13.731436, 100.788186]
+    - [13.731436, 100.788343]
+    - [13.730951, 100.788343]
+    - [13.730951, 100.788186]
+  - # building west  ENU E 121-176 / N 15-70
+    - [13.730951, 100.788565]
+    - [13.730951, 100.789074]
+    - [13.730457, 100.789074]
+    - [13.730457, 100.788565]
+  - # pocket south   ENU E 176-195 / N 15-59  (the pocket ABOVE N 59 is FREE)
+    - [13.730852, 100.789074]
+    - [13.730852, 100.789249]
+    - [13.730457, 100.789249]
+    - [13.730457, 100.789074]
+  - # building east  ENU E 195-218 / N 15-74  (courtyard block)
+    - [13.730987, 100.789249]
+    - [13.730987, 100.789462]
+    - [13.730457, 100.789462]
+    - [13.730457, 100.789249]
+  - # east band      ENU E 218-268 / N -31..127
+    - [13.731463, 100.789462]
+    - [13.731463, 100.789924]
+    - [13.730044, 100.789924]
+    - [13.730044, 100.789462]
+  - # north object  ENU E 158-178 / N 107-123 (added 30-Aug from the plan render)
+    - [13.731427, 100.788907]
+    - [13.731427, 100.789092]
+    - [13.731283, 100.789092]
+    - [13.731283, 100.788907]
 
 # Payload-release servos — the manual "ปล่อย servo" buttons on the GCS.
 # IDENTICAL to the practice field file: FOUR independent latch servos, outputs
