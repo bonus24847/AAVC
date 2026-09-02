@@ -11,7 +11,7 @@ the map, so you do not have to guess which of ~40 files answers your question.
 | understand the whole system | [`../README.md`](../README.md) |
 | understand the mission and its architecture | [`../mission/README.md`](../mission/README.md) |
 | know what actually happened and why | [`../mission/CLAUDE.md`](../mission/CLAUDE.md) §0b–§0j |
-| know what is third-party in here | [`../NOTICE.md`](../NOTICE.md) |
+| know what is third-party in here | [`../NOTICE`](../NOTICE) |
 
 `mission/CLAUDE.md` is the project's real logbook. It is written as context for
 an AI pair-programmer, so it is blunt and dense, but it is the only place that

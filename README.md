@@ -216,6 +216,11 @@ prepared to fly.
 
 ## Licence
 
-See [`LICENSE`](LICENSE). Third-party content that travels with this repo — the
-map tiles, the PX4/Gazebo model assets, the competition rulebook — is listed with
-its provenance in [`NOTICE.md`](NOTICE.md).
+**Apache License 2.0** — see [`LICENSE`](LICENSE).
+Copyright 2026 Team AeroOptix, KMUTNB.
+
+[`NOTICE`](NOTICE) lists what is *not* ours and travels with the repo anyway: the
+vendored Leaflet (BSD-2), the PX4 references, the Esri map tiles, the satellite
+ground texture, and the organisers' rulebook — each with where it came from and
+how to regenerate it for your own field. Read it before redistributing this
+repository further.

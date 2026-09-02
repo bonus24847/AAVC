@@ -258,8 +258,9 @@ override is the ultimate failsafe.
 
 ## License
 
-MIT — see [`../LICENSE`](../LICENSE) at the repo root, and [`../NOTICE.md`](../NOTICE.md)
-for the third-party material that travels with this repository.
+**Apache License 2.0** — see [`../LICENSE`](../LICENSE) at the repo root, and
+[`../NOTICE`](../NOTICE) for the third-party material that travels with this
+repository.
 
 (This section used to read "Internal KMUTNB project. Do not redistribute without
 permission." It was written before the project was published and is no longer

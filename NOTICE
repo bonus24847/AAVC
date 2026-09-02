@@ -1,0 +1,168 @@
+AAVC 2026 — autonomous egg delivery, ground station and flight code
+Copyright 2026 Team AeroOptix, Department of Mechanical and Aerospace
+Engineering, King Mongkut's University of Technology North Bangkok (KMUTNB)
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+these files except in compliance with the License. You may obtain a copy of the
+License in the LICENSE file at the root of this repository, or at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied.
+
+================================================================================
+1. THIRD-PARTY CODE REDISTRIBUTED IN THIS REPOSITORY
+================================================================================
+
+--------------------------------------------------------------------------------
+Leaflet 1.9.4  —  gcs/src/vendor/leaflet.js, gcs/src/vendor/leaflet.css
+https://leafletjs.com
+--------------------------------------------------------------------------------
+
+Redistributed verbatim. Not covered by the Apache-2.0 licence above.
+
+BSD 2-Clause License
+
+Copyright (c) 2010-2023, Volodymyr Agafonkin
+Copyright (c) 2010-2011, CloudMade
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are
+permitted provided that the following conditions are met:
+
+   1. Redistributions of source code must retain the above copyright notice, this list of
+      conditions and the following disclaimer.
+
+   2. Redistributions in binary form must reproduce the above copyright notice, this list
+      of conditions and the following disclaimer in the documentation and/or other materials
+      provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS
+OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
+TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+--------------------------------------------------------------------------------
+PX4-Autopilot  —  BSD 3-Clause
+https://github.com/PX4/PX4-Autopilot
+--------------------------------------------------------------------------------
+
+Copyright (c) 2012-2026 PX4 Development Team. All rights reserved.
+
+* mission/sitl/px4_patches/px4-v1.17-aavc.diff is a patch AGAINST PX4 v1.17.0
+  and carries a few lines of its context. The patch itself and the
+  22000_gz_eft_x6100 airframe beside it are this project's work.
+
+* mission/sitl/models/x500/ and x500_base/ are PX4's Gazebo models, kept because
+  this project's own eft_x6100_base draws its propellers from
+  model://x500_base/meshes/*.stl. Their meshes, materials and thumbnails are NOT
+  redistributed here — bash mission/sitl/link_px4_assets.sh links them from your
+  own PX4 checkout.
+
+--------------------------------------------------------------------------------
+Python dependencies
+--------------------------------------------------------------------------------
+
+MAVSDK, pymavlink, OpenCV, NumPy, Pydantic, loguru, PyYAML, FastAPI and uvicorn
+are declared dependencies installed from PyPI. They are NOT vendored here and
+each carries its own licence.
+
+================================================================================
+2. THIRD-PARTY DATA REDISTRIBUTED IN THIS REPOSITORY
+================================================================================
+
+These are not code and are not licensed by the Apache-2.0 grant above. They are
+included because the system does not work, or cannot be checked, without them.
+Anyone reusing this repository should read this section before redistributing it
+further.
+
+--------------------------------------------------------------------------------
+Map tiles  —  gcs/tiles/  (1996 files, z9-z19, ~41 MB)
+--------------------------------------------------------------------------------
+
+Esri ArcGIS World Imagery, fetched from
+https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}
+by gcs/scripts/prefetch_tiles.py.
+
+  Imagery (c) Esri, Maxar, Earthstar Geographics, and the GIS User Community.
+
+The console displays that attribution at runtime. The tiles are committed
+because the console has to draw its map with NO INTERNET: the competition site
+has no usable connectivity and the aircraft's own WiFi AP has no uplink, so a
+tile that is not in the repository is a blank square on the day. They cover only
+the three fields this project flew.
+
+Esri's terms of use permit caching for offline use in limited circumstances and
+do not clearly extend to redistributing a cached tile set. If you reuse this
+repository, the clean path is to delete gcs/tiles/ and fetch your own:
+
+    python3 gcs/scripts/prefetch_tiles.py --field <your field.yaml>
+
+The console runs fine with no tiles at all — every overlay (pads, zones,
+aircraft, planned route) renders over blank squares.
+
+--------------------------------------------------------------------------------
+SITL ground texture  —  mission/sitl/models/ground_sat/materials/textures/sat_real.png
+--------------------------------------------------------------------------------
+
+A satellite image of the KMUTNB rooftop pitch used as the Gazebo ground plane,
+produced by mission/tools/fetch_sat.py. That tool's default provider chain starts
+at Google satellite imagery (mt1.google.com, z20) and falls back to Esri;
+mission/README.md records this file as the Google z20 branch.
+
+Google's Maps/Earth Additional Terms of Service prohibit mass download and
+redistribution of their content. This file is COSMETIC — the simulation flies
+identically without it. Regenerate it for your own site rather than reusing this
+one:
+
+    cd mission && python3 tools/fetch_sat.py --provider esri --zoom 19
+
+--------------------------------------------------------------------------------
+Field figures derived from satellite imagery
+--------------------------------------------------------------------------------
+
+  mission/docs/evidence/bangbo_field_proposal_2026-08-29.png
+  mission/docs/evidence/briefing_corridor_2026-08-28_overview.jpg
+  mission/docs/evidence/briefing_corridor_2026-08-28_zoom.jpg
+  mission/docs/report_figures/corridor_georeference_2026-08-28.jpg
+  mission/docs/report_figures/field_geometry_2026-08-28.jpg
+
+These are this team's own geometry — geofences, corridors, keep-out boxes, sweep
+legs — drawn over satellite basemaps from the sources above, and inherit their
+terms. The overlays themselves are reproducible from aavc_field.yaml and
+kmitl_config.yaml without any basemap.
+
+Other figures in those directories (decode_real_flight_2026-08-26.jpg,
+pad_faces_ids_0_6.png, sitl_mission_replay.png) are this team's own camera frames
+and renders and carry no third-party claim.
+
+--------------------------------------------------------------------------------
+Competition rulebook  —  mission/AAVC2026_RulesAndRegulation_V1.3_140769-2.pdf
+--------------------------------------------------------------------------------
+
+The official AAVC 2026 Rules and Regulations, V1.3 (July 2026), (c) the AAVC
+organising committee. Every page carries a "subject to be changed" watermark. It
+is included because every geometry number and every envelope limit in this
+repository derives from it and the work cannot be checked without it. No part of
+the codebase reads it at runtime.
+
+mission/docs/RULES_AAVC2026.md is this team's own engineering digest of it,
+including the 2026-08-28 event-briefing overrides.
+
+================================================================================
+3. THIS PROJECT'S OWN RECORDINGS
+================================================================================
+
+flight-data/, mission/captures/, mission/docs/evidence/ (except the files listed
+above), mission/docs/presentation/ and mission/docs/report*/ are this team's own
+recordings, documents and submissions, covered by the Apache-2.0 licence.
+
+gcs/src/aavc_gcs.py is a fork of the same author's Sys_ID Web GCS, and
+gcs/src/pull_log.py comes from that base. Both are this author's own work.

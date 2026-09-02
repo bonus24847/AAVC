@@ -1,6 +1,7 @@
 The files leaflet.js and leaflet.css in this directory are Leaflet 1.9.4,
 redistributed verbatim from https://leafletjs.com under the licence below.
-They are not part of this project's own MIT-licensed code.
+They are not part of this project's own Apache-2.0-licensed code;
+see /NOTICE at the repo root.
 
 ---
 

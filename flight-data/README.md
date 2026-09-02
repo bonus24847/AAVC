@@ -80,3 +80,7 @@ that failure is what `report/pad5_failure.jpg` shows.
 without network at the field, so its clock is whatever it last knew (the scored
 flight's audit is stamped 2026-08-24). The `t=` seconds are the real timeline;
 the directory name carries the real date.
+
+## Licence
+
+Apache License 2.0 — see [`../LICENSE`](../LICENSE) and [`../NOTICE`](../NOTICE).

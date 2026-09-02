@@ -43,3 +43,7 @@ Each change prints, e.g. `[aruco] ID 3 @(childx,y) dx+0.12 dy-0.34`:
 ## Requirements
 Python 3.8+, OpenCV ≥ 4.7 with `cv2.aruco` (`opencv-contrib-python`, or the distro's
 `python3-opencv`). Tested on OpenCV 4.10 (Pi CM4 / Debian 13) and 4.13.
+
+## Licence
+
+Apache License 2.0 — see [`../LICENSE`](../LICENSE) and [`../NOTICE`](../NOTICE).

@@ -145,3 +145,7 @@ OFFBOARD hover: **2026-08-03**.
 
 Python 3.8+, `pymavlink`, `pyyaml`, a modern browser (Chromium recommended).
 Developed and flown on Python 3.12 / Ubuntu.
+
+## Licence
+
+Apache License 2.0 — see [`../LICENSE`](../LICENSE) and [`../NOTICE`](../NOTICE).
