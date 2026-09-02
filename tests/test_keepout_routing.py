@@ -238,11 +238,15 @@ def test_a_pad_registered_inside_a_keepout_is_refused(monkeypatch) -> None:
 def _kmitl_sweep_geometry():
     """(free-ground grid, legs, keep-outs, usable half-swath) in ENU metres.
 
-    The grid is the RULES search polygon minus the keep-out bands — NOT the
-    drawn `search_area` L. 2026-08-29, scored flight 1: marker 4 sat at ENU
-    (187.0, 72.1), outside the L (which stops at N 75.3 east of the building)
-    but inside `search_area_rules`. The committee places pads by the rules
-    polygon, so that is what coverage has to be measured against.
+    The grid is the FLOWN `search_area` minus the keep-out bands.
+
+    2026-08-29 it was `search_area_rules`, because the drawn L stopped at
+    N 75.3 east of the building while marker 4 sat at ENU (187.0, 72.1).
+    2026-08-30 the operator redrew the whole field on the satellite map and the
+    drawn polygon now REACHES FURTHER NORTH than the rules rectangle (N 118 vs
+    N 115) while stopping ~10 m short of it in the south (N 54 vs N 44) — the
+    two no longer nest either way, and the polygon he drew is the one flown.
+    ⚠ The strip N 44-54 of the rules polygon is therefore NOT swept.
     """
     cfg = _kmitl()
     sc = cfg["search"]
@@ -252,7 +256,7 @@ def _kmitl_sweep_geometry():
     def enu(p: tuple[float, float]) -> tuple[float, float]:
         return (math.radians(p[1] - lon0) * k, math.radians(p[0] - lat0) * _R)
 
-    area = [enu((float(v[0]), float(v[1]))) for v in cfg["search_area_rules"]]
+    area = [enu((float(v[0]), float(v[1]))) for v in cfg["search_area"]]
     keepouts = [[enu((float(v[0]), float(v[1]))) for v in poly]
                 for poly in cfg["routing"]["keepout_zones"]]
     pts = [tuple(map(float, p)) for p in sc["sweep_waypoints_enu"]]
@@ -286,7 +290,11 @@ def _seg_dist(p, a, b):
 
 
 def test_the_kmitl_sweep_covers_the_whole_rules_polygon() -> None:
-    """Every square metre of free ground inside the RULES polygon is swept.
+    """Every square metre of free ground inside the FLOWN polygon is swept.
+
+    2026-08-30: the operator redrew the search area and the no-fly bands on the
+    satellite map the morning of the scored day, so the polygon this grids over
+    is now his YELLOW loop (config search_area), not the rules rectangle.
 
     Two flights taught this. 2026-08-28 noon: a 30 m seam between two legs (one
     swath, zero overlap) left 6 % of the area unseen. 2026-08-29, scored flight
@@ -296,7 +304,7 @@ def test_the_kmitl_sweep_covers_the_whole_rules_polygon() -> None:
     sit and 62 m² under the trees. The redrawn sweep leaves under 0.2 %.
     """
     grid, legs, _keepouts, usable = _kmitl_sweep_geometry()
-    assert len(grid) > 7000, "the rules polygon minus the bands is ~7300 m²"
+    assert len(grid) > 7000, "the drawn polygon minus the bands is ~8000 m²"
     unseen = [p for p in grid
               if min(_seg_dist(p, a, b) for a, b in legs) > usable]
     assert len(unseen) / len(grid) < 0.002, (
@@ -310,7 +318,9 @@ def test_the_pocket_between_the_building_and_the_courtyard_is_swept_to_its_south
     The pass that found it turned at N 64, leaving the pocket's south end
     unseen. Pin the whole pocket, N 46 to N 72."""
     _grid, legs, _keepouts, usable = _kmitl_sweep_geometry()
-    for n in range(46, 73, 2):
+    # 2026-08-30: the operator's redrawn band puts the pocket's south end at
+    # N 59 (it was N 46 against the 29-Aug boxes), so N 60-72 IS the pocket.
+    for n in range(60, 73, 2):
         p = (186.0, float(n))
         d = min(_seg_dist(p, a, b) for a, b in legs)
         assert d <= usable, f"pocket point ENU (186, {n}) is {d:.1f} m from the nearest leg"

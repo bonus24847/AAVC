@@ -82,10 +82,21 @@ controlled_airspace:
   # the aircraft's own frame metres off these numbers. Reordered NW,NE,SE,SW so
   # the fence is a SIMPLE rectangle — the PDF lists them as corner PAIRS
   # (NW,NE,SW,SE), which as-is would upload a self-intersecting bowtie.
-  - [13.731312, 100.787175]   # NW
-  - [13.731359, 100.789916]   # NE
-  - [13.729994, 100.789841]   # SE
-  - [13.729806, 100.787228]   # SW
+  # ⚠ REDRAWN BY THE OPERATOR ON THE SATELLITE MAP, 30-Aug-2026 morning
+  # (~/Desktop/KMITL_map_blank_2.jpg — the PURPLE loop). Georeferenced against
+  # the console's own z19 tiles (SIFT, 951 inliers, 0.11 px residual, scale
+  # exactly 2x, rotation 0.002 deg) and taken as the INNERMOST envelope of the
+  # hand-drawn line, so the fence never sits outside what he drew.
+  #   Superseded rules-PDF values (V1.3 p.3), kept for the record:
+  #     NW [13.731312, 100.787175]  NE [13.731359, 100.789916]
+  #     SE [13.729994, 100.789841]  SW [13.729806, 100.787228]
+  #   ⚠ The drawn fence reaches ~12 m FURTHER NORTH than the PDF's airspace
+  #   (N 127 vs N 115) and stops ~26 m short of it in the south. If the
+  #   committee enforces the PDF polygon, the north strip is the exposure.
+  - [13.731463, 100.787206]   # NW  ENU  -26 / 127
+  - [13.731463, 100.789924]   # NE  ENU  268 / 127
+  - [13.730044, 100.789924]   # SE  ENU  268 / -31
+  - [13.730044, 100.787206]   # SW  ENU  -26 / -31
 
 # Search area = what the sweep COVERS. ⚠ Since the 28-Aug-2026 briefing this
 # is the rules' search area MINUS the two no-fly bands the operator marked on
@@ -99,13 +110,24 @@ controlled_airspace:
 # (same ENU frame) and this polygon is what the dashboard draws + what a
 # reviewer checks the legs against. Vertices [lat, lon], clockwise from NW.
 search_area:
-  - [13.731239, 100.787824]   # NW  = rules NW (ENU 40.9 E, 102.1 N)
-  - [13.731284, 100.788607]   # north edge at E 125.6 (building band west edge)
-  - [13.731334, 100.789479]   # north edge at E 219.8 (east band west edge)
-  - [13.730998, 100.789479]   # E 219.8 / N 75.3 — the L's inner corner (top of the building band)
-  - [13.730998, 100.788607]   # E 125.6 / N 75.3 — the building band's NW corner
-  - [13.730715, 100.788607]   # E 125.6 / south edge — 2 m east of the corridor gate
-  - [13.730723, 100.787840]   # SW  = rules SW (ENU 42.6 E, 44.6 N)
+  # ⚠ REDRAWN 30-Aug-2026 from the operator's YELLOW loop MINUS the RED no-fly
+  # he drew on the same map (routing.keepout_zones below). The flown polygon is
+  # a staircase: the west field (E 42-95 up to N 109), the north strip
+  # (E 95-218 up to N 118), and a south edge that follows the building — N 54
+  # west of E 121, N 70 out to E 176, N 59 across the free pocket (E 176-195),
+  # N 74 out to the east band at E 218. 8671 m2 of free ground.
+  - [13.731301, 100.787834]   # ENU  42 / 109  NW (west field top)
+  - [13.731301, 100.788325]   # ENU  95 / 109  riser bottom
+  - [13.731382, 100.788325]   # ENU  95 / 118  riser top
+  - [13.731382, 100.789462]   # ENU 218 / 118  NE (east band west edge)
+  - [13.730987, 100.789462]   # ENU 218 /  74  east band SW / bldg-east top
+  - [13.730987, 100.789249]   # ENU 195 /  74  bldg-east NW
+  - [13.730852, 100.789249]   # ENU 195 /  59  pocket SE
+  - [13.730852, 100.789074]   # ENU 176 /  59  pocket SW
+  - [13.730951, 100.789074]   # ENU 176 /  70  bldg-west NE
+  - [13.730951, 100.788565]   # ENU 121 /  70  bldg-west NW
+  - [13.730807, 100.788565]   # ENU 121 /  54  SE corner
+  - [13.730807, 100.787834]   # ENU  42 /  54  SW
 
 # The rules' FULL search area (PDF p.3, ~227 x 78 m) — DOCUMENTATION since
 # 2026-08-28 (no flight code reads this key; the GCS field file draws it).
@@ -133,9 +155,14 @@ transit_route:
   #   Superseded PDF Table-1 values, kept for the record:
   #     P2 [13.730397, 100.788694]  (ENU 135.0 E,  8.3 N)
   #     P3 [13.730712, 100.788755]  (ENU 141.6 E, 43.4 N — on the building)
+  # ⚠ MOVED AGAIN 30-Aug-2026: the operator's new RED building band starts at
+  # ENU E 121.2 (the building's west wall), so the 28-Aug corridor at E 123.7
+  # ran 2.5 m INSIDE it. The north leg now runs due north at E 116 — 5 m clear
+  # of the band, 19 m clear of the trees. P1 (= L&R) unchanged.
+  #   Superseded 28-Aug: P2' [13.730390, 100.788590] · P3' [13.730715, 100.788590]
   - [13.730322, 100.787446]   # P1  RTH / holding point (= L&R, unchanged)
-  - [13.730390, 100.788590]   # P2' turn north  (ENU 123.7 E,  7.6 N; 11.3 m W of P2)
-  - [13.730715, 100.788590]   # P3' search gate (ENU 123.7 E, 43.8 N; 17.9 m W of P3)
+  - [13.730390, 100.788519]   # P2' turn north  (ENU 116.0 E,  7.6 N)
+  - [13.730717, 100.788519]   # P3' search gate (ENU 116.0 E, 44.0 N)
 
 # ⚠ KMITL HAS a no-fly zone — rules Figure 1/3, the orange block on the EAST
 # side, south of the search area's east end — but the PDF gives it as a
@@ -190,10 +217,18 @@ no_fly_zones: []
 # straight line it always was.
 routing:
   keepout_zones:
-    - [[13.730978, 100.788607], [13.730978, 100.789111], [13.730699, 100.789111], [13.730699, 100.788607]]   # building band  E 125.6-180 / N 42-73 (drawn 2026-08-29: top N 73, the pocket E 180-192 x N 61-73 between building and courtyard is FREE)
-    - [[13.730978, 100.789222], [13.730978, 100.789479], [13.730699, 100.789479], [13.730699, 100.789222]]   # courtyard      E 192-219.8 / N 42-73
-    - [[13.731362, 100.789479], [13.731362, 100.789906], [13.730699, 100.789906], [13.730699, 100.789479]]   # east band      E 219.8-266 / N 42-116
-    - [[13.731346, 100.788186], [13.731346, 100.788343], [13.730960, 100.788343], [13.730960, 100.788186]]   # trees (18 m)   E 80-97 / N 71-114 = drawn strokes E 81-96 / N 72-113 + 1 m (pixel-read 2026-08-29; was E 76-97 / N 66-111)
+    # ⚠ REDRAWN 30-Aug-2026 from the operator's RED strokes (same map and
+    # georeference as controlled_airspace). Five boxes: the tree block, the
+    # main building split into three so the FREE pocket between building and
+    # courtyard (E 176-195, N 59-70 — marker 4 sat in there on 29 Aug) stays
+    # flyable, and the whole east side. South edges run to N 15: nothing the
+    # mission flies goes below N 44 east of E 116.
+    - [[13.731436, 100.788186], [13.731436, 100.788343], [13.730951, 100.788343], [13.730951, 100.788186]]   # trees (18 m)  E 80-97  / N 70-124 — the drawn box E 84-93 / N 86-122 UNIONED with the 29-Aug survey E 80-97 / N 70-114 (canopy at N 100-116, a second tree at N 72-80)
+    - [[13.730951, 100.788565], [13.730951, 100.789074], [13.730457, 100.789074], [13.730457, 100.788565]]   # building west E 121-176 / N 15-70  (drawn top N 69.5, west wall E 121.2)
+    - [[13.730852, 100.789074], [13.730852, 100.789249], [13.730457, 100.789249], [13.730457, 100.789074]]   # pocket south  E 176-195 / N 15-59  (the pocket ABOVE N 59 is FREE and is swept)
+    - [[13.730987, 100.789249], [13.730987, 100.789462], [13.730457, 100.789462], [13.730457, 100.789249]]   # building east E 195-218 / N 15-74  (courtyard block, drawn top N 73.4)
+    - [[13.731463, 100.789462], [13.731463, 100.789924], [13.730044, 100.789924], [13.730044, 100.789462]]   # east band     E 218-268 / N -31..127 (the whole east side, out to the fence)
+    - [[13.731427, 100.788907], [13.731427, 100.789092], [13.731283, 100.789092], [13.731283, 100.788907]]   # north object E 158-178 / N 107-123 — the RED scribble the operator added on the plan render, 30-Aug (structure at the top of the north strip); the top sweep leg detours below it
   # Via-points. mission.py::_goto_routed finds the SHORTEST chain of these
   # whose every segment stays out of the keep-outs (Dijkstra over
   # {here, gateways, target}), so a hop from the west column to the north
@@ -201,10 +236,10 @@ routing:
   # egress from the west column goes SW → P3'. Each one sits in a lane that
   # sees its neighbours in a straight line:
   gateways:
-    - [13.731068, 100.788509]   # NE  ENU 115 / 83 — off the building band's NW corner
-    - [13.730843, 100.788482]   # SE  ENU 112 / 58 — the lane between the trees and the building
-    - [13.730843, 100.788001]   # SW  ENU  60 / 58 — south of the trees, west field
-    - [13.731041, 100.789166]   # PK  ENU 186 / 80 — top of the building-courtyard pocket (2026-08-29): the pocket pass bottom (186,64) has no clear line to NE/SE/SW, this one does
+    - [13.731086, 100.788537]   # NE  ENU 118 / 85 — east of the trees, west of the building band
+    - [13.730879, 100.788463]   # SE  ENU 110 / 62 — the lane between the trees and the building
+    - [13.730879, 100.788001]   # SW  ENU  60 / 62 — south of the trees, west field
+    - [13.731041, 100.789166]   # PK  ENU 186 / 80 — top of the building/courtyard pocket
 
 # Ground operations — the Launch & Recovery point: on the pitch long axis,
 # field-frame s=+24 (6 m in from the SE airspace edge, inside the penalty
@@ -267,7 +302,18 @@ search:
   # visit.
   # (History: 8.0 -> 12.0 on 2026-08-22, review F1 — 8.0 was a KMUTNB number
   # under the practice 10 m ceiling and sat below the rules' 10 m floor.)
-  sweep_alt_m: 15.0        # 20 -> 15 at 15:40 on 2026-08-28 (operator, once
+  sweep_alt_m: 15.0        # 15 -> 18 on 2026-08-30 (operator, minutes before the scored
+                           # flight). The hand-laid legs do NOT change; only the
+                           # height does, so the usable half-swath grows 10.0 ->
+                           # 12.3 m (more coverage margin) and the 400 mm marker
+                           # shrinks 22.6 -> 18.8 px — right ON the validated
+                           # 18 px decode floor. The 1 m white pad is 47 px, well
+                           # over the 18 px blob floor, so a pad is still FOUND
+                           # at 18 m even if its id is not read until the 10.5 m
+                           # decode visit. The 18 m trees are unchanged: the
+                           # sweep is now level with the canopy top, and the
+                           # 10 m horizontal stand-off is still the only margin.
+                           # (superseded) 20 -> 15 at 15:40 on 2026-08-28 (operator, once
                            # the trees became a keep-out: "ดังนั้นสามารถบิน
                            # sweep ที่ 15 m ได้"): marker 22.6 px instead of
                            # 16.9 — the trial decoded 20-33 % of frames per
@@ -344,21 +390,35 @@ search:
   # Coverage, the tree stand-off and the keep-out clearance are all pinned by
   # tests/test_keepout_routing.py. Re-run it after ANY edit.
   sweep_waypoints_enu:
-    - [121.0, 48.0]         # S1 east end (entered from P3'); 4.5 m clear of the building band
-    - [44.0, 48.0]          # S1 west end
-    - [50.0, 61.0]          # W1 bottom
-    - [50.0, 104.0]         # W1 top
-    - [70.0, 104.0]         # W2 top
-    - [70.0, 61.0]          # W2 bottom
-    - [121.0, 61.0]         # S2 east end
-    - [110.0, 74.0]         # middle column bottom  (operator's 6 -> 10 line)
-    - [110.0, 104.0]        # middle column top
-    - [215.0, 102.0]        # north strip NE; 4.8 m clear of the east band
-    - [215.0, 84.0]         # step down
-    - [186.0, 84.0]         # pocket gate
-    - [186.0, 50.0]         # pocket bottom (marker 4 was at N 72 in here)
-    - [186.0, 84.0]         # pocket gate again
-    - [122.0, 84.0]         # north strip SW — egress starts here
+    - [116.0, 60.0]       # S1 east end — entered from P3' (116,44); 5 m clear of the building band
+    - [44.0, 60.0]        # S1 west end   [south strip E 42-121; 10 m below the tree block]
+    - [44.0, 78.0]        # W1 bottom
+    - [70.0, 78.0]        # W1 top   [west field; 10 m clear of the tree block at E 80]
+    - [70.0, 94.0]        # W2 top
+    - [44.0, 94.0]        # W2 bottom
+    - [44.0, 108.0]       # W3 bottom
+    - [70.0, 108.0]       # W3 top   [west field N 97-119]
+    - [70.0, 60.0]        # drop below the trees — there is NO passage north of them (canopy to N 124)
+    - [107.0, 60.0]       # run east under the trees, 10 m below the block
+    - [107.0, 116.0]      # C1 north — middle column E 107, 10 m clear of the trees
+    - [116.0, 116.0]      # step across to C2
+    - [116.0, 78.0]       # C2 south — middle column E 116, 5 m clear of the building
+    - [122.0, 79.0]       # N1 west end (E 122; 9 m clear of the building band top at N 70)
+    - [176.0, 79.0]       # N1 — building band ends here
+    - [185.0, 79.0]       # pocket gate
+    - [185.0, 64.0]       # pocket bottom (5 m clear of the band; marker 4 sat at N 72 in here on 29 Aug)
+    - [185.0, 79.0]       # back out of the pocket
+    - [213.0, 79.0]       # N1 east end (5 m clear of the east band at E 218)
+    - [213.0, 92.0]       # step up
+    - [122.0, 92.0]       # N2 west end
+    - [122.0, 102.0]      # step up
+    - [213.0, 102.0]      # N3 east end (N 102: 5 m below the new north object)
+    - [213.0, 116.0]      # step up
+    - [184.0, 116.0]      # N4 east part — stop 6 m east of the north object
+    - [184.0, 102.0]      # detour DOWN around it
+    - [152.0, 102.0]      # detour WEST under it (retraces 32 m of N3 — the object blocks N 107-118 outright)
+    - [152.0, 116.0]      # back UP to the N4 line
+    - [122.0, 116.0]      # N4 west end — the sweep ENDS here; straight line to P3' is clear
   # ✅ 0.44 -> 0.30 on 2026-08-24, after the SITL test the operator asked for.
   # 0.44 was belt-and-braces for an UNMEASURED camera mount: if the wide image
   # axis did not lie across track the real swath was the 720 px axis and 0.30
@@ -412,7 +472,7 @@ search:
   # ⚠ APPROXIMATE — computed from the rules-PDF corners (NW->NE bearing ~87 deg),
   # NOT surveyed. Re-measure at the 28-Aug trial; a few degrees off walks the
   # sweep legs off the polygon ends.
-  sweep_axis_deg: 87.0
+  sweep_axis_deg: 90.0   # 87 -> 90 (2026-08-30): the hand-laid legs are exactly E-W
   confirm_votes: 2         # decoded NADIR votes to CONFIRM an id-cluster into the
                            # registry. The land gate re-verifies the id AT the
                            # pad, so a mis-registered pad defers, never mislands.
@@ -448,7 +508,13 @@ search:
   # the window was computing against a field a third of the size, so it
   # approved work it could not finish — and the per-delivery abort gate reads
   # the same numbers, so it could not catch it either.
-  sortie_cost_s: 730.0     # FULL-SWEEP sortie. 820 -> 730 on 2026-08-29: the
+  sortie_cost_s: 850.0     # FULL-SWEEP sortie. 730 -> 850 on 2026-08-30: the
+                           # redrawn sweep is 833 m / 238 s (was 579 m / 166 s)
+                           # because the flown area grew to 8671 m2. Rebuilt
+                           # from parts: 17 takeoff + 40 ingress + 12 climb +
+                           # 238 sweep + 3x90 serves + 32 egress + 35 land
+                           # = 644 s, rounded up for turns and re-aligns.
+                           # (superseded) 820 -> 730 on 2026-08-29: the
                            # committee placed THREE pads (3 eggs), so the
                            # parts below carry 3 x serve_cost_s 90 = 270, not
                            # 360 — 694 s, rounded up with the same margin.
@@ -466,7 +532,9 @@ search:
                            # (Earlier today: 985 capped for the 4-leg 3 m/s plan;
                            # 2026-08-24: 900 at the 12 m sweep of the full
                            # polygon, cross-checked against the 536 s SITL run.)
-  known_sortie_cost_s: 200.0  # registry-known sortie, no search. 2026-08-28
+  known_sortie_cost_s: 220.0  # registry-known sortie, no search. 2026-08-30:
+                              # the corridor is 153 m each way at 5 m/s plus one
+                              # 90 s serve and takeoff/land. (was 200) 2026-08-28
                            # evening: the far corner of the L (the west column,
                            # via the SW gateway) is 268 m by way of the
                            # corridor = 54 s each way at MPC_XY_CRUISE 5, plus
