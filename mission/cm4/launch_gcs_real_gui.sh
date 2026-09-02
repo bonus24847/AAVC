@@ -21,8 +21,14 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GCS="${AAVC_GCS:-$HOME/Desktop/aavc-gcs/src/aavc_gcs.py}"
-REGISTRY="${AAVC_MISSIONS:-$HOME/Desktop/aavc-gcs/missions.yaml}"
+# ⚠ 2026-09-02: the console used to live in a SEPARATE checkout at
+# ~/Desktop/aavc-gcs, so both paths below were pinned to one laptop's home and
+# this icon was dead on any other machine. gcs/ and mission/ are siblings in one
+# repo now, so they are found relative to this script. AAVC_GCS / AAVC_MISSIONS
+# still override, for a split checkout.
+MONO_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
+GCS="${AAVC_GCS:-$MONO_ROOT/gcs/src/aavc_gcs.py}"
+REGISTRY="${AAVC_MISSIONS:-$MONO_ROOT/gcs/missions.yaml}"
 STATE="$HOME/.config/aavc"
 HOSTFILE="$STATE/cm4_host"
 PIDFILE="$STATE/real_console.pids"
@@ -131,10 +137,28 @@ fi
 
 # ── 1. mission ที่จะบิน ────────────────────────────────────────────────────
 [ -f "$REGISTRY" ] || die "ไม่พบรายการ mission ที่\n$REGISTRY"
-mapfile -t ROWS < <(/usr/bin/python3 - "$REGISTRY" "$MODE" <<'PY'
-import sys, yaml
+mapfile -t ROWS < <(/usr/bin/python3 - "$REGISTRY" "$MODE" "$MONO_ROOT" <<'PY'
+import os, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1])) or {}
 mode = sys.argv[2]
+root = sys.argv[3]
+
+
+def x(v):
+    """LAPTOP-side paths. Registry entries are written "{repo}/mission/…" so the
+    file is not tied to one laptop's home; aavc_gcs.py::_expand_registry does
+    the same thing on the console side. Expanding here too keeps the two
+    readers agreeing."""
+    return os.path.expanduser(str(v or "").replace("{repo}", root))
+
+
+def remote(v):
+    """`entry` runs ON THE CM4 over ssh: its ~ is the DRONE's home and its paths
+    are the drone's. Passed through untouched — expanding it here would rewrite
+    ~/mission to this laptop's home and ssh a path the drone does not have."""
+    return str(v or "")
+
+
 for name, m in (doc.get("missions") or {}).items():
     m = m or {}
     r = m.get("real") or {}
@@ -149,10 +173,10 @@ for name, m in (doc.get("missions") or {}).items():
         # later column left. SIM rows have empty repo/dir/entry, which is
         # exactly that case (found by the smoke test, 2026-08-16).
         print("\x1f".join([name, str(m.get("label") or name),
-                         str(r.get("repo") or ""), str(r.get("dir") or ""),
-                         str(r.get("entry") or ""),
-                         str(m.get("field") or ""), str(m.get("captures") or ""),
-                         str(m.get("reset_cmd") or "")]))
+                         x(r.get("repo")), str(r.get("dir") or ""),
+                         remote(r.get("entry")),
+                         x(m.get("field")), x(m.get("captures")),
+                         x(m.get("reset_cmd"))]))
 PY
 )
 if [ ${#ROWS[@]} -eq 0 ]; then

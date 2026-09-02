@@ -34,7 +34,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 PY="$REPO_ROOT/.venv/bin/python"
 BRIDGE_PY=(env PYTHONPATH=/usr/lib/python3/dist-packages "$PY")
-AAVC_GCS="${AAVC_GCS:-$HOME/Desktop/aavc-gcs/src/aavc_gcs.py}"
+# gcs/ is a sibling of mission/ in this repo since 2026-09-02. It used to be a
+# separate checkout at ~/Desktop/aavc-gcs, so on any other machine this fell
+# through to "console skipped" and the stack came up with no map at all.
+AAVC_GCS="${AAVC_GCS:-$(cd "$REPO_ROOT/.." && pwd)/gcs/src/aavc_gcs.py}"
 
 # Is somebody ELSE's SITL running on this machine? (2026-08-15: this script
 # pkill'd `gz sim` and px4 by pattern, with no idea who owned them, and killed a

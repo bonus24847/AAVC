@@ -112,7 +112,7 @@ payload-bridge-servo:
 	$(BRIDGE_PY) sitl/payload_detach_bridge.py $(RUN) --servo --model eft_x6100 \
 		--channels $(CHANNELS)
 
-# AAVC GCS console (~/Desktop/aavc-gcs) against this repo's field file: live
+# AAVC GCS console (../gcs) against this repo's field file: live
 # telemetry map (leaflet) + geofence/search/transit overlay + the manual
 # payload-release buttons (DO_SET_ACTUATOR 1..4). Binds udp 14550 = PX4's GCS
 # broadcast — which is why aavc_config.yaml sets raw_telemetry_port: 0 (the
@@ -122,7 +122,9 @@ payload-bridge-servo:
 # from OUR orchestrator's live mission_status.json (orchestrator/gcs_status.py
 # — pads appear as the drone scans them). Without it the console auto-shares
 # a SIBLING project's captures dir and renders that project's stale pads.
-AAVC_GCS ?= $(HOME)/Desktop/aavc-gcs/src/aavc_gcs.py
+# gcs/ sits beside mission/ in this repo (was a separate ~/Desktop checkout
+# until 2026-09-02, which only ever resolved on one laptop).
+AAVC_GCS ?= $(CURDIR)/../gcs/src/aavc_gcs.py
 aavc-gcs:
 	/usr/bin/python3 $(AAVC_GCS) --field gcs/kmutnb_field.yaml --captures captures --url $(if $(GCS_URL),$(GCS_URL),udpin:0.0.0.0:14550) --mission-cmd "'$(CURDIR)/sitl/run_mission.sh' {ids}" --reset-cmd "env KEEP_CONSOLE=1 GUI=$(if $(GUI),$(GUI),0) bash '$(CURDIR)/sitl/launch_stack.sh'" $(GCS_ARGS)
 

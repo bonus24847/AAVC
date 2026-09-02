@@ -474,6 +474,13 @@ _RESET_PROC = None
 # pending) and cannot be selected.
 MISSIONS_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "missions.yaml")
+# The repo root — this file is <repo>/gcs/src/aavc_gcs.py. Registry entries
+# write their paths as "{repo}/mission/…" so a clone works wherever it lands:
+# until 2026-09-02 every field/captures/mission_cmd in missions.yaml was an
+# absolute path into ONE laptop's ~/Desktop, so a second machine booted the
+# console with a field file it could not open and a 🚀 button pointing at
+# nothing.
+REPO_ROOT = os.path.dirname(os.path.dirname(_HERE))
 MISSIONS = {}
 CURRENT_MISSION = None
 # True when this console was wired to a REAL aircraft at startup (its
@@ -484,11 +491,26 @@ CURRENT_MISSION = None
 REAL_CONSOLE = False
 
 
+def _expand_registry(value):
+    """Substitute {repo} and ~ through a registry entry, at any nesting depth.
+
+    Applied once at load time so every consumer — apply_mission, the boot
+    template, the mission dropdown — sees real paths and none of them has to
+    remember to expand."""
+    if isinstance(value, str):
+        return os.path.expanduser(value.replace("{repo}", REPO_ROOT))
+    if isinstance(value, dict):
+        return {k: _expand_registry(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_expand_registry(v) for v in value]
+    return value
+
+
 def load_missions():
     global MISSIONS
     try:
         doc = yaml.safe_load(open(MISSIONS_PATH)) or {}
-        MISSIONS = doc.get("missions") or {}
+        MISSIONS = _expand_registry(doc.get("missions") or {})
     except Exception:
         MISSIONS = {}
 

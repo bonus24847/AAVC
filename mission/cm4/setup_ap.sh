@@ -24,9 +24,27 @@
 set -uo pipefail
 
 SSID="${AAVC_AP_SSID:-AAVC-DRONE}"
-PASS="${AAVC_AP_PASS:-aavc2026drone}"
+# ⚠ ไม่มีรหัสผ่านค่าเริ่มต้นอีกแล้ว (2026-09-02, ตอนเปิด repo เป็นสาธารณะ)
+# เดิมบรรทัดนี้เป็น PASS="${AAVC_AP_PASS:-<รหัสตายตัว>}" ⇒ ใครอ่านไฟล์นี้ก็เข้า
+# วง WiFi ของโดรนได้ และวงนั้นคือทางเข้า ssh ของ CM4 กับหน้า console ที่ปุ่ม
+# ปล่อย servo ไม่มี auth ⇒ ต้องตั้งเองทุกครั้ง:
+#     AAVC_AP_PASS='...' bash cm4/setup_ap.sh --apply
+# ไม่อยากคิดเอง ให้สุ่ม:  AAVC_AP_PASS=$(openssl rand -base64 12)
+PASS="${AAVC_AP_PASS:-}"
 IFACE="${AAVC_AP_IFACE:-wlan0}"
 CONN="AAVC-AP"
+
+if [ -z "$PASS" ] && [ "${1:-}" != "--revert" ]; then
+    echo "ต้องตั้งรหัสผ่านของวงเอง — ไม่มีค่าเริ่มต้นให้แล้ว:" >&2
+    echo "    AAVC_AP_PASS='รหัสที่ต้องการ' bash cm4/setup_ap.sh --apply" >&2
+    echo "  สุ่มให้:  AAVC_AP_PASS=\$(openssl rand -base64 12)" >&2
+    echo "  (อย่างน้อย 8 ตัวอักษร ตามข้อกำหนดของ WPA2)" >&2
+    exit 2
+fi
+if [ -n "$PASS" ] && [ "${#PASS}" -lt 8 ]; then
+    echo "รหัสผ่าน WPA2 ต้องยาวอย่างน้อย 8 ตัวอักษร (ได้มา ${#PASS})" >&2
+    exit 2
+fi
 
 if [ "${1:-}" = "--revert" ]; then
     echo "จะลบ AP แล้วให้ CM4 กลับไปเข้า WiFi ปกติ:"
@@ -56,13 +74,13 @@ cat <<EOF
 จะตั้งให้ CM4 ปล่อย WiFi ของตัวเอง:
 
     ชื่อวง (SSID) : $SSID
-    รหัสผ่าน      : $PASS
+    รหัสผ่าน      : (จาก AAVC_AP_PASS — ไม่พิมพ์ออกจอ)
     การ์ด         : $IFACE
     ที่อยู่ CM4    : 10.42.0.1        <- ใช้แทน <วง>.41 เดิม
     เปิดเองตอนบูต : ใช่
 
 คำสั่งที่จะรัน:
-    sudo nmcli device wifi hotspot ifname $IFACE con-name $CONN ssid $SSID password $PASS
+    sudo nmcli device wifi hotspot ifname $IFACE con-name $CONN ssid $SSID password '<AAVC_AP_PASS>'
     sudo nmcli connection modify $CONN connection.autoconnect yes \\
                                        connection.autoconnect-priority 100
 EOF

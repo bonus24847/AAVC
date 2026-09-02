@@ -1,12 +1,23 @@
 [Desktop Entry]
+# ⚠ TEMPLATE — do not copy this file to your desktop as-is.
+# desktop-entry requires Exec= and Icon= to be ABSOLUTE paths, so a committed
+# .desktop can only ever be right on the machine that wrote it. Until
+# 2026-09-02 this file carried one laptop's ~/Desktop path and did nothing at
+# all anywhere else (the icon "opens" and no window appears).
+#
+# Install the real icons for THIS clone instead:
+#     bash mission/cm4/install_icons.sh            # show what it would write
+#     bash mission/cm4/install_icons.sh --apply    # write them
+#
+# @REPO@ below is where that script substitutes the path to mission/.
 Version=1.0
 Type=Application
 Name=AAVC GCS
 Name[th]=AAVC GCS (จำลอง / เครื่องจริง)
-Comment=เลือกโหมดก่อน: จำลอง (SITL) หรือ เครื่องจริง (โดรน) แล้วเปิด console ให้เอง
+Comment=Pick the mode first: simulation (SITL) or the real aircraft, then it opens the console for you
 Comment[th]=ไอคอนเดียวคุมทั้งสองโหมด — ค่าเริ่มต้นคือจำลอง โหมดเครื่องจริงต้องเลือกเอง
-Exec=bash "/home/bonus-linux/Desktop/mission AAVC in kmutnb/cm4/launch_gcs_real_gui.sh"
-Icon=network-wireless
+Exec=bash "@REPO@/cm4/launch_gcs_real_gui.sh"
+Icon=@REPO@/icons/practice.svg
 Terminal=false
 Categories=Utility;Science;
 StartupNotify=true

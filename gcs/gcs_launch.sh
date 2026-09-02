@@ -1,34 +1,50 @@
 #!/usr/bin/env bash
 # AAVC GCS — mission dispatcher (2026-08-13): ONE entry point, the console
 # itself is mission-agnostic; each target wires the right field yaml,
-# captures dir and 🚀 mission command for that repo.
+# captures dir and 🚀 mission command for that field.
 #
-#   ./gcs_launch.sh kmutnb-sim              # KMUTNB practice: SITL stack + console
-#   ./gcs_launch.sh kmutnb-real <user@cm4>  # KMUTNB practice: real bird (RC-GO)
-#   ./gcs_launch.sh aavc-sim|aavc-real …    # competition repo (mission_AAVC) —
-#                                           # pending its GCS contract pieces
+#   ./gcs_launch.sh sim              # SITL stack + console (KMUTNB sky-field)
+#   ./gcs_launch.sh real <user@cm4>  # real bird, CLI (RC-GO)
+#   ./gcs_launch.sh gui              # real bird, click-through icon (any field)
+#   ./gcs_launch.sh demo             # console alone, fake telemetry
 #
-# (This file is deliberately untracked in the aavc-gcs repo — the repo has a
-# standing no-commit policy. The kmutnb launchers it calls live in that
-# mission's own repo and ARE version-controlled there.)
+# `sim` is the KMUTNB sky-field harness and nothing else: launch_stack.sh is
+# wired to that world, that field yaml and sitl/aavc_config.yaml. To fly the
+# KMITL or Bang Bo config, use the console's own 🚀 button (its registry has
+# all three) or run mission/sitl/run_mission.sh with AAVC_CONFIG set.
+#
+# ⚠ 2026-09-02: this used to point at "$HOME/Desktop/mission AAVC in kmutnb"
+# and "$HOME/Desktop/mission_AAVC" — two absolute paths into one laptop's home,
+# one of which had already been retired. The console and the flight code are
+# siblings in this repo now, so everything is found relative to this script and
+# the same commands work on any machine that cloned it.
+#
+# The old verbs still work: kmutnb-sim / kmutnb-real map onto sim / real.
 set -uo pipefail
 
-KMUTNB="$HOME/Desktop/mission AAVC in kmutnb"
-AAVC_COMP="$HOME/Desktop/mission_AAVC"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MISSION="$REPO_ROOT/mission"
+GCS="$REPO_ROOT/gcs/src/aavc_gcs.py"
+
+[ -d "$MISSION" ] || {
+    echo "ไม่พบ $MISSION — repo นี้ต้องมี gcs/ กับ mission/ อยู่ข้างกัน" >&2
+    exit 1
+}
 
 case "${1:-}" in
-  kmutnb-sim)
+  sim|kmutnb-sim)
     shift
-    exec env GUI="${GUI:-1}" bash "$KMUTNB/sitl/launch_stack.sh" "$@";;
-  kmutnb-real)
+    exec env GUI="${GUI:-1}" bash "$MISSION/sitl/launch_stack.sh" "$@";;
+  real|kmutnb-real)
     shift
-    exec bash "$KMUTNB/cm4/launch_gcs_real.sh" "$@";;
-  aavc-sim|aavc-real)
-    echo "ยังเปิดไม่ได้: repo mission_AAVC ($AAVC_COMP) ต้องมี contract 3 ชิ้นก่อน" >&2
-    echo "  (1) entry แบบ run_mission.sh ที่รับ {ids}  (2) field yaml ของสนามมัน" >&2
-    echo "  (3) ตัวเขียน mission_status.json ลง captures — เสนอให้เซสชันที่ดูแล repo นั้นแล้ว รอตอบรับ" >&2
-    exit 1;;
+    exec bash "$MISSION/cm4/launch_gcs_real.sh" "$@";;
+  gui)
+    shift
+    exec bash "$MISSION/cm4/launch_gcs_real_gui.sh" "$@";;
+  demo)
+    shift
+    exec /usr/bin/env python3 "$GCS" --demo "$@";;
   *)
-    echo "usage: gcs_launch.sh kmutnb-sim | kmutnb-real <user@cm4> | aavc-sim | aavc-real" >&2
+    echo "usage: gcs_launch.sh sim | real <user@cm4> | gui | demo" >&2
     exit 2;;
 esac

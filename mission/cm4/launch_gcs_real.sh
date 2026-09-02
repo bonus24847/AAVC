@@ -35,7 +35,9 @@ set -uo pipefail
 HOST="${1:?usage: cm4/launch_gcs_real.sh <user@cm4-host> [console_port]}"
 PORT="${2:-8000}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GCS="${AAVC_GCS:-$HOME/Desktop/aavc-gcs/src/aavc_gcs.py}"
+# gcs/ is a sibling of mission/ in this repo since 2026-09-02 (it used to be a
+# separate checkout at ~/Desktop/aavc-gcs, which only existed on one laptop).
+GCS="${AAVC_GCS:-$(cd "$REPO_ROOT/.." && pwd)/gcs/src/aavc_gcs.py}"
 DIR="${CM4_DIR:-mission}"
 
 [ -f "$GCS" ] || { echo "ERROR: console not found at $GCS (set AAVC_GCS=…)" >&2; exit 1; }

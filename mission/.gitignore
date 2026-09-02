@@ -54,3 +54,18 @@ Thumbs.db
 
 # Stray spreadsheet copies (keep local, do not track)
 *(Copy).xlsx
+
+# Claude Code's per-machine permission cache — it accumulates the absolute
+# paths of whatever machine ran it (untracked 2026-09-02: it was carrying a
+# second laptop's home directory and unrelated project names into a public repo)
+.claude/settings.local.json
+.claude/RESUME.md
+
+# PX4's own Gazebo assets, borrowed by sitl/models/eft_x6100_base (its props are
+# model://x500_base/meshes/*.stl). They were committed as absolute symlinks into
+# one machine's PX4 clone and were therefore broken everywhere, that machine
+# included. Recreate them per clone: bash sitl/link_px4_assets.sh
+sitl/models/x500_base/materials
+sitl/models/x500_base/meshes
+sitl/models/x500_base/thumbnails
+sitl/models/x500/thumbnails

@@ -3,7 +3,7 @@
 
     python3 scripts/prefetch_tiles.py --field aavc_field.yaml
     python3 scripts/prefetch_tiles.py --field aavc_field.yaml \
-        --field "/home/bonus-linux/Desktop/mission AAVC in kmutnb/gcs/kmutnb_field.yaml"
+        --field ../mission/gcs/kmutnb_field.yaml
     python3 scripts/prefetch_tiles.py --bbox 13.7298 100.7872 13.7314 100.7899
 
 Reads the field yaml's geofence.controlled_airspace, grows it by --margin-m,

@@ -4,18 +4,30 @@
 # entry ที่ field/mission_cmd ยังว่าง = ขึ้นในรายการแบบกดไม่ได้ (รอ contract)
 #
 # บล็อก `real:` = ข้อมูลฝั่งเครื่องจริง ใช้โดยไอคอน "AAVC GCS เครื่องจริง"
-# (cm4/launch_gcs_real_gui.sh): repo บนโน้ตบุ๊กที่จะ deploy, ชื่อโฟลเดอร์บน
+# (mission/cm4/launch_gcs_real_gui.sh): repo บนโน้ตบุ๊กที่จะ deploy, ชื่อโฟลเดอร์บน
 # CM4, และคำสั่งที่ปุ่ม 🚀 จะ ssh ไปเรียก — ผู้ใช้ไม่ต้องพิมพ์อะไรเอง
+#
+# ⚠ {repo} = รากของ repo นี้ (โฟลเดอร์ที่มี gcs/ mission/ aruco/ อยู่ข้างใน)
+#   aavc_gcs.py แทนค่าให้ตอนโหลด (_expand_registry) — 2026-09-02 เปลี่ยนมาจาก
+#   absolute path ที่ผูกกับ ~/Desktop ของโน้ตบุ๊กเครื่องเดียว ซึ่งทำให้เครื่องอื่น
+#   เปิด console แล้วได้แผนที่ว่างกับปุ่ม 🚀 ที่ชี้ไปที่ไม่มีอยู่จริง
+#
+# ⚠ ทุก mission_cmd ระบุ AAVC_PROFILE/AAVC_CONFIG มาเองแบบชัด ๆ (2026-09-02)
+#   เดิม entry สนามแข่งกับบางบ่อชี้ไป repo aavc-comp แล้วอาศัย .aavc_site ของ
+#   repo นั้นเลือกสนามให้ พอ repo รวมเป็นอันเดียว .aavc_site ที่เหลือคือของ
+#   **สนามซ้อม** (kmutnb_skyfield + aavc_config.yaml) ⇒ ถ้าไม่ระบุ env
+#   ปุ่ม 🚀 สนามแข่งจะบินด้วยเพดานสนามซ้อมแบบเงียบ ๆ ซึ่งคือการผิดกติกา
+#   run_mission.sh อ่านเป็น "${VAR:-default}" ⇒ env ที่ส่งมาชนะ .aavc_site เสมอ
 missions:
   kmutnb:
     label: "KMUTNB สนามซ้อม (เพดาน 10 m)"
-    field: "/home/bonus-linux/Desktop/mission AAVC in kmutnb/gcs/kmutnb_field.yaml"
-    captures: "/home/bonus-linux/Desktop/mission AAVC in kmutnb/captures"
-    mission_cmd: "'/home/bonus-linux/Desktop/mission AAVC in kmutnb/sitl/run_mission.sh' {ids}"
+    field: "{repo}/mission/gcs/kmutnb_field.yaml"
+    captures: "{repo}/mission/captures"
+    mission_cmd: "env AAVC_PROFILE=kmutnb_skyfield AAVC_CONFIG=sitl/aavc_config.yaml '{repo}/mission/sitl/run_mission.sh' {ids}"
     mission_label: ""   # operator 2026-08-14: ปุ่มเดียวใช้ทุกโลก ไม่ติดป้าย SIM
-    reset_cmd: "env KEEP_CONSOLE=1 GUI=1 bash '/home/bonus-linux/Desktop/mission AAVC in kmutnb/sitl/launch_stack.sh'"
+    reset_cmd: "env KEEP_CONSOLE=1 GUI=1 bash '{repo}/mission/sitl/launch_stack.sh'"
     real:
-      repo: "/home/bonus-linux/Desktop/mission AAVC in kmutnb"
+      repo: "{repo}/mission"
       dir: "mission"
       # ⚠ env ต้องระบุให้ครบตั้งแต่ 2026-08-25 — เดิมบรรทัดนี้ปล่อยว่างแล้วพึ่ง
       # .aavc_site บนโดรน แต่ตอนนี้ค่าเริ่มต้นของโดรนถูกย้ายไป **สนามแข่ง KMITL**
@@ -29,11 +41,14 @@ missions:
     # reconfigured for KMITL via .aavc_site: AAVC_PROFILE=competition +
     # sitl/kmitl_config.yaml). The old mission_AAVC repo was retired the same day.
     # The flight core is identical to the practice repo and kept so via
-    # aavc-practice/sync_core.sh. ⚠ kmitl_config.yaml geometry is the rules-PDF
-    # numbers, NOT surveyed — verify at the 28-Aug trial.
-    field: "/home/bonus-linux/Desktop/aavc-gcs/aavc_field.yaml"
-    captures: "/home/bonus-linux/Desktop/aavc-comp/captures"
-    mission_cmd: "'/home/bonus-linux/Desktop/aavc-comp/sitl/run_mission.sh' {ids}"
+    # aavc-practice/sync_core.sh.
+    # 2026-09-02: the three repos became one, aavc-comp is an archive branch, and
+    # this entry points at mission/ — the same flight core, with the competition
+    # field carried on the command line where it can be read.
+    # kmitl_config.yaml geometry is the operator's 30-Aug satellite redraw.
+    field: "{repo}/gcs/aavc_field.yaml"
+    captures: "{repo}/mission/captures"
+    mission_cmd: "env AAVC_PROFILE=competition AAVC_CONFIG=sitl/kmitl_config.yaml '{repo}/mission/sitl/run_mission.sh' {ids}"
     mission_label: ""
     real:
       # ⚠ 2026-08-25: this block pointed at ~/aavc-comp on the CM4 and THERE IS NO
@@ -72,18 +87,22 @@ missions:
       # practice marker back over it.
       # Check the line the script prints on every launch either way:
       #     🌐 SITE: profile=competition  config=sitl/kmitl_config.yaml
-      repo: "/home/bonus-linux/Desktop/mission AAVC in kmutnb"
+      repo: "{repo}/mission"
       dir: "mission"             # โฟลเดอร์ที่มีอยู่จริงบน CM4 (~/mission)
       # RC_GO=1 is run_mission.sh's own REAL default: this only STAGES; the RC
       # pilot arms and flips OFFBOARD.
       entry: "REAL=1 AAVC_PROFILE=competition AAVC_CONFIG=sitl/kmitl_config.yaml ~/mission/sitl/run_mission.sh {ids}"
   bangbo:
     label: "ทดสอบ landing สนาม ร.ร.บางบ่อวิทยาคม (เพดาน 10 m, practice envelope)"
-    field: "/home/bonus-linux/Desktop/mission AAVC in kmutnb/gcs/bangbo_field.yaml"
-    captures: "/home/bonus-linux/Desktop/aavc-comp/captures"
-    mission_cmd: "'/home/bonus-linux/Desktop/aavc-comp/sitl/run_mission.sh' {ids}"
+    field: "{repo}/mission/gcs/bangbo_field.yaml"
+    captures: "{repo}/mission/captures"
+    # ⚠ 2026-09-02: เดิมบรรทัดนี้ชี้ไป aavc-comp/sitl/run_mission.sh โดยไม่ส่ง env
+    #   ⇒ .aavc_site ของ repo นั้นคือ **สนามแข่ง** ปุ่ม 🚀 บางบ่อฝั่ง SIM จึงบิน
+    #   ด้วย competition + kmitl_config มาตลอด ไม่ใช่ config บางบ่อ
+    #   (ฝั่งเครื่องจริงถูกอยู่แล้ว — real.entry ระบุ env ครบ)
+    mission_cmd: "env AAVC_PROFILE=kmutnb_skyfield AAVC_CONFIG=sitl/bangbo_config.yaml '{repo}/mission/sitl/run_mission.sh' {ids}"
     mission_label: ""
     real:
-      repo: "/home/bonus-linux/Desktop/mission AAVC in kmutnb"
+      repo: "{repo}/mission"
       dir: "mission"
       entry: "REAL=1 AAVC_PROFILE=kmutnb_skyfield AAVC_CONFIG=sitl/bangbo_config.yaml ~/mission/sitl/run_mission.sh {ids}"
