@@ -68,7 +68,7 @@ target-version = "py312"
 # reason — the aircraft should carry only what it flies with.)
 # docs/ holds presentation/report generators (docs/presentation/v2/build_deck.py
 # alone carried 227 findings on 2026-08-27) — not flight code, not the G0 gate.
-extend-exclude = ["mission_AAVC", "docs"]
+extend-exclude = ["docs"]   # mission_AAVC was a sibling repo, retired 2026-08-19
 
 [tool.ruff.lint]
 # Minimal: pycodestyle errors/warnings, pyflakes, import sort.

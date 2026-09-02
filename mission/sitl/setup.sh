@@ -28,8 +28,8 @@ else
     lsb_release -a
 fi
 
-say "Step 1/4 — System packages (requires sudo)"
-echo "PX4 + Gazebo Garden need a number of system packages. To install:"
+say "Step 1/5 — System packages (requires sudo)"
+echo "PX4 + Gazebo Harmonic need a number of system packages. To install:"
 cat <<'EOF'
 
   sudo apt update
@@ -51,8 +51,8 @@ if ask "Run the apt install commands above now?"; then
         lsb-release wget curl gnupg
 fi
 
-say "Step 2/4 — Gazebo Garden"
-echo "Gazebo Garden uses the gz-tools binary repository:"
+say "Step 2/5 — Gazebo Harmonic"
+echo "Gazebo Harmonic uses the gz-tools binary repository:"
 cat <<'EOF'
 
   sudo wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
@@ -111,7 +111,7 @@ fi
 
 say "Step 5/5 — Python venv for aavc-2026"
 if [ ! -d "$REPO_ROOT/.venv" ]; then
-    python3.12 -m venv "$REPO_ROOT/.venv"
+    "${PYTHON:-python3}" -m venv "$REPO_ROOT/.venv"   # PYTHON= overrides; needs >= 3.12
 fi
 "$REPO_ROOT/.venv/bin/pip" install --upgrade pip
 "$REPO_ROOT/.venv/bin/pip" install -e "$REPO_ROOT[dev]"

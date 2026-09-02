@@ -1,8 +1,8 @@
 # AAVC 2026 competition field (IAAI KMITL, Lat Krabang) — field file for the
-# AAVC GCS console (~/Desktop/aavc-gcs/src/aavc_gcs.py), i.e. the AAVCGCS-COMP
+# AAVC GCS console (gcs/src/aavc_gcs.py), i.e. the AAVCGCS-COMP
 # icon (missions.yaml entry `aavc`):
 #
-#   python3 ~/Desktop/aavc-gcs/src/aavc_gcs.py --field aavc_field.yaml
+#   python3 gcs/src/aavc_gcs.py --field gcs/aavc_field.yaml
 #
 # STRUCTURE + every non-geometry value mirror the practice field file
 # (mission repo gcs/kmutnb_field.yaml) on purpose — operator 2026-08-27:

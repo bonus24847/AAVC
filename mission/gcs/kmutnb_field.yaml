@@ -1,7 +1,7 @@
 # KMUTNB sky-field practice map (สนามฟุตบอลลอยฟ้า มจพ. บางซื่อ) — field file
-# for the AAVC GCS console (~/Desktop/aavc-gcs/src/aavc_gcs.py):
+# for the AAVC GCS console (../../gcs/src/aavc_gcs.py):
 #
-#   python3 ~/Desktop/aavc-gcs/src/aavc_gcs.py --field gcs/kmutnb_field.yaml
+#   python3 ../gcs/src/aavc_gcs.py --field mission/gcs/kmutnb_field.yaml
 #
 # (also wired as `make aavc-gcs` in this repo's Makefile.)
 #

@@ -47,8 +47,16 @@ help:
 # venv is built once beforehand), pin every transitive dep to requirements.lock:
 #   .venv/bin/pip install -e ".[dev]" -c requirements.lock
 # `make lock` regenerates that file from the current venv.
+# PYTHON is overridable: pyproject requires >=3.12, but the binary is called
+# python3.13 on newer distros and python3 on most. Hardcoding python3.12 made
+# `make install` die with "No such file or directory" on machines the project
+# runs on perfectly well.
+PYTHON ?= python3
+
 install:
-	python3.12 -m venv .venv
+	@$(PYTHON) -c 'import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)' \
+	  || { echo "need Python >= 3.12; got $$($(PYTHON) -V). Try: make install PYTHON=python3.12" >&2; exit 1; }
+	$(PYTHON) -m venv .venv
 	.venv/bin/pip install --upgrade pip
 	.venv/bin/pip install -e ".[dev]"
 
@@ -83,8 +91,21 @@ spawn-targets:
 # Bridges need BOTH worlds: gz-transport13 lives in the apt dist-packages
 # (invisible to the pip venv) while cv2 lives in the venv (this host's system
 # python3 has no python3-opencv). Run them on the venv python with the system
-# dist-packages APPENDED via PYTHONPATH — venv packages still win on conflict,
-# and the scope is just these bridge targets (make test strips PYTHONPATH).
+# dist-packages on PYTHONPATH; the scope is just these bridge targets (make test
+# strips PYTHONPATH).
+#
+# ⚠ CORRECTED 2026-09-02 — this comment used to claim the dist-packages were
+# "APPENDED … venv packages still win on conflict". They are not: PYTHONPATH is
+# PREPENDED, so dist-packages wins. Measured under this exact invocation:
+#     sys.path[:2] = ['', '/usr/lib/python3/dist-packages']
+#     numpy 1.26.4 from /usr/lib/python3/dist-packages   (venv alone: 2.5.2)
+#     cv2   5.0.0  from the venv
+# i.e. the bridges run a numpy-2-built OpenCV against numpy 1.26 — a pair
+# `make test` never exercises. It has worked in every SITL and field session so
+# far, so the ORDER IS LEFT ALONE rather than changed on the eve of publication;
+# fixing it properly means dropping a .pth file in the venv pointing at
+# dist-packages (a .pth entry lands AFTER site-packages, which is the behaviour
+# the old comment described) and re-flying the camera + payload bridges in SITL.
 BRIDGE_PY := env PYTHONPATH=/usr/lib/python3/dist-packages .venv/bin/python
 camera-bridge:
 	$(BRIDGE_PY) sitl/gz_camera_bridge.py

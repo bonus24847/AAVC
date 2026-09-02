@@ -25,10 +25,20 @@ _CALL = re.compile(r"""\b(?:pgrep|pkill)\s+(?:-\w+\s+)*-f\s+(?P<pat>"[^"]+"|'[^'
 
 
 def _tracked_shell_scripts() -> list[Path]:
-    out = subprocess.run(
-        ["git", "ls-files", "*.sh"], cwd=REPO,
-        capture_output=True, text=True, check=True)
-    return [REPO / line for line in out.stdout.splitlines() if line]
+    """Every tracked .sh, or a filesystem walk when there is no git.
+
+    This was `check=True` on `git ls-files`, which made it the ONE test in the
+    suite that needs a git checkout: from a release tarball or a `docker COPY`
+    without .git it raised CalledProcessError (exit 128) and reported a red
+    suite on a perfectly healthy tree."""
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "*.sh"], cwd=REPO,
+            capture_output=True, text=True, check=True)
+        return [REPO / line for line in out.stdout.splitlines() if line]
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return [p for p in REPO.rglob("*.sh")
+                if ".venv" not in p.parts and ".git" not in p.parts]
 
 
 def _is_guarded(pattern: str) -> bool:

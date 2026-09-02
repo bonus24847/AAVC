@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# Copy the FLIGHT CORE from this repo to the sibling repo, so a fix made once
+# ⚠ SUPERSEDED 2026-09-02 — the two repos became one. aavc-practice is now
+# mission/ in the AAVC monorepo and aavc-comp is the `archive/competition-deploy`
+# branch, so there is no sibling to sync to and nothing can drift. Kept because
+# it documents how the two cores were held identical all season, and because it
+# still works against any checkout you point it at.
+#
+# Copy the FLIGHT CORE from this repo to a sibling checkout, so a fix made once
 # lands in both. The operator chose two separate repos (aavc-practice for KMUTNB,
-# aavc-comp for KMITL); this is what keeps their cores from drifting apart.
+# aavc-comp for KMITL); this is what kept their cores from drifting apart.
 #
 #   bash sync_core.sh ~/Desktop/aavc-comp     # aavc-practice -> aavc-comp
 #

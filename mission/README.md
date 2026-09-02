@@ -136,13 +136,18 @@ bash sitl/setup.sh
 # 1. Install (creates .venv, installs the lightweight stack + dev tools)
 make install
 
-# 2. Launch PX4 SITL + Gazebo with the IAAI KMITL field
+# 2. Launch PX4 SITL + Gazebo. ⚠ The world is the KMUTNB SKY-FIELD, not KMITL:
+#    there is no KMITL SITL world (kmitl_config.yaml is a real-flight config).
+#    AAVC_PROFILE defaults to kmutnb_skyfield; use AAVC_PROFILE=competition to
+#    fly the KMITL envelope over this world.
 make sitl
 
-# 3. Spawn the 4 ArUco landing pads into the running sim (SEED=n re-rolls)
+# 3. Spawn the 6 ArUco landing pads into the running sim (SEED=n re-rolls;
+#    spawn_targets.py DEFAULT_N_PADS = 6, four of which get assigned)
 make spawn-targets
 
-# 4. Bridge the Gazebo camera to the frame files (system python3 — uses gz apt pkg)
+# 4. Bridge the Gazebo camera to the frame files (venv python with the gz apt
+#    bindings on PYTHONPATH — see BRIDGE_PY in the Makefile)
 make camera-bridge
 
 # 5. Fly the mission (orchestrator + dashboard; set the 4-of-6 mission queue in
@@ -227,7 +232,8 @@ override is the ultimate failsafe.
   from same-origin or loopback origins.
 - **No internet / 4G in flight.** The AAVC site bans network access (= DQ) and
   the mission is fully deterministic + offline. Build the venv **once**
-  beforehand and pin it: `pip install -e ".[dev,tuning]" -c requirements.lock`
+  beforehand and pin it: `pip install -e ".[dev]" -c requirements.lock`
+  (there is no `tuning` extra — that module was removed in August 2026)
   (regenerate with `make lock`) so the field build is byte-reproducible.
 - **Camera frames** are written to `/tmp/aavc_*.png` with `0600` perms; with
   `/tmp`'s sticky bit this keeps another local user from reading or swapping the

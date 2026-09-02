@@ -1,5 +1,12 @@
 # CLAUDE.md — AAVC 2026 (lightweight build)
 
+> ⚠ **2026-09-02: the three repos became one.** This file is the logbook of
+> `aavc-practice`, which is now `mission/` in the AAVC monorepo. Where older
+> entries say **aavc-gcs** read `gcs/`, where they say **aavc-comp** read the
+> `archive/competition-deploy` branch, and the commit SHAs they cross-reference
+> are the original ones, still reachable in this repo's history. Nothing below
+> was rewritten — it is the record as it was written at the time.
+
 Project-local context for Claude Code sessions in this repo. This is the
 **lightweight rebuild** of the AAVC competition system — deterministic, classical
 CV, no LLM. The heavier reference repo lives at `../aavc-2026`; read it for

@@ -12,7 +12,7 @@
 #
 # Notes:
 # - First run will compile PX4 + the SITL gazebo plugin (~5-15 min).
-# - Gazebo Garden is launched by PX4 sim_gazebo target automatically.
+# - Gazebo Harmonic is launched by PX4 sim_gazebo target automatically.
 # - The AAVC world file is added to GZ_SIM_RESOURCE_PATH so PX4's launcher
 #   picks it up via the PX4_GZ_WORLD env var.
 
