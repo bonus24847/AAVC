@@ -519,12 +519,30 @@ def load_missions():
         MISSIONS = {}
 
 
+def mission_available(m):
+    """Is this registry entry usable in THIS checkout?
+
+    It needs a field yaml and a GO command configured — and the field file has
+    to actually BE THERE. Added 2026-09-02 after a partial clone
+    (`git clone --filter=blob:none --sparse` + `sparse-checkout set gcs`, the
+    37 MB way to get just the console instead of the 330 MB whole repo) booted
+    the `kmutnb` template, whose field lives under mission/. That directory is
+    not checked out, so load_zones() found nothing and the map came up with the
+    tiles and the aircraft but NO geofence, NO search area, NO corridor and NO
+    keep-outs — every overlay silently absent, with nothing on screen saying so.
+    An entry whose field file is missing is now unavailable, so the boot picks
+    one that works (the bundled gcs/aavc_field.yaml) instead."""
+    m = m or {}
+    field = m.get("field")
+    return bool(field) and bool(m.get("mission_cmd")) and os.path.exists(field)
+
+
 def mission_registry_snapshot():
     out = []
     for name, m in MISSIONS.items():
         m = m or {}
         out.append({"name": name, "label": m.get("label") or name,
-                    "available": bool(m.get("field")) and bool(m.get("mission_cmd"))})
+                    "available": mission_available(m)})
     return out
 
 
@@ -546,6 +564,11 @@ def apply_mission(name):
     if not m.get("field") or not m.get("mission_cmd"):
         return (f"mission '{name}' ยังไม่พร้อม — repo นั้นยังไม่มี "
                 "field yaml / entry สั่งบิน (รอ contract)")
+    if not os.path.exists(m["field"]):
+        return (f"mission '{name}' ใช้ไม่ได้ใน checkout นี้ — ไม่พบไฟล์สนาม\n"
+                f"    {m['field']}\n"
+                "  (clone แบบเอาเฉพาะ gcs/ จะไม่มี mission/ — ดึงเพิ่มด้วย\n"
+                "   git sparse-checkout set gcs mission)")
     if mission_running() or reset_running():
         return "🔒 mission กำลังทำงาน — สลับไม่ได้ รอให้จบก่อน"
     AAVC_FIELD = os.path.expanduser(m["field"])
@@ -4930,8 +4953,7 @@ def main():
     # their own mission_cmd (the REAL ssh command is never swapped for the
     # registry's SIM one).
     def _mission_ready(n):
-        m = MISSIONS.get(n) or {}
-        return bool(m.get("field")) and bool(m.get("mission_cmd"))
+        return mission_available(MISSIONS.get(n))
     if not args.captures:
         # `default: true` in missions.yaml wins; otherwise first ready entry.
         # Added 2026-08-15: registry ORDER was deciding which field yaml the

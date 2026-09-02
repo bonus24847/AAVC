@@ -37,6 +37,26 @@ Open **http://localhost:8000**. You get the console with fake telemetry, the
 competition field drawn on a satellite map that needs **no internet** (the tiles
 are in the repo), the pad picker and the mission panel.
 
+### Just want the console? Take 37 MB instead of 330
+
+The full clone carries the season's flight data — nadir video, ULogs, the 1412
+frames of the scored flight — so it is ~330 MB. If you only want a working
+ground station, fetch `gcs/` alone:
+
+```bash
+git clone --filter=blob:none --sparse https://github.com/bonus24847/AAVC.git
+cd AAVC && git sparse-checkout set gcs
+pip install -r gcs/requirements.txt
+python3 gcs/src/aavc_gcs.py --demo
+```
+
+37 MB, about two seconds, and you get the console, the offline map tiles and the
+KMITL competition field. Add the flight code later with
+`git sparse-checkout set gcs mission`, or the lot with `git sparse-checkout disable`.
+
+The mission dropdown will show `kmutnb` and `bangbo` as unavailable until you do
+— their field files live under `mission/`.
+
 <details>
 <summary>ภาษาไทย — ทำเครื่องนี้ให้เป็น GCS</summary>
 
@@ -50,6 +70,17 @@ python3 gcs/src/aavc_gcs.py --demo       # เปิด http://localhost:8000
 แค่นี้ครบ — ไม่ต้องมีโดรน แผนที่ดาวเทียมอยู่ใน repo แล้ว ใช้ได้แม้ไม่มีเน็ต
 (สำคัญตอนอยู่สนาม) ต่อของจริงด้วย `--url /dev/ttyACM0 --baud 115200`
 หรือให้มันเลือกลิงก์เองด้วย `bash gcs/scripts/aavc_launch.sh` (พอร์ต 8010)
+
+อยากได้แค่คอนโซล ไม่ต้องโหลด 330 MB (ข้อมูลการบินทั้งฤดูกาล) — เอา 37 MB พอ:
+
+```bash
+git clone --filter=blob:none --sparse https://github.com/bonus24847/AAVC.git
+cd AAVC && git sparse-checkout set gcs
+pip install -r gcs/requirements.txt && python3 gcs/src/aavc_gcs.py --demo
+```
+
+ได้คอนโซล + แผนที่ offline + สนามแข่ง KMITL ครบ อยากได้โค้ดบินด้วยค่อย
+`git sparse-checkout set gcs mission`
 
 ⚠ คอนโซลผูกกับ localhost โดยตั้งใจ — `/api/*` ไม่มีการยืนยันตัวตน ใครที่ต่อ
 พอร์ตนี้ได้ สั่งปล่อยไข่หรือล้าง geofence กลางอากาศได้

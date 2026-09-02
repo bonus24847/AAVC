@@ -83,3 +83,46 @@ def test_old_style_field_file_still_loads(tmp_path, monkeypatch):
     z = _zones(str(f), monkeypatch)
     assert z["transit"] == [[13.730322, 100.787446], [13.730397, 100.788694]]
     assert "sweep" not in z and "keepout" not in z and "gateway" not in z
+
+
+def test_a_gcs_only_checkout_boots_on_a_field_file_that_exists(tmp_path, monkeypatch):
+    """A registry entry whose field yaml is not on disk is not selectable.
+
+    `git clone --filter=blob:none --sparse` + `sparse-checkout set gcs` is the
+    37 MB way to get just the console (the whole repo is 330 MB of flight data).
+    In that checkout mission/ does not exist, so the `kmutnb` entry's field file
+    is absent — and before 2026-09-02 the console booted it anyway and drew a map
+    with tiles and an aircraft but no geofence, no search area, no corridor and
+    no keep-outs, saying nothing. The bundled gcs/aavc_field.yaml is always
+    there, so an availability rule that checks the file makes the boot land on it.
+    """
+    present = tmp_path / "here.yaml"
+    present.write_text("geofence: {}\n")
+    missing = tmp_path / "gone.yaml"        # never created
+
+    monkeypatch.setattr(aavc_gcs, "MISSIONS", {
+        "absent": {"label": "field not checked out",
+                   "field": str(missing), "mission_cmd": "run {ids}"},
+        "bundled": {"label": "bundled field",
+                    "field": str(present), "mission_cmd": "run {ids}"},
+    })
+
+    assert aavc_gcs.mission_available(aavc_gcs.MISSIONS["absent"]) is False
+    assert aavc_gcs.mission_available(aavc_gcs.MISSIONS["bundled"]) is True
+
+    snap = {row["name"]: row["available"] for row in aavc_gcs.mission_registry_snapshot()}
+    assert snap == {"absent": False, "bundled": True}
+
+    # and picking it by hand is refused with the path it could not find
+    monkeypatch.setattr(aavc_gcs, "REAL_CONSOLE", False)
+    err = aavc_gcs.apply_mission("absent")
+    assert err and str(missing) in err
+
+
+def test_every_shipped_registry_entry_resolves_in_a_full_checkout():
+    """The three entries in missions.yaml point at files this repo really has."""
+    aavc_gcs.load_missions()
+    assert set(aavc_gcs.MISSIONS) == {"kmutnb", "aavc", "bangbo"}
+    for name, m in aavc_gcs.MISSIONS.items():
+        assert os.path.exists(m["field"]), f"{name}: {m['field']}"
+        assert "{repo}" not in str(m), f"{name}: unexpanded placeholder"
